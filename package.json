@@ -1,6 +1,6 @@
 {
   "name": "cutroom",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "A code-first video editor: a storyboard file you edit in a timeline UI while an AI assistant edits the same file. Built on Remotion.",
   "license": "MIT",
