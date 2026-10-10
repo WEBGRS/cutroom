@@ -23,6 +23,7 @@ const TYPES: Record<string, string> = {
   '.mov': 'video/quicktime',
   '.wav': 'audio/wav',
   '.mp3': 'audio/mpeg',
+  '.ogg': 'audio/ogg',
   '.png': 'image/png',
   '.jpg': 'image/jpeg',
   '.jpeg': 'image/jpeg',
@@ -137,8 +138,10 @@ async function thumbs(file: string) {
     const w = Math.round((THUMB_H * j.streams[0].width) / j.streams[0].height / 2) * 2;
     const interval = dur <= 24 ? 0.25 : dur / 96;
     const count = Math.max(1, Math.ceil(dur / interval));
-    await run('ffmpeg', ['-v', 'error', '-y', '-i', file, '-vf', `fps=1/${interval},scale=${w}:${THUMB_H},tile=${count}x1`, '-frames:v', '1', '-q:v', '4', path.join(CACHE, `${key}.jpg`)]);
-    return { url: `/cache/${key}.jpg`, interval, count, w, h: THUMB_H, dur };
+    // The bundled ffmpeg has no fps/tile filters: write one jpg per tile, the browser joins them into a strip
+    await run('ffmpeg', ['-v', 'error', '-y', '-i', file, '-vf', `scale=${w}:${THUMB_H}`, '-r', (1 / interval).toFixed(6), '-frames:v', String(count), '-q:v', '4', path.join(CACHE, `${key}-%03d.jpg`)]);
+    const frames = fs.readdirSync(CACHE).filter((f) => f.startsWith(`${key}-`) && f.endsWith('.jpg')).sort().map((f) => `/cache/${f}`);
+    return { url: '', frames, interval, count: frames.length, w, h: THUMB_H, dur };
   });
 }
 
@@ -146,7 +149,10 @@ const PEAK_RATE = 50;
 async function peaks(file: string) {
   fs.mkdirSync(CACHE, { recursive: true });
   return cached(`${fileKey(file)}-peaks`, async () => {
-    const pcm = await run('ffmpeg', ['-v', 'error', '-i', file, '-ac', '1', '-ar', '8000', '-f', 's16le', '-']);
+    // The bundled ffmpeg has no raw s16le muxer: read the samples out of a piped wav
+    const wav = await run('ffmpeg', ['-v', 'error', '-i', file, '-ac', '1', '-ar', '8000', '-c:a', 'pcm_s16le', '-f', 'wav', '-']);
+    const at = wav.indexOf('data', 12);
+    const pcm = at < 0 ? Buffer.alloc(0) : wav.subarray(at + 8);
     const n = pcm.length >> 1;
     const per = 8000 / PEAK_RATE;
     const p: number[] = [];
@@ -173,7 +179,8 @@ interface Job {
   child?: ChildProcess;
 }
 let job: Job | null = null;
-const jobView = () => (job ? { ...job, child: undefined, out: path.relative(DATA, job.out) } : null);
+// Absolute path too, so the page can show exactly where the file went
+const jobView = () => (job ? { ...job, child: undefined, out: path.relative(DATA, job.out), path: job.out, dir: path.dirname(job.out) } : null);
 
 const CODECS: Record<string, string> = { h264: 'mp4', h265: 'mp4', vp9: 'webm', prores: 'mov', gif: 'gif' };
 
@@ -356,7 +363,8 @@ const server = http.createServer(async (req, res) => {
       const b = await body(req);
       checkSlug(b.slug);
       res.writeHead(200, { 'Content-Type': 'application/x-ndjson; charset=utf-8', 'Cache-Control': 'no-store' });
-      await chat(b.slug, String(b.message ?? ''), b.context ?? {}, b.model || undefined, (e) => res.write(JSON.stringify(e) + '\n'));
+      const refs = Array.isArray(b.refs) ? b.refs.filter((r: unknown) => r && typeof (r as { detail?: unknown }).detail === 'string').slice(0, 8).map((r: { label?: string; detail: string }) => ({ label: String(r.label ?? '').slice(0, 80), detail: r.detail.slice(0, 600) })) : [];
+      await chat(b.slug, String(b.message ?? ''), b.context ?? {}, b.model || undefined, (e) => res.write(JSON.stringify(e) + '\n'), refs);
       return res.end();
     }
     if (p === '/api/board' && req.method === 'GET') {
@@ -422,7 +430,22 @@ const server = http.createServer(async (req, res) => {
       const b = await body(req);
       const f = inside(OUT, String(b.file ?? '').replace(/^(out|exports)[\\/]/, ''));
       if (!f || !fs.existsSync(f)) return send(res, 404, { error: 'no file' });
-      spawn('explorer.exe', [`/select,${f}`], { detached: true, stdio: 'ignore' }).unref();
+      // open: play it in the default app; otherwise show it selected in its folder
+      const args = process.platform === 'win32' ? (b.open ? [f] : [`/select,${f}`]) : [b.open ? f : path.dirname(f)];
+      spawn(process.platform === 'win32' ? 'explorer.exe' : process.platform === 'darwin' ? 'open' : 'xdg-open', args, { detached: true, stdio: 'ignore' }).unref();
+      return send(res, 200, { ok: true });
+    }
+    if (p === '/api/exports' && req.method === 'GET') {
+      const dir = path.join(OUT, 'editor');
+      const files = fs.existsSync(dir)
+        ? fs.readdirSync(dir).filter((f) => /\.(mp4|mov|gif|webm)$/i.test(f)).map((f) => ({ name: f, size: fs.statSync(path.join(dir, f)).size, mtime: fs.statSync(path.join(dir, f)).mtimeMs }))
+        : [];
+      return send(res, 200, { dir, files: files.sort((a, b) => b.mtime - a.mtime).slice(0, 8) });
+    }
+    if (p === '/api/exports/open' && req.method === 'POST') {
+      const dir = path.join(OUT, 'editor');
+      fs.mkdirSync(dir, { recursive: true });
+      spawn(process.platform === 'win32' ? 'explorer.exe' : process.platform === 'darwin' ? 'open' : 'xdg-open', [dir], { detached: true, stdio: 'ignore' }).unref();
       return send(res, 200, { ok: true });
     }
     if (p.startsWith('/api/')) return send(res, 404, { error: 'unknown api' });

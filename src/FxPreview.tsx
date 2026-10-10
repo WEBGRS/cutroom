@@ -22,7 +22,7 @@ const PREVIEW_AT: Record<string, Partial<Overlay>> = { blur: { x: 0.56, y: 0.47,
 const BIG = ['lower', 'ticker', 'keys', 'badge', 'tag', 'note', 'pointer', 'chat', 'notify', 'prompt', 'terminal', 'comment', 'quote', 'progress', 'stars', 'hwbox', 'hwarrow', 'cursor', 'check'];
 const theme = DEMO_THEME;
 
-const Photo: React.FC = () => <Img src={staticFile('showcase/media/fractal.jpg')} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />;
+const Photo: React.FC = () => <Img src={staticFile('showcase/media/lake.jpg')} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />;
 
 const TitleB: React.FC = () => (
   <AbsoluteFill style={{ justifyContent: 'center', alignItems: 'center', fontFamily: SANS }}>

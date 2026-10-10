@@ -251,6 +251,38 @@ export const replaceScene = (doc: Doc, id: string, scene: Scene): Op =>
     return `${id} 整段 JSON 已替换`;
   });
 
+// A library sound `sec` seconds into a scene
+export const addSound = (doc: Doc, sceneId: string, id: string, sec: number): Op =>
+  edit(doc, (d) => {
+    const s = d.board.scenes[at(d.board, sceneId)];
+    s.sounds = [...(s.sounds ?? []), { id, at: r2(Math.max(0, sec)) }];
+    return `${sceneId} 加音效 ${id}（${r2(sec)} 秒）`;
+  });
+
+export const removeSound = (doc: Doc, sceneId: string, i: number): Op =>
+  edit(doc, (d) => {
+    const s = d.board.scenes[at(d.board, sceneId)];
+    const [cue] = s.sounds?.splice(i, 1) ?? [];
+    if (!cue) throw new Error(`${sceneId} 没有第 ${i + 1} 个音效`);
+    if (!s.sounds!.length) delete s.sounds;
+    return `${sceneId} 删除音效 ${cue.id}`;
+  });
+
+// Moving a sound past a cut hands it to the scene it now starts in
+export const moveSound = (doc: Doc, from: string, i: number, to: string, sec: number): Op =>
+  edit(doc, (d) => {
+    const a = d.board.scenes[at(d.board, from)];
+    const cue = a.sounds?.[i];
+    if (!cue) throw new Error(`${from} 没有第 ${i + 1} 个音效`);
+    cue.at = r2(Math.max(0, sec));
+    if (from === to) return `${from} 音效 ${cue.id} → ${cue.at} 秒`;
+    a.sounds!.splice(i, 1);
+    if (!a.sounds!.length) delete a.sounds;
+    const b = d.board.scenes[at(d.board, to)];
+    b.sounds = [...(b.sounds ?? []), cue];
+    return `音效 ${cue.id}：${from} → ${to}（${cue.at} 秒）`;
+  });
+
 export const toggleTall = (doc: Doc, id: string, on: boolean): Op =>
   edit(doc, (d) => {
     const s = d.board.scenes[at(d.board, id)];

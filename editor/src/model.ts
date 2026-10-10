@@ -1,6 +1,7 @@
-import { buildBeatTimeline, buildTimeline, plain, resolveTime, TAIL, type TScene } from '../../src/lib/timeline';
+import { buildBeatTimeline, buildTimeline, cueFrame, plain, resolveTime, TAIL, type TScene } from '../../src/lib/timeline';
 import { withFades } from '../../src/lib/fades';
 import type { CaptureMeta, Props, Scene, TimeRef, Visual } from '../../src/lib/types';
+import { soundDef } from '../../src/fx/sounds';
 
 export type VisualKey = 'visual' | 'tall';
 
@@ -11,6 +12,16 @@ export interface ELine {
   text: string;
   file?: string;
   stale?: boolean;
+}
+
+// A placed sound: frames from scene start; past = beyond the scene end, so silent
+export interface ESound {
+  i: number;
+  id: string;
+  f: number;
+  dur: number;
+  label: string;
+  past: boolean;
 }
 
 export interface EMark {
@@ -29,6 +40,7 @@ export interface EScene {
   label: string;
   lines: ELine[];
   marks: EMark[];
+  sounds: ESound[];
   // Capture seconds actually played (screen only)
   from?: number;
   to?: number;
@@ -133,7 +145,13 @@ export function editTimeline(p: Props, fps: number): ETimeline {
   const out = scenes.map((s): EScene => {
     const v = s.visual;
     const index = board.scenes.indexOf(s.scene);
-    const e: EScene = { id: s.scene.id, index, start: s.start, dur: s.dur, trans: s.trans, key: visualKey(s.scene, p.format), visual: v, label: label(v), lines: [], marks: [], rate: 1 };
+    const e: EScene = { id: s.scene.id, index, start: s.start, dur: s.dur, trans: s.trans, key: visualKey(s.scene, p.format), visual: v, label: label(v), lines: [], marks: [], sounds: [], rate: 1 };
+    e.sounds = (s.scene.sounds ?? []).map((c, i) => {
+      const def = soundDef(c.id);
+      const at = cueFrame(s, c.at, caps, fps);
+      const f = Math.max(0, at ?? 0);
+      return { i, id: c.id, f, dur: Math.max(1, Math.round((def?.dur ?? 0.5) * fps)), label: def?.en ?? c.id, past: at === undefined || at < 0 || f >= s.dur };
+    });
     if (v.kind === 'screen') {
       const cap = caps[v.src];
       const rate = v.rate ?? 1;

@@ -89,6 +89,12 @@ const P: Record<string, React.ReactNode> = {
       <circle cx="11.3" cy="10.5" r="1.8" />
     </>
   ),
+  sfx: (
+    <>
+      <path d="M2.5 6.2h2.3L8 3.5v9L4.8 9.8H2.5z" />
+      <path d="M10.6 5.8a3.2 3.2 0 0 1 0 4.4M12.6 3.9a5.8 5.8 0 0 1 0 8.2" />
+    </>
+  ),
   mic: (
     <>
       <rect x="5.5" y="2" width="5" height="8" rx="2.5" />
@@ -121,6 +127,13 @@ const P: Record<string, React.ReactNode> = {
     </>
   ),
   dot: <circle cx="8" cy="8" r="3" fill="currentColor" stroke="none" />,
+  target: (
+    <>
+      <circle cx="8" cy="8" r="5.5" />
+      <circle cx="8" cy="8" r="1.6" fill="currentColor" stroke="none" />
+      <path d="M8 0.8v2.4M8 12.8v2.4M0.8 8h2.4M12.8 8h2.4" />
+    </>
+  ),
   globe: (
     <>
       <circle cx="8" cy="8" r="6" />

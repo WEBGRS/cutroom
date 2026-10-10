@@ -91,6 +91,14 @@ export interface FrameStyle {
   glow?: boolean;
 }
 
+// A sound from the effect library (src/fx/sounds.ts): `at` seconds into the scene, or "@mark" on a screen recording
+export interface SoundCue {
+  id: string;
+  at: TimeRef;
+  // 1 = library level
+  vol?: number;
+}
+
 export interface Sfx {
   whoosh?: boolean;
   click?: boolean;
@@ -256,6 +264,7 @@ export interface Scene {
   visual: Visual;
   tall?: Visual;
   overlays?: Overlay[];
+  sounds?: SoundCue[];
   minSec?: number;
   lead?: number;
   tail?: number;

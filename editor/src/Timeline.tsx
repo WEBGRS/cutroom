@@ -5,7 +5,10 @@ import type { Theme } from '../../src/lib/types';
 import type { EScene, ETimeline } from './model';
 import { peaksUrl, thumbsUrl, useAsset, type Peaks, type Thumbs } from './assets';
 import { Icon } from './icons';
-import { tr } from './i18n';
+import { nm, tr } from './i18n';
+import { soundDef, soundSrc } from '../../src/fx/sounds';
+
+export const SOUND_MIME = 'application/x-cutroom-sound';
 
 const LAB = 84;
 const CLIP_H = 58;
@@ -29,9 +32,18 @@ interface Props {
   onTrim: (e: EScene, edge: Edge, dSec: number, done: boolean) => void;
   tools: React.ReactNode;
   missing: Map<string, string>;
+  // Sound effects: key of the selected cue ("scene:i"), click, drag to a frame, drop from the library
+  selSound: string | null;
+  onSoundPick: (scene: string, i: number) => void;
+  onSoundMove: (scene: string, i: number, f: number) => void;
+  onSoundDrop: (id: string, f: number) => void;
 }
 
-type Drag = { kind: 'move'; id: string; x0: number; moved: boolean; slot: number; px: number } | { kind: 'trim'; e: EScene; edge: Edge; x0: number } | { kind: 'scrub' };
+type Drag =
+  | { kind: 'move'; id: string; x0: number; moved: boolean; slot: number; px: number }
+  | { kind: 'trim'; e: EScene; edge: Edge; x0: number }
+  | { kind: 'scrub' }
+  | { kind: 'sound'; scene: string; i: number; f: number; x0: number; px: number; moved: boolean };
 
 const clamp = (x: number, a: number, b: number) => Math.min(b, Math.max(a, x));
 const stamp = (t: number, fine: boolean) => {
@@ -184,6 +196,7 @@ export function Timeline(p: Props) {
     if (!d) return;
     if (d.kind === 'scrub') return p.onSeek(frameAt(ev.clientX));
     if (d.kind === 'trim') return p.onTrim(d.e, d.edge, (ev.clientX - d.x0) / pps, false);
+    if (d.kind === 'sound') return setDrag({ ...d, px: ev.clientX - d.x0, moved: d.moved || Math.abs(ev.clientX - d.x0) > 3 });
     const moved = d.moved || Math.abs(ev.clientX - d.x0) > 5;
     if (moved) setDrag({ ...d, moved, slot: slotAt(frameAt(ev.clientX), d.id), px: ev.clientX - d.x0 });
   };
@@ -192,6 +205,10 @@ export function Timeline(p: Props) {
     setDrag(null);
     if (!d) return;
     if (d.kind === 'trim') return p.onTrim(d.e, d.edge, (ev.clientX - d.x0) / pps, true);
+    if (d.kind === 'sound') {
+      if (d.moved) p.onSoundMove(d.scene, d.i, clamp(Math.round(d.f + (d.px / pps) * fps), 0, etl.total - 1));
+      return;
+    }
     if (d.kind !== 'move') return;
     const s = etl.scenes.find((x) => x.id === d.id)!;
     if (!d.moved) {
@@ -220,9 +237,12 @@ export function Timeline(p: Props) {
   }
   const beats = beatGrid ? etl.beats!.map((b, i) => <div key={`b${i}`} className={`beat${b.down ? ' down' : ''}`} style={{ left: LAB + X(b.f) }} />) : null;
   const moving = drag?.kind === 'move' && drag.moved ? drag : null;
+  const sliding = drag?.kind === 'sound' && drag.moved ? drag : null;
+  const [dropAt, setDropAt] = useState<number | null>(null);
+  const isSound = (e: React.DragEvent) => [...e.dataTransfer.types].includes(SOUND_MIME);
 
   return (
-    <div className="tl">
+    <div className={`tl${drag?.kind === 'scrub' ? ' scrubbing' : ''}`}>
       <div className="tl-tools">
         {p.tools}
         <span className="grow" />
@@ -284,6 +304,7 @@ export function Timeline(p: Props) {
               return (
                 <div
                   key={s.id}
+                  data-scene={s.id}
                   className={`clip${p.sel === s.id ? ' sel' : ''}${dragging ? ' dragging' : ''}${p.missing.has(s.id) ? ' missing' : ''}`}
                   style={{ left: LAB + X(s.start), width: w, transform: dragging ? `translateX(${moving!.px}px)` : undefined }}
                   title={tr(`${s.id}, ${(s.dur / fps).toFixed(2)} s`, `${s.id}，${(s.dur / fps).toFixed(2)} 秒`)}
@@ -320,6 +341,8 @@ export function Timeline(p: Props) {
               s.lines.map((l) => (
                 <div
                   key={`${s.id}-${l.k}`}
+                  data-scene={s.id}
+                  data-line={l.k}
                   className={`cap${l.stale ? ' stale' : ''}${p.sel === s.id ? ' on' : ''}`}
                   style={{ left: LAB + X(s.start + l.start) + 1, width: Math.max(3, X(l.dur) - 2) }}
                   title={l.stale ? tr(`${l.text} (text changed; the voice is still the old one)`, `${l.text}（文字改过，配音还是旧的）`) : l.text}
@@ -344,13 +367,63 @@ export function Timeline(p: Props) {
                 s.lines
                   .filter((l) => l.file)
                   .map((l) => (
-                    <div key={`a${s.id}-${l.k}`} className="vo" style={{ left: LAB + X(s.start + l.start), width: Math.max(2, X(l.dur)) }}>
+                    <div key={`a${s.id}-${l.k}`} className="vo" data-scene={s.id} data-line={l.k} style={{ left: LAB + X(s.start + l.start), width: Math.max(2, X(l.dur)) }}>
                       <Wave path={`${p.slug}/${l.file}`} width={Math.max(2, X(l.dur))} height={24} color="#3fcf8e" pps={pps} />
                     </div>
                   )),
               )}
             </div>
           ) : null}
+          <div
+            className={`row lane-s${dropAt !== null ? ' dropping' : ''}`}
+            onDragOver={(e) => {
+              if (!isSound(e)) return;
+              e.preventDefault();
+              e.dataTransfer.dropEffect = 'copy';
+              setDropAt(frameAt(e.clientX));
+            }}
+            onDragLeave={() => setDropAt(null)}
+            onDrop={(e) => {
+              if (!isSound(e)) return;
+              e.preventDefault();
+              setDropAt(null);
+              p.onSoundDrop(e.dataTransfer.getData(SOUND_MIME), frameAt(e.clientX));
+            }}
+          >
+            <div className="lab">
+              <Icon name="sfx" size={14} />
+              {tr('Sound FX', '音效')}
+            </div>
+            {etl.scenes.flatMap((s) =>
+              s.sounds.map((x) => {
+                const key = `${s.id}:${x.i}`;
+                const def = soundDef(x.id);
+                const w = Math.max(18, X(x.dur));
+                const sl = sliding && sliding.scene === s.id && sliding.i === x.i ? sliding : null;
+                return (
+                  <div
+                    key={key}
+                    data-scene={s.id}
+                    data-pick={`sound|${key}|${def ? nm(def) : x.id}`}
+                    className={`sfx${p.selSound === key ? ' on' : ''}${x.past ? ' past' : ''}${sl ? ' dragging' : ''}`}
+                    style={{ left: LAB + X(s.start + Math.min(x.f, s.dur - 1)), width: w, transform: sl ? `translateX(${sl.px}px)` : undefined }}
+                    title={x.past ? tr(`${def ? nm(def) : x.id}: past the end of ${s.id}, so it is silent`, `${def ? nm(def) : x.id}：超出了 ${s.id} 的结尾，不会响`) : `${def ? nm(def) : x.id} · ${s.id} +${(x.f / fps).toFixed(2)} s`}
+                    onPointerDown={(ev) => {
+                      if (ev.button !== 0) return;
+                      ev.stopPropagation();
+                      (ev.currentTarget as HTMLElement).setPointerCapture(ev.pointerId);
+                      p.onSoundPick(s.id, x.i);
+                      setDrag({ kind: 'sound', scene: s.id, i: x.i, f: s.start + x.f, x0: ev.clientX, px: 0, moved: false });
+                    }}
+                  >
+                    {def ? <Wave path={soundSrc(x.id)} width={w} height={22} color="#f2b45a" pps={pps} /> : null}
+                    <span>{def ? nm(def) : x.id}</span>
+                  </div>
+                );
+              }),
+            )}
+            {dropAt !== null ? <div className="drop" style={{ left: LAB + X(dropAt) }} /> : null}
+          </div>
           {etl.music ? (
             <div className="row lane-m">
               <div className="lab">
@@ -362,7 +435,17 @@ export function Timeline(p: Props) {
               </div>
             </div>
           ) : null}
-          <Playhead player={p.player} x={(f) => LAB + X(f)} scroller={scroller} />
+          <Playhead
+            player={p.player}
+            x={(f) => LAB + X(f)}
+            scroller={scroller}
+            onGrab={(ev) => {
+              if (ev.button !== 0) return;
+              ev.stopPropagation();
+              (ev.currentTarget as HTMLElement).setPointerCapture(ev.pointerId);
+              setDrag({ kind: 'scrub' });
+            }}
+          />
         </div>
       </div>
     </div>
@@ -370,7 +453,8 @@ export function Timeline(p: Props) {
 }
 
 // Red line that follows the player without re-rendering the timeline
-function Playhead({ player, x, scroller }: { player: PlayerRef | null; x: (f: number) => number; scroller: React.RefObject<HTMLDivElement | null> }) {
+// Draggable: the head and a thin strip along the line scrub like the ruler
+function Playhead({ player, x, scroller, onGrab }: { player: PlayerRef | null; x: (f: number) => number; scroller: React.RefObject<HTMLDivElement | null>; onGrab: (ev: React.PointerEvent) => void }) {
   const ref = useRef<HTMLDivElement>(null);
   const xr = useRef(x);
   xr.current = x;
@@ -394,5 +478,9 @@ function Playhead({ player, x, scroller }: { player: PlayerRef | null; x: (f: nu
   useEffect(() => {
     if (player && ref.current) ref.current.style.transform = `translateX(${x(player.getCurrentFrame())}px)`;
   });
-  return <div className="ph" ref={ref} />;
+  return (
+    <div className="ph" ref={ref}>
+      <div className="ph-hit" onPointerDown={onGrab} title={tr('Drag to scrub', '拖动预览')} />
+    </div>
+  );
 }

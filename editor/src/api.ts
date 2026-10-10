@@ -13,6 +13,8 @@ export interface Job {
   total: number;
   phase: string;
   tail: string[];
+  path?: string;
+  dir?: string;
 }
 
 const json = async <T>(r: Response): Promise<T> => {
@@ -37,4 +39,6 @@ export async function putBoard(slug: string, doc: Doc, base: string, desc: strin
 const post = (url: string, body: unknown) => fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => json<any>(r));
 export const startRender = (o: Record<string, string>) => post('/api/render', o) as Promise<Job>;
 export const cancelRender = () => post('/api/render/cancel', {});
-export const reveal = (file: string) => post('/api/reveal', { file });
+export const reveal = (file: string, open = false) => post('/api/reveal', { file, open });
+export const openExports = () => post('/api/exports/open', {});
+export const getExports = () => fetch('/api/exports').then((r) => json<{ dir: string; files: { name: string; size: number; mtime: number }[] }>(r));

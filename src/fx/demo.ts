@@ -16,7 +16,7 @@ export const DEMO_CARDS: Record<string, Visual> = {
   code: { kind: 'code', title: 'storyboard.json', code: '{\n  "id": "intro",\n  "visual": { "kind": "title", "title": "Edit video as code" },\n  "transition": "whip",\n  "fx": { "look": "warm", "grain": 0.2 }\n}' },
   terminal: { kind: 'terminal', lines: [{ cmd: 'npx cutroom showcase set intro fx.look "warm"', out: '✓ intro.fx.look → warm' }, { cmd: 'npm run render', out: 'rendering 2,280 frames…\n✓ out/showcase-wide.mp4' }] },
   flap: { kind: 'flap', title: 'Now showing', rows: ['CUTROOM  1.0', 'GATE  B12'] },
-  compare: { kind: 'compare', a: 'media/fractal.jpg', b: 'media/fractal.jpg', labelA: 'Before', labelB: 'After' },
+  compare: { kind: 'compare', a: 'media/lake.jpg', b: 'media/lake-graded.jpg', labelA: 'Before', labelB: 'After' },
   outro: { kind: 'outro', title: 'Cutroom', url: 'github.com/WEBGRS/cutroom', lines: ['Open source · MIT'] },
 };
 

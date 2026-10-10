@@ -121,7 +121,7 @@ export function FieldControl({ def, value, onChange }: { def: FieldDef; value: u
   if (def.type === 'bool') {
     const on = value === undefined ? !!def.def : !!value;
     return (
-      <label className="fc toggle" title={hint}>
+      <label className="fc toggle" title={hint} data-pick={`field|${def.path}|${label}`}>
         <span className="fl">
           {label}
           {warn}
@@ -133,7 +133,7 @@ export function FieldControl({ def, value, onChange }: { def: FieldDef; value: u
   }
   if (def.type === 'select') {
     return (
-      <div className="fc" title={hint}>
+      <div className="fc" title={hint} data-pick={`field|${def.path}|${label}`}>
         <span className="fl">
           {label}
           {warn}
@@ -152,7 +152,7 @@ export function FieldControl({ def, value, onChange }: { def: FieldDef; value: u
   const cur = live ?? (typeof value === 'number' ? value : (def.def as number) ?? 0);
   const changed = value !== undefined && value !== def.def;
   return (
-    <div className={`fc range${changed ? ' on' : ''}`} title={hint}>
+    <div className={`fc range${changed ? ' on' : ''}`} title={hint} data-pick={`field|${def.path}|${label}`}>
       <span className="fl">
         {label}
         {warn}

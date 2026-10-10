@@ -27,6 +27,7 @@ export interface ChatContext {
 interface LogItem {
   role: 'user' | 'assistant';
   text: string;
+  refs?: string[];
   tools?: { cmd: string; ok: boolean }[];
   t: string;
 }
@@ -180,6 +181,7 @@ How to reply:
 - Answer in the language the user writes in, in 1–3 short sentences: what you changed (scene ids, before → after). No headings, no lists unless several scenes changed.
 - Do not print any status/canary line like "[dir · turn N]"; this is an app panel, not a terminal.
 - If the request is ambiguous, pick the most likely reading, do it, and say which reading you chose.
+- When the message lists things the user pointed at, words like "this", "here", "这里", "这个" mean those. A preview point gives x/y as fractions of the frame from the top-left; match it to the overlay or element at that spot (use \`show <id>\`). If they only pointed and said nothing, describe what is there and propose one concrete improvement, and ask before making big changes.
 
 CLI reference:
 ${HELP}
@@ -228,12 +230,17 @@ export function stop(slug: string) {
   running.get(slug)?.kill();
 }
 
-export async function chat(slug: string, message: string, ctx: ChatContext, model: string | undefined, emit: (e: ChatEvent) => void): Promise<void> {
+export interface PointedRef {
+  label: string;
+  detail: string;
+}
+
+export async function chat(slug: string, message: string, ctx: ChatContext, model: string | undefined, emit: (e: ChatEvent) => void, refs: PointedRef[] = []): Promise<void> {
   const prov = provider();
   if (!prov) return emit({ type: 'error', message: L('The AI is not connected: open the connection settings, then sign in to Claude Code or add an API key.', '还没连上 AI：点右上角的连接设置，登录 Claude Code 或填一个 API Key。') });
   if (running.has(slug)) return emit({ type: 'error', message: L('Still working on the last message', '上一条还在处理') });
   const saved = load(slug);
-  saved.log.push({ role: 'user', text: message, t: new Date().toISOString() });
+  saved.log.push({ role: 'user', text: message, refs: refs.length ? refs.map((r) => r.label) : undefined, t: new Date().toISOString() });
   save(slug, saved);
   const reply: LogItem = { role: 'assistant', text: '', tools: [], t: '' };
   const toolIds = new Map<string, number>();
@@ -248,7 +255,9 @@ export async function chat(slug: string, message: string, ctx: ChatContext, mode
   };
   emit({ type: 'start', provider: prov });
   const t0 = Date.now();
-  const prompt = `${contextLine(ctx)}\n\n${message}`;
+  // Things the user Ctrl+clicked in the editor
+  const pointed = refs.length ? `The user pointed at these in the editor:\n${refs.map((r, i) => `${i + 1}. ${r.detail}`).join('\n')}\n\n` : '';
+  const prompt = `${contextLine(ctx)}\n\n${pointed}${message || '(No words: look at what they pointed at, say what you notice and suggest a fix.)'}`;
   try {
     if (prov === 'claude-code') await viaClaudeCode(slug, prompt, model, saved, wrapped, t0);
     else await viaApi(slug, prompt, saved, wrapped, t0);

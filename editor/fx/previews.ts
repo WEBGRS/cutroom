@@ -23,7 +23,8 @@ const only = args.includes('--only') && onlyArg ? onlyArg.split(',') : null;
 export const fileId = (id: string) => id || 'default';
 
 const jobs: Job[] = [
-  ...TRANSITION_LIST.map((x) => ({ cat: 'transition' as Cat, id: x.id, poster: 38 })),
+  // Flash and shutter are blank at the midpoint
+  ...TRANSITION_LIST.map((x) => ({ cat: 'transition' as Cat, id: x.id, poster: x.id === 'flash' ? 33 : x.id === 'shutter' ? 32 : 38 })),
   ...TEXT_LIST.map((x) => ({ cat: 'text' as Cat, id: x.id, poster: 20 })),
   ...OVERLAY_LIST.filter((x) => x.id !== 'lower').map((x) => ({ cat: 'overlay' as Cat, id: x.id, poster: 50 })),
   ...LOWER_LIST.map((x) => ({ cat: 'lower' as Cat, id: x.id, poster: 50 })),

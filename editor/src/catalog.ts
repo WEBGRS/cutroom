@@ -1,5 +1,6 @@
 // Every editable effect in one place: drives the inspector controls, the CLI `fx` listing and the AI's instructions
 import { BG_LIST, CARD_LIST, DIR_LIST, DIR_TRANSITIONS, DUOTONE_LIST, LOOK_LIST, LOWER_LIST, OVERLAY_LIST, RULES, TEXT_LIST, TRANSITION_LIST, type Named, type OverlayItem, type Rule } from '../../src/fx/registry';
+import { SOUNDS } from '../../src/fx/sounds';
 
 export { BG_LIST, CARD_LIST, DIR_LIST, DIR_TRANSITIONS, LOWER_LIST, OVERLAY_LIST, RULES, TEXT_LIST, TRANSITION_LIST };
 export type { Named, OverlayItem, Rule };
@@ -174,6 +175,8 @@ export function catalogText(): string {
   OVERLAY_LIST.forEach((o) => out.push(`  ${o.id} — ${o.en}: fields ${o.fields.join(',')}${o.hint ? `; ${o.hint.en}` : ''}${o.rule ? ` [house rule: ${RULES[o.rule].en}]` : ''}`));
   out.push('  lower.style = ' + LOWER_LIST.filter((l) => l.id).map((l) => `${l.id}=${l.en}`).join(', '));
   out.push('  text/anim = ' + TEXT_LIST.map((a) => `${a.id}=${a.en}${a.rule ? ' [house rule for captions]' : ''}`).join(', '));
+  out.push(' Sound effects: scene.sounds = [{id, at (sec from scene start, or "@mark" on a screen recording), vol (1 = default, 0-2)}], e.g. set <id> sounds.0 {"id":"whoosh","at":0}; ids: ' + SOUNDS.map((s) => `${s.id}=${s.en}`).join(', '));
+  out.push('  Use few: whoosh/swoosh at a cut (at 0), riser ending on a reveal, hit/boom on the reveal, click/tap on on-screen clicks, pop/ding/success when an overlay appears, typing under typed text');
   out.push(' Chapter: scene.chapter = "name" (shown on the chapter bar)');
   out.push('Board settings (set - <path> <value>):');
   for (const g of BOARD_FX) {

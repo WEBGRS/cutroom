@@ -78,7 +78,7 @@ export const ScreenScene: React.FC<P> = ({ scenePath, v, cap, slug, dur, layout,
         <Shell rect={frame} bar={bar} kind={kind} url={v.url} look={look}>
           <div style={{ position: 'absolute', left: 0, top: 0, width: cw, height: ch, transform: innerT, transformOrigin: '0 0' }}>
             <Freeze frame={avail} active={f >= avail}>
-              <Video src={staticFile(`${slug}/${v.src}`)} trimBefore={Math.round(from * fps)} playbackRate={rate} muted style={{ width: cw, height: ch }} />
+              <Video src={staticFile(`${slug}/${v.src}`)} trimBefore={Math.round(from * fps)} playbackRate={rate} muted style={{ width: cw, height: ch }} _experimentalInitiallyDrawCachedFrame />
             </Freeze>
             {ripple
               ? clicks.map((cl, i) => (

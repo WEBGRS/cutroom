@@ -98,7 +98,7 @@ try {
   await lib(p, 'Transitions');
   await p.waitForTimeout(800);
   await shot(p, '06-scene-trans-libtrans');
-  await p.locator('.lt', { hasText: 'Whip pan' }).hover();
+  await p.locator('.lt', { hasText: 'Whip pan' }).first().hover();
   await p.waitForTimeout(900);
   await crop(p, '.lib', '07-lib-trans-hover');
   await itab(p, 'Effects');
@@ -112,6 +112,11 @@ try {
   await itab(p, 'Narration');
   await p.waitForTimeout(300);
   await crop(p, '.side', '10-scene-lines-side');
+  await clip(p, 'photo').click();
+  await itab(p, 'Sound');
+  await lib(p, 'Sound FX');
+  await p.waitForTimeout(800);
+  await shot(p, '10b-scene-sound-libsfx');
 
   // menus, dialog, toasts
   await p.locator('.tl-tools .menu > button', { hasText: 'Add' }).click();
@@ -144,6 +149,18 @@ try {
   await p.keyboard.press('q');
   await p.waitForTimeout(250);
   await crop(p, 'body', '15-toast-error', { x: 400, y: 0, width: 800, height: 120 });
+
+  // Ctrl+click pointing: highlight, then chips in the AI input
+  await p.keyboard.down('Control');
+  const fb = await p.locator('.frame').boundingBox();
+  await p.mouse.move(fb.x + fb.width * 0.4, fb.y + fb.height * 0.7);
+  await p.waitForTimeout(300);
+  await shot(p, '15b-pick-hover');
+  await p.mouse.click(fb.x + fb.width * 0.4, fb.y + fb.height * 0.7);
+  await p.locator('.sfx').first().click();
+  await p.keyboard.up('Control');
+  await p.waitForTimeout(500);
+  await shot(p, '15c-pick-chips');
 
   // drop overlay
   await p.evaluate(() => {

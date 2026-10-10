@@ -92,6 +92,13 @@
           "h": 0.16
         }
       ],
+      "sounds": [
+        {
+          "id": "pop",
+          "at": 3.6,
+          "vol": 0.8
+        }
+      ],
       "beat": [
         {
           "t": "点哪里 [[推近]]哪里",
@@ -118,7 +125,7 @@
       ],
       "visual": {
         "kind": "image",
-        "src": "media/fractal.jpg"
+        "src": "media/lake.jpg"
       },
       "fx": {
         "kenburns": "in",
@@ -134,6 +141,12 @@
           "dur": 2.6,
           "text": "Ken Burns",
           "sub": "慢推 · 暖色 · 漏光"
+        }
+      ],
+      "sounds": [
+        {
+          "id": "shutter",
+          "at": 0.15
         }
       ],
       "beat": [
@@ -155,7 +168,7 @@
       ],
       "visual": {
         "kind": "clip",
-        "src": "media/flow.mp4",
+        "src": "media/desert.mp4",
         "fit": "cover"
       },
       "fx": {
@@ -170,6 +183,13 @@
           "dur": 2.6,
           "text": "CINEMA",
           "sub": "letterbox · grain · look"
+        }
+      ],
+      "sounds": [
+        {
+          "id": "boom",
+          "at": 0.3,
+          "vol": 0.8
         }
       ],
       "beat": [
@@ -216,6 +236,13 @@
           "t": "10 转场 · 18 特效 · 10 叠加",
           "en": "10 transitions · 18 effects · 10 overlays",
           "n": 4
+        }
+      ],
+      "sounds": [
+        {
+          "id": "hit",
+          "at": 0.25,
+          "vol": 0.7
         }
       ]
     },
@@ -287,6 +314,13 @@
           "t": "开源 欢迎试用",
           "en": "Open source, try it",
           "n": 4
+        }
+      ],
+      "sounds": [
+        {
+          "id": "ding",
+          "at": 0.8,
+          "vol": 0.8
         }
       ]
     }

@@ -12,7 +12,7 @@ A code-first video editor. Each video is a `storyboard.json` file: you edit it i
 Most editors store a project as an opaque binary or database. Cutroom stores it as a small JSON document, which means:
 
 - **You and an AI can work on the same cut.** The chat panel runs Claude with access to one tool, the editor's CLI. Its edits appear in the preview within a second, and your edits in the UI are visible to it. Both sides go through the same versioned save path, so neither overwrites the other.
-![The AI panel: a request, the CLI commands it ran, and its summary](docs/ai-chat.png)
+![The AI panel: a spot Ctrl+clicked in the preview, the request, the command the AI ran, and the circle it drew there](docs/ai-chat.png)
 
 - **Timing stays tied to content.** Captions and cuts can be anchored to marks recorded with a screen capture (`"@add-0.3"`), so re-recording a demo doesn't break the edit.
 - **What you preview is what you export.** The preview is a Remotion Player running the same React composition the renderer uses. A test renders the same frames both ways and compares them; most come out bit-identical.
@@ -21,7 +21,7 @@ Most editors store a project as an opaque binary or database. Cutroom stores it 
 
 - **Timeline**: filmstrip thumbnails, waveforms, drag to reorder, drag edges to trim, split at the playhead, undo/redo, beat grid for music-cut versions.
 - **Two cuts from one storyboard**: a narrated cut and a beat-synced music cut, each in 16:9 and 9:16. Switch between them under the preview (aspect ratio, language, URLs shown or hidden) and above the timeline (narrated or beat cut).
-- **Library panel**: eight sections (media, cards, text, overlays, transitions, effects, backdrops, music). Every effect has a rendered preview that plays on hover; one click applies it to the selected scene.
+- **Library panel**: nine sections (media, cards, text, overlays, transitions, effects, backdrops, sound effects, music). Every effect has a rendered preview that plays on hover; one click applies it to the selected scene.
 - **182 effects**:
   - 39 transitions (whip pan, glitch, film burn, 3D cube, light leak, tile grid, …)
   - 33 text animations (decode, scramble, typewriter, split-flap, count-up, marker highlight, …), usable on titles, overlays and captions
@@ -30,12 +30,16 @@ Most editors store a project as an opaque binary or database. Cutroom stores it 
   - 10 animated backdrops
   - 33 scene-effect presets (looks, duotone, RGB split, bloom, CRT, pixelate, handheld drift, focus pull, stop motion, …)
   - Many of the designs are adapted from [HyperFrames](https://github.com/heygen-com/hyperframes); see [CREDITS.md](CREDITS.md).
+- **Sound effects**: 58 sounds (whooshes, risers, booms, hits, clicks, typing, notification dings, digital blips). Listen in the library, drag one onto the Sound FX lane of the timeline, then drag it to the exact frame. Each scene stores its cues as `sounds: [{ "id": "whoosh", "at": 0.2 }]`.
 - **Captions**: box, outline or plain styles, any position and size, and most text animations; a Screen Studio-style frame for recordings, frosted cards and a chapter bar.
 - **Screen recordings**: a deterministic browser recorder logs clicks and cursor moves; the editor adds smooth auto-zoom, a synthetic cursor and click ripples afterwards.
+- **Point, then ask**: hold Ctrl and click anything (a spot in the preview, a scene, a caption, a sound, an effect tile, a setting) to attach it to the AI chat, then say what you think of it. The AI is told exactly what you pointed at, including the x/y position and time of a point in the preview.
 - **AI chat**: uses your [Claude Code](https://docs.anthropic.com/en/docs/claude-code) login or an Anthropic API key. See [Connecting the AI](#connecting-the-ai).
-- **Export**: MP4, 2× resolution, GIF, ProRes, SRT subtitles and a chapter list.
+- **Export**: MP4, 2× resolution, GIF, ProRes, SRT subtitles and a chapter list. Files go to `out/editor/` (desktop app: `Documents\Cutroom\exports\editor`); the export menu shows the folder, and a finished export offers Play and Show in folder.
 - **Desktop app**: the same editor in its own window, with a Windows installer.
 - **English and Chinese**: the interface starts in English; pick Chinese in the installer or from the globe menu in the top bar.
+
+![Sound FX library, the scene's Sound tab and the Sound FX lane on the timeline](docs/sound-fx.png)
 
 ## Install (Windows)
 

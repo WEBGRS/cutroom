@@ -5,8 +5,8 @@ import { Main } from '../../src/Main';
 import { loadProps, type Loaded } from '../../src/lib/load';
 import type { Format, Props } from '../../src/lib/types';
 import { editTimeline, fmtTime, safe, type EScene, type ETimeline } from './model';
-import { addScene, duplicateScene, moveScene, removeScene, setBeatBars, setMinSec, setPath, splitPoint, splitScene, trimEdge, uniqueId, type Caps, type Doc, type Op } from './ops';
-import { cancelRender, getAssets, getBoard, getProjects, putBoard, reveal, startRender, type Job } from './api';
+import { addScene, addSound, duplicateScene, moveScene, moveSound, removeSound, removeScene, setBeatBars, setMinSec, setPath, splitPoint, splitScene, trimEdge, uniqueId, type Caps, type Doc, type Op } from './ops';
+import { cancelRender, getAssets, getBoard, getExports, getProjects, openExports, putBoard, reveal, startRender, type Job } from './api';
 import { Timeline, type Edge } from './Timeline';
 import { Inspector } from './Inspector';
 import { ChatPanel } from './ChatPanel';
@@ -16,6 +16,8 @@ import { Icon, Logo } from './icons';
 import { OVERLAY_LIST } from './catalog';
 import { LANG, nm, setLang, tr } from './i18n';
 import { textSample } from '../../src/fx/demo';
+import { resolvePick, type AiRef } from './pick';
+import { soundDef } from '../../src/fx/sounds';
 import type { Fx } from '../../src/lib/types';
 
 const isImg = (a: string) => /\.(png|jpe?g|webp|gif)$/i.test(a);
@@ -200,9 +202,16 @@ function App() {
   const [err, setErr] = useState('');
   const [sel, setSel] = useState<string | null>(null);
   const [focusLine, setFocusLine] = useState<number | null>(null);
+  // Selected sound cue ("scene:i") and the cue the inspector should open
+  const [selSound, setSelSound] = useState<string | null>(null);
+  const [focusSound, setFocusSound] = useState<{ i: number; n: number } | null>(null);
   const [saveState, setSaveState] = useState<'saved' | 'saving' | 'error'>('saved');
   const [toast, setToast] = useState<{ text: string; kind?: 'error' } | null>(null);
   const [job, setJob] = useState<Job | null>(null);
+  // Card that says where a finished export went; stays until closed
+  const [doneCard, setDoneCard] = useState(false);
+  const lastJobState = useRef<string | undefined>(undefined);
+  const [exportDir, setExportDir] = useState('');
   const [player, setPlayer] = useState<PlayerRef | null>(null);
   const [playing, setPlaying] = useState(false);
   const [zoom, setZoom] = useState<number | null>(null);
@@ -227,6 +236,12 @@ function App() {
   const [size, setSize] = useState(() => ({ lib: pref.get('vs-w-lib2', innerWidth < 1440 ? 300 : 340), side: pref.get('vs-w-side2', innerWidth < 1440 ? 330 : 356), tl: pref.get('vs-h-tl', innerHeight < 860 ? 236 : 268) }));
   const size0 = useRef(size);
   const [phId, setPhId] = useState<string | null>(null);
+  // Ctrl+click pointing: references waiting in the AI input
+  const [aiRefs, setAiRefs] = useState<AiRef[]>([]);
+  const [pickHeld, setPickHeld] = useState(false);
+  const [pickArmed, setPickArmed] = useState(false);
+  const [pickHl, setPickHl] = useState<{ x: number; y: number; w: number; h: number; label: string } | null>(null);
+  const [chatFocus, setChatFocus] = useState(0);
   const [ask, setAsk] = useState<{ title: string; hint: string; ok: (v: string) => void } | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -494,6 +509,17 @@ function App() {
     return () => es.close();
   }, []);
 
+  useEffect(() => {
+    if (job?.state === 'done' && lastJobState.current === 'running') setDoneCard(true);
+    if (job?.state === 'running') setDoneCard(false);
+    lastJobState.current = job?.state;
+  }, [job?.state]);
+  useEffect(() => {
+    getExports()
+      .then((e) => setExportDir(e.dir))
+      .catch(() => undefined);
+  }, []);
+
   // ---- player ----
   useEffect(() => {
     if (!player) return;
@@ -534,6 +560,7 @@ function App() {
   const select = (id: string | null, line?: number) => {
     setSel(id);
     setFocusLine(line ?? null);
+    setSelSound(null);
   };
   const selE = etl?.scenes.find((s) => s.id === sel) ?? null;
 
@@ -551,6 +578,12 @@ function App() {
   };
   const doDup = () => sel && commit((d) => duplicateScene(d, sel));
   const doDel = () => {
+    if (selSound) {
+      const [sid, i] = selSound.split(':');
+      commit((d) => removeSound(d, sid, Number(i)));
+      setSelSound(null);
+      return;
+    }
     if (!sel) return;
     commit((d) => removeScene(d, sel));
     setSel(null);
@@ -581,6 +614,31 @@ function App() {
     const f = player.getCurrentFrame();
     const inside = (s: EScene) => f >= s.start && f < s.start + s.dur;
     return selE && inside(selE) ? selE : (etl.scenes.find(inside) ?? null);
+  };
+  // Scene a frame belongs to; during a transition, the one coming in
+  const sceneAtFrame = (f: number) => etl?.scenes.filter((s) => f >= s.start && f < s.start + s.dur).pop() ?? null;
+  const focusCue = (scene: string, i: number) => {
+    setSel(scene);
+    setFocusLine(null);
+    setSelSound(`${scene}:${i}`);
+    setFocusSound({ i, n: Date.now() });
+  };
+  const placeSound = (id: string, f: number) => {
+    const s = sceneAtFrame(f);
+    const def = soundDef(id);
+    if (!s || !etl || !def || !docRef.current) return;
+    const i = docRef.current.board.scenes.find((x) => x.id === s.id)?.sounds?.length ?? 0;
+    commit((d) => addSound(d, s.id, id, (f - s.start) / etl.fps));
+    focusCue(s.id, i);
+    flash(tr(`Added "${def.en}" to ${s.id}`, `已在 ${s.id} 加上「${def.zh}」`));
+  };
+  const libSound = (id: string) => placeSound(id, player?.getCurrentFrame() ?? 0);
+  const onSoundMove = (from: string, i: number, f: number) => {
+    const s = sceneAtFrame(f);
+    if (!s || !etl || !docRef.current) return;
+    const j = s.id === from ? i : (docRef.current.board.scenes.find((x) => x.id === s.id)?.sounds?.length ?? 0);
+    commit((d) => moveSound(d, from, i, s.id, (f - s.start) / etl.fps));
+    focusCue(s.id, j);
   };
   const playheadIn = (id: string) => {
     const e = etl?.scenes.find((s) => s.id === id);
@@ -690,6 +748,69 @@ function App() {
       flash((e as Error).message, 'error');
     }
   };
+
+  // ---- pointing at things for the AI (hold Ctrl, or arm from the AI panel) ----
+  const pickCtx = () => ({ etl, scenes: docRef.current?.board.scenes ?? [], frame: player?.getCurrentFrame() ?? 0, fps, size: { w: loaded?.width ?? 1920, h: loaded?.height ?? 1080 }, sel });
+  const pickRef = useRef({ pickCtx, armed: pickArmed, held: pickHeld });
+  pickRef.current = { pickCtx, armed: pickArmed, held: pickHeld };
+  useEffect(() => {
+    let swallowClick = false;
+    const active = (e: { ctrlKey: boolean; metaKey: boolean }) => pickRef.current.armed || e.ctrlKey || e.metaKey;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Control' || e.key === 'Meta') setPickHeld(e.type === 'keydown');
+      if (e.key === 'Escape' && pickRef.current.armed) setPickArmed(false);
+    };
+    const off = () => {
+      setPickHeld(false);
+      setPickHl(null);
+    };
+    const onMove = (e: PointerEvent) => {
+      if (!active(e)) return setPickHl(null);
+      const hit = resolvePick(e.target as Element, e.clientX, e.clientY, pickRef.current.pickCtx());
+      if (!hit) return setPickHl(null);
+      const r = hit.el.getBoundingClientRect();
+      setPickHl({ x: r.left, y: r.top, w: r.width, h: r.height, label: hit.ref.label });
+    };
+    const onDown = (e: PointerEvent) => {
+      if (e.button !== 0 || !active(e)) return;
+      const t = e.target as Element;
+      if (!t.closest('.app') || t.closest('.chat-input')) return;
+      const hit = resolvePick(t, e.clientX, e.clientY, pickRef.current.pickCtx());
+      if (!hit) return;
+      // The click selects nothing and scrubs nothing; it only points
+      e.preventDefault();
+      e.stopPropagation();
+      swallowClick = true;
+      setAiRefs((rs) => (rs.some((r) => r.key === hit.ref.key) ? rs : [...rs, hit.ref].slice(-6)));
+      setPickArmed(false);
+      setPickHl(null);
+      setSide('ai');
+      setChatFocus((n) => n + 1);
+    };
+    const onClick = (e: MouseEvent) => {
+      if (!swallowClick) return;
+      swallowClick = false;
+      e.preventDefault();
+      e.stopPropagation();
+    };
+    window.addEventListener('keydown', onKey);
+    window.addEventListener('keyup', onKey);
+    window.addEventListener('blur', off);
+    window.addEventListener('pointermove', onMove, true);
+    window.addEventListener('pointerdown', onDown, true);
+    window.addEventListener('click', onClick, true);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('keyup', onKey);
+      window.removeEventListener('blur', off);
+      window.removeEventListener('pointermove', onMove, true);
+      window.removeEventListener('pointerdown', onDown, true);
+      window.removeEventListener('click', onClick, true);
+    };
+  }, []);
+  useEffect(() => {
+    if (!pickHeld && !pickArmed) setPickHl(null);
+  }, [pickHeld, pickArmed]);
 
   // ---- keyboard ----
   useEffect(() => {
@@ -840,7 +961,7 @@ function App() {
 
   return (
     <div
-      className={`app${dragOver ? ' filedrop' : ''}`}
+      className={`app${dragOver ? ' filedrop' : ''}${pickHeld || pickArmed ? ' picking' : ''}`}
       style={{ ['--lib-w' as string]: `${size.lib}px`, ['--side-w' as string]: `${size.side}px`, ['--tl-h' as string]: `${size.tl}px` }}
       onDragOver={(e) => {
         if (![...e.dataTransfer.types].includes('Files')) return;
@@ -935,6 +1056,17 @@ function App() {
             {(close) => (
               <>
                 <div className="menu-h">{tr('This version: ', '当前版本：')}{versionText}</div>
+                <div className="menu-dest">
+                  <span title={exportDir}>
+                    {tr('Saves to ', '保存到 ')}
+                    <b>{exportDir || '…'}</b>
+                  </span>
+                  <button className="mini" onClick={() => (close(), openExports())}>
+                    <Icon name="folder" size={13} />
+                    {tr('Open', '打开')}
+                  </button>
+                </div>
+                <div className="menu-sep" />
                 <button disabled={job?.state === 'running'} onClick={() => (close(), doRender())}>
                   {tr('MP4 video', 'MP4 视频')}
                 </button>
@@ -983,6 +1115,7 @@ function App() {
             onTransition={libTransition}
             onLook={libLook}
             onMusic={libMusic}
+            onSound={libSound}
           />
         ) : (
           <aside className="lib panel" />
@@ -1075,7 +1208,17 @@ function App() {
             </button>
           </div>
           {side === 'ai' ? (
-            <ChatPanel slug={st.slug} context={ctxNow} where={where} />
+            <ChatPanel
+              slug={st.slug}
+              context={ctxNow}
+              where={where}
+              refs={aiRefs}
+              onRemoveRef={(k) => setAiRefs((rs) => rs.filter((r) => r.key !== k))}
+              onClearRefs={() => setAiRefs([])}
+              armed={pickArmed}
+              onArm={() => setPickArmed((a) => !a)}
+              focusKey={chatFocus}
+            />
           ) : doc ? (
             <Inspector
               doc={doc}
@@ -1088,6 +1231,7 @@ function App() {
               music={music}
               sel={sel}
               focusLine={focusLine}
+              focusSound={focusSound}
               commit={commit}
               onSelect={(id) => select(id)}
               actions={{ split: doSplit, dup: doDup, del: doDel, up: () => nudge(-1), down: () => nudge(1) }}
@@ -1126,6 +1270,10 @@ function App() {
           canTrim={canTrim}
           onTrim={onTrim}
           missing={missing}
+          selSound={selSound}
+          onSoundPick={focusCue}
+          onSoundMove={onSoundMove}
+          onSoundDrop={placeSound}
           tools={
             <>
               <Seg
@@ -1214,6 +1362,37 @@ function App() {
         <div className="tl panel" />
       )}
 
+      {pickHl ? (
+        <div className="pick-hl" style={{ left: pickHl.x - 2, top: pickHl.y - 2, width: pickHl.w + 4, height: pickHl.h + 4 }}>
+          <span>{pickHl.label}</span>
+        </div>
+      ) : null}
+      {doneCard && job?.state === 'done' ? (
+        <div className="done-card" role="status">
+          <div className="done-head">
+            <Icon name="check" size={16} />
+            <b>{tr('Export finished', '导出完成')}</b>
+            <span className="grow" />
+            <button className="icon sm" onClick={() => setDoneCard(false)} title={tr('Close', '关闭')}>
+              <Icon name="close" size={14} />
+            </button>
+          </div>
+          <div className="done-name">{job.out.replace(/^.*[\\/]/, '')}</div>
+          <div className="done-path" title={job.path}>
+            {job.dir}
+          </div>
+          <div className="done-acts">
+            <button className="primary" onClick={() => reveal(job.out, true)}>
+              <Icon name="play" size={14} />
+              {tr('Play', '播放')}
+            </button>
+            <button className="btn" onClick={() => reveal(job.out)}>
+              <Icon name="folder" size={14} />
+              {tr('Show in folder', '在文件夹中显示')}
+            </button>
+          </div>
+        </div>
+      ) : null}
       {toast ? <div className={`toast${toast.kind === 'error' ? ' error' : ''}`}>{toast.text}</div> : null}
       {ask ? <AskDialog {...ask} close={() => setAsk(null)} /> : null}
     </div>

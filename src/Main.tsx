@@ -6,6 +6,7 @@ import { ClipScene, FlowScene, ImageScene, OutroScene, ScrollScene, StatsScene, 
 import { Captions, ChapterBar, Overlays, TallHeader } from './components/Captions';
 import { FxLayer, presentation } from './components/Fx';
 import { ScreenScene } from './components/ScreenScene';
+import { SceneSounds } from './components/Sounds';
 import { FxCard } from './fx/cards';
 import { screenPaths, type ScenePath } from './lib/paths';
 import { BeatMain } from './BeatMain';
@@ -83,7 +84,8 @@ const VoiceMain: React.FC<Props> = (props) => {
   tl.scenes.forEach((s, i) => {
     if (i > 0 && s.trans > 0) seq.push(<TransitionSeries.Transition key={`t-${s.scene.id}`} presentation={presentation(s.scene.transition, s.scene.transDir, layout.W, layout.H)} timing={linearTiming({ durationInFrames: s.trans })} />);
     seq.push(
-      <TransitionSeries.Sequence key={s.scene.id} durationInFrames={s.dur}>
+      // Mount a second early so media is decoded before the cut (preview only; renders are unaffected)
+      <TransitionSeries.Sequence key={s.scene.id} durationInFrames={s.dur} premountFor={fps}>
         <SceneView s={s} props={props} layout={layout} theme={theme} paths={paths} />
       </TransitionSeries.Sequence>,
     );
@@ -121,6 +123,7 @@ const VoiceMain: React.FC<Props> = (props) => {
             </Sequence>
           )),
       )}
+      <SceneSounds tl={tl} captures={props.captures} volume={sv} />
       {board.music ? <Audio src={staticFile(board.music.src)} loop volume={(f) => env[Math.min(env.length - 1, f)] ?? 0} /> : null}
     </AbsoluteFill>
   );

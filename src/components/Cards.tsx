@@ -118,7 +118,7 @@ export const ClipScene: React.FC<{ v: ClipVisual; slug: string; layout: Layout; 
   const { fps } = useVideoConfig();
   const src = staticFile(`${slug}/${v.src}`);
   // @remotion/media takes objectFit as a prop; inside style it is ignored
-  const video = <Video src={src} trimBefore={Math.round((v.from ?? 0) * fps)} playbackRate={v.rate ?? 1} muted={v.muted ?? true} objectFit={v.fit ?? 'cover'} style={{ width: '100%', height: '100%' }} />;
+  const video = <Video src={src} trimBefore={Math.round((v.from ?? 0) * fps)} playbackRate={v.rate ?? 1} muted={v.muted ?? true} objectFit={v.fit ?? 'cover'} style={{ width: '100%', height: '100%' }} _experimentalInitiallyDrawCachedFrame />;
   if (!v.frame) return <AbsoluteFill>{video}</AbsoluteFill>;
   const bar = v.frame === 'window' ? layout.bar : 0;
   const ar = v.ar ?? 16 / 9;

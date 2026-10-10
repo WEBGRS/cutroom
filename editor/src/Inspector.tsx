@@ -1,7 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
-import type { Format, Fx, Overlay, Scene, StatsVisual, Visual } from '../../src/lib/types';
+import type { Format, Fx, Overlay, Scene, SoundCue, StatsVisual, Visual } from '../../src/lib/types';
+import { SOUNDS, SOUND_CATS, soundDef, soundSrc } from '../../src/fx/sounds';
 import { fmtTime, visualKey, type ETimeline } from './model';
-import { getPath, replaceScene, setPath, toggleTall, type Caps, type Doc, type Op } from './ops';
+import { getPath, removeSound, replaceScene, setPath, toggleTall, type Caps, type Doc, type Op } from './ops';
 import { BOARD_FX, CARD_LIST, DIR_LIST, DIR_TRANSITIONS, LOWER_LIST, OVERLAY_LIST, RULES, SCENE_FX, TEXT_LIST, TRANSITION_LIST, allFields, type FieldDef } from './catalog';
 import { Field, FieldControl, JsonEdit, Row, asRef, isNum, num, refOk } from './Fields';
 import { Icon } from './icons';
@@ -31,6 +32,8 @@ interface Props {
   music: { src: string; beats: boolean }[];
   sel: string | null;
   focusLine: number | null;
+  // Index of a sound cue to open, bumped by n so the same cue can be focused again
+  focusSound: { i: number; n: number } | null;
   commit: Commit;
   onSelect: (id: string | null) => void;
   actions: { split: () => void; dup: () => void; del: () => void; up: () => void; down: () => void };
@@ -42,7 +45,7 @@ interface Props {
 const isImg = (a: string) => /\.(png|jpe?g|webp|gif)$/i.test(a);
 const isVid = (a: string) => /\.(mp4|webm|mov)$/i.test(a);
 
-type STab = 'visual' | 'trans' | 'fx' | 'over' | 'lines';
+type STab = 'visual' | 'trans' | 'fx' | 'over' | 'sound' | 'lines';
 type BTab = 'basic' | 'audio' | 'caps' | 'look';
 
 // Remembered per panel, so switching scenes keeps the same page open
@@ -102,13 +105,20 @@ export function Inspector(p: Props) {
   const { doc, sel } = p;
   const scene = sel ? doc.board.scenes.find((s) => s.id === sel) : undefined;
   const listRef = useRef<HTMLDivElement>(null);
-  const [tab, setTab] = useTab<STab>('vs-itab', ['visual', 'trans', 'fx', 'over', 'lines'], 'visual');
+  const [tab, setTab] = useTab<STab>('vs-itab', ['visual', 'trans', 'fx', 'over', 'sound', 'lines'], 'visual');
+  const soundRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (p.focusLine === null) return;
     if (tab !== 'lines') setTab('lines');
     requestAnimationFrame(() => listRef.current?.querySelector<HTMLElement>(`[data-k="${p.focusLine}"]`)?.scrollIntoView({ block: 'nearest' }));
   }, [p.focusLine, sel]);
+
+  useEffect(() => {
+    if (!p.focusSound) return;
+    if (tab !== 'sound') setTab('sound');
+    requestAnimationFrame(() => soundRef.current?.querySelector<HTMLElement>(`[data-k="${p.focusSound!.i}"]`)?.scrollIntoView({ block: 'nearest' }));
+  }, [p.focusSound]);
 
   if (!scene) return <BoardPanel {...p} />;
 
@@ -269,13 +279,45 @@ export function Inspector(p: Props) {
         )}
       </div>
     );
+  else if (tab === 'sound')
+    body = (
+      <div className="sec" ref={soundRef}>
+        <div className="sec-acts">
+          <select
+            className="add-sel"
+            value=""
+            onChange={(ev) => {
+              if (!ev.target.value) return;
+              const at = Math.round(p.playheadIn(scene.id) * 100) / 100;
+              set(`sounds.${scene.sounds?.length ?? 0}`, { id: ev.target.value, at });
+            }}
+          >
+            <option value="">{tr('+ Add at the playhead…', '+ 在播放头添加…')}</option>
+            {SOUND_CATS.map((c) => (
+              <optgroup key={c.id} label={nm(c)}>
+                {SOUNDS.filter((s) => s.cat === c.id).map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {nm(s)}
+                  </option>
+                ))}
+              </optgroup>
+            ))}
+          </select>
+        </div>
+        {(scene.sounds ?? []).length ? (
+          (scene.sounds ?? []).map((c, i) => <SoundItem key={i} c={c} i={i} max={e ? e.dur / fps : 10} past={!!e?.sounds[i]?.past} marks={marks} focus={p.focusSound?.i === i} set={set} del={() => p.commit((d) => removeSound(d, scene.id, i))} />)
+        ) : (
+          <p className="hint">{tr('No sound effects in this scene. Drag one from Sound FX in the library onto the timeline, or add it here at the playhead.', '这一段还没有音效。从左边素材库的「音效」页拖到时间线上，或者在这里加在播放头位置。')}</p>
+        )}
+      </div>
+    );
   else
     body = (
       <div className="sec" ref={listRef}>
         {p.mode === 'voice' ? (
           <>
             {scene.lines.map((l, k) => (
-              <div key={k} data-k={k} className={`item${p.focusLine === k ? ' focus' : ''}`}>
+              <div key={k} data-k={k} data-pick={`line|${k}|${l.zh.slice(0, 60)}`} className={`item${p.focusLine === k ? ' focus' : ''}`}>
                 <div className="head">
                   <span className="idx">{k + 1}</span>
                   {e?.lines[k]?.stale ? <span className="chip">{tr('Text changed; voice needs redoing', '文字改过，配音待重做')}</span> : null}
@@ -304,7 +346,7 @@ export function Inspector(p: Props) {
         ) : (
           <>
             {scene.beat.map((b, k) => (
-              <div key={k} data-k={k} className={`item${p.focusLine === k ? ' focus' : ''}`}>
+              <div key={k} data-k={k} data-pick={`line|${k}|${b.t.slice(0, 60)}`} className={`item${p.focusLine === k ? ' focus' : ''}`}>
                 <div className="head">
                   <span className="idx">{k + 1}</span>
                   <span className="grow" />
@@ -369,6 +411,7 @@ export function Inspector(p: Props) {
           ['trans', tr('Transition', '转场')],
           ['fx', tr('Effects', '特效'), fxCount],
           ['over', tr('Overlays', '叠加'), scene.overlays?.length],
+          ['sound', tr('Sound', '音效'), scene.sounds?.length],
           ['lines', p.mode === 'voice' ? tr('Narration', '旁白') : tr('Beat text', '卡点字'), lineCount],
         ]}
       />
@@ -382,6 +425,56 @@ export function Inspector(p: Props) {
   );
 }
 
+let sxPlay: HTMLAudioElement | null = null;
+
+function SoundItem({ c, i, max, past, marks, focus, set, del }: { c: SoundCue; i: number; max: number; past: boolean; marks: string[]; focus: boolean; set: (path: string, value: unknown) => void; del: () => void }) {
+  const def = soundDef(c.id);
+  const f = (name: string) => `sounds.${i}.${name}`;
+  return (
+    <div className={`item sound${focus ? ' focus' : ''}`} data-k={i} data-pick={`sound|${i}|${def ? nm(def) : c.id}`}>
+      <div className="head">
+        <span className="idx">{i + 1}</span>
+        <button
+          className="icon sm"
+          title={tr('Listen', '试听')}
+          onClick={() => {
+            sxPlay?.pause();
+            sxPlay = new Audio(`/${soundSrc(c.id)}`);
+            sxPlay.volume = Math.min(1, 0.7 * (c.vol ?? 1));
+            void sxPlay.play();
+          }}
+        >
+          <Icon name="play" size={12} />
+        </button>
+        <select value={c.id} onChange={(ev) => set(f('id'), ev.target.value)} style={{ flex: 1, minWidth: 0 }}>
+          {!def ? <option value={c.id}>{c.id}</option> : null}
+          {SOUND_CATS.map((g) => (
+            <optgroup key={g.id} label={nm(g)}>
+              {SOUNDS.filter((s) => s.cat === g.id).map((s) => (
+                <option key={s.id} value={s.id}>
+                  {nm(s)}
+                </option>
+              ))}
+            </optgroup>
+          ))}
+        </select>
+        <button className="icon sm" title={tr('Delete this sound', '删除这个音效')} onClick={del}>
+          <Icon name="close" size={14} />
+        </button>
+      </div>
+      {past ? <span className="chip">{tr('Starts after this scene ends, so it is silent', '开始时间超出了这一段，不会响')}</span> : null}
+      {typeof c.at === 'string' ? (
+        <Row label={tr('Starts at', '开始于')}>
+          <Field value={c.at} placeholder="@mark" list="marks" validate={refOk(marks)} onCommit={(s) => set(f('at'), asRef(s) ?? 0)} />
+        </Row>
+      ) : (
+        <FieldControl def={{ path: f('at'), en: 'Starts at (s)', zh: '开始（秒）', type: 'range', min: 0, max: Math.max(0.1, Math.round(max * 100) / 100), step: 0.01, def: 0 }} value={c.at} onChange={(v) => set(f('at'), v ?? 0)} />
+      )}
+      <FieldControl def={{ path: f('vol'), en: 'Volume', zh: '音量', type: 'range', min: 0, max: 2, step: 0.05, def: 1 }} value={c.vol} onChange={(v) => set(f('vol'), v)} />
+    </div>
+  );
+}
+
 const XY: Record<string, [string, string]> = { x: ['x', '横 x'], y: ['y', '纵 y'], w: ['w', '宽 w'], h: ['h', '高 h'] };
 
 function OverlayItem({ o, i, set }: { o: Overlay; i: number; set: (path: string, value: unknown) => void }) {
@@ -389,7 +482,7 @@ function OverlayItem({ o, i, set }: { o: Overlay; i: number; set: (path: string,
   const f = (name: string) => `overlays.${i}.${name}`;
   const fields = def?.fields ?? ['text', 'sub', 'x', 'y'];
   return (
-    <div className="item ov">
+    <div className="item ov" data-pick={`overlay|${i}|${def ? nm(def) : o.kind}${o.text ? ` "${o.text.slice(0, 30)}"` : ''}`}>
       <div className="head">
         <span className="idx">{i + 1}</span>
         <span className="ovk">

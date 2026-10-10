@@ -68,6 +68,13 @@ function syncer(v: Visual, captures: Record<string, CaptureMeta> | undefined, fp
   };
 }
 
+// Frame of a sound cue inside its scene; marks follow the recording, undefined if they don't resolve
+export function cueFrame(s: TScene, at: TimeRef, captures: Record<string, CaptureMeta> | undefined, fps: number): number | undefined {
+  if (typeof at === 'number') return Math.round(Math.max(0, at) * fps);
+  const f = syncer(s.visual, captures, fps)?.(at);
+  return f === undefined ? undefined : Math.round(f);
+}
+
 export function buildTimeline(board: Storyboard, timings: Timings | undefined, format: Format, fps: number, captures?: Record<string, CaptureMeta>, silent = false, lang: 'zh' | 'en' = 'zh'): Timeline {
   if (silent) timings = undefined;
   const list = board.scenes.filter((s) => !s.only || s.only === format);

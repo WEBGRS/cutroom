@@ -7,8 +7,10 @@ import { LOOK_LIST } from '../../src/fx/registry';
 import { thumbsUrl, useAsset, type Thumbs } from './assets';
 import { Icon } from './icons';
 import { nm, tr } from './i18n';
+import { SOUNDS, SOUND_CATS, soundSrc } from '../../src/fx/sounds';
+import { SOUND_MIME } from './Timeline';
 
-export type LibTab = 'media' | 'cards' | 'text' | 'overlay' | 'trans' | 'fx' | 'bg' | 'audio';
+export type LibTab = 'media' | 'cards' | 'text' | 'overlay' | 'trans' | 'fx' | 'bg' | 'sfx' | 'audio';
 
 const TABS: [LibTab, string, string, string][] = [
   ['media', 'Media', '素材', 'media'],
@@ -18,6 +20,7 @@ const TABS: [LibTab, string, string, string][] = [
   ['trans', 'Transitions', '转场', 'trans'],
   ['fx', 'Effects', '特效', 'filter'],
   ['bg', 'Backdrop', '背景', 'board'],
+  ['sfx', 'Sound FX', '音效', 'sfx'],
   ['audio', 'Music', '音乐', 'music'],
 ];
 
@@ -91,6 +94,7 @@ interface Props {
   onFx: (preset: Record<string, unknown>, on: boolean) => void;
   onBg: (id: string) => void;
   onMusic: (src: string) => void;
+  onSound: (id: string) => void;
 }
 
 const TH = 72;
@@ -123,10 +127,10 @@ const Prev: React.FC<{ cat: string; id: string; hover: boolean }> = ({ cat, id, 
   );
 };
 
-function Tile({ label, sub, on, warn, onClick, children, title, prev }: { label: string; sub?: string; on?: boolean; warn?: string; onClick: () => void; children?: React.ReactNode; title?: string; prev?: [string, string] }) {
+function Tile({ label, sub, on, warn, onClick, children, title, prev, pick }: { label: string; sub?: string; on?: boolean; warn?: string; onClick: () => void; children?: React.ReactNode; title?: string; prev?: [string, string]; pick?: string }) {
   const [hover, setHover] = useState(false);
   return (
-    <button className={`lt${on ? ' on' : ''}`} onClick={onClick} title={title ?? warn ?? label} onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}>
+    <button className={`lt${on ? ' on' : ''}`} data-pick={pick ?? (prev ? `effect|${prev[0]}:${prev[1]}|${label}` : undefined)} onClick={onClick} title={title ?? warn ?? label} onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}>
       <span className="lt-box">
         {prev ? <Prev cat={prev[0]} id={prev[1]} hover={hover} /> : children}
         {on ? (
@@ -164,6 +168,67 @@ function LookBase({ slug, s, theme }: { slug: string; s: Scene | null; theme: Th
   if (v && (v.kind === 'screen' || v.kind === 'clip' || v.kind === 'image')) return <Thumb slug={slug} src={v.src} at={0.45} dur={false} />;
   const [a, b] = theme.bg ?? ['#0b1020', '#18223d'];
   return <div className="lt-img" style={{ background: `linear-gradient(160deg, ${a}, ${b})` }} />;
+}
+
+// One preview at a time across the whole sound list
+let sxAudio: HTMLAudioElement | null = null;
+function useSoundPreview(): [string | null, (id: string) => void] {
+  const [playing, setPlaying] = useState<string | null>(null);
+  useEffect(() => () => sxAudio?.pause(), []);
+  const play = (id: string) => {
+    sxAudio?.pause();
+    if (playing === id) return setPlaying(null);
+    sxAudio = new Audio(`/${soundSrc(id)}`);
+    sxAudio.volume = 0.7;
+    sxAudio.onended = () => setPlaying((x) => (x === id ? null : x));
+    void sxAudio.play();
+    setPlaying(id);
+  };
+  return [playing, play];
+}
+
+function SoundList({ onAdd }: { onAdd: (id: string) => void }) {
+  const [playing, play] = useSoundPreview();
+  return (
+    <>
+      <div className="lib-note pad0">{tr('Click a name to listen. Drag it onto the Sound FX lane of the timeline, or press + to add it at the playhead.', '点名字试听。拖到时间线的「音效」轨上，或按 + 加在播放头的位置。')}</div>
+      {SOUND_CATS.map((c) => {
+        const list = SOUNDS.filter((s) => s.cat === c.id);
+        return (
+          <section key={c.id} className="lib-sec">
+            <h4>
+              {nm(c)}
+              <span>{list.length}</span>
+            </h4>
+            <div className="sx-grid">
+              {list.map((s) => (
+                <div
+                  key={s.id}
+                  className={`sx${playing === s.id ? ' playing' : ''}`}
+                  draggable
+                  data-pick={`sound|lib:${s.id}|${nm(s)}`}
+                  onDragStart={(e) => {
+                    e.dataTransfer.setData(SOUND_MIME, s.id);
+                    e.dataTransfer.effectAllowed = 'copy';
+                  }}
+                >
+                  <button className="sx-play" onClick={() => play(s.id)} title={playing === s.id ? tr('Stop', '停止') : tr('Listen', '试听')}>
+                    <Icon name={playing === s.id ? 'pause' : 'play'} size={11} />
+                    <span className="sx-name">{nm(s)}</span>
+                    <span className="sx-dur">{s.dur < 1 ? `${Math.round(s.dur * 1000)} ms` : `${s.dur.toFixed(1)} s`}</span>
+                  </button>
+                  <button className="sx-add" onClick={() => onAdd(s.id)} title={tr('Add at the playhead', '加在播放头位置')} aria-label={tr(`Add ${s.en}`, `添加${s.zh}`)}>
+                    <Icon name="plus" size={12} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </section>
+        );
+      })}
+      <div className="lib-note pad">{tr('Interface and impact sounds by Kenney (kenney.nl, CC0). Whooshes, risers, booms and the rest are generated for Cutroom.', '界面音和撞击音来自 Kenney（kenney.nl，CC0）；嗖声、上升铺垫、低频轰等由 Cutroom 合成。')}</div>
+    </>
+  );
 }
 
 function AudioRow({ src, label, sub, on, disabled, why, onUse }: { src: string; label: string; sub: string; on: boolean; disabled?: boolean; why?: string; onUse: () => void }) {
@@ -248,7 +313,7 @@ export function Library(p: Props & { tab: LibTab; setTab: (t: LibTab) => void })
     list.length ? (
       <Section key={kind} title={title} count={list.length}>
         {list.map((a) => (
-          <Tile key={a} label={base(a)} onClick={() => p.onAdd(kind, a)} title={tr(`Add to the timeline: ${a}`, `添加到时间线：${a}`)}>
+          <Tile key={a} label={base(a)} pick={`effect|media:${a}|${base(a)}`} onClick={() => p.onAdd(kind, a)} title={tr(`Add to the timeline: ${a}`, `添加到时间线：${a}`)}>
             <Thumb slug={slug} src={a} />
           </Tile>
         ))}
@@ -360,7 +425,7 @@ export function Library(p: Props & { tab: LibTab; setTab: (t: LibTab) => void })
           <Target s={target} what={tr('Applies to', '作用于：')} />
           <Section title={tr('Looks', '滤镜')}>
             {LOOK_LIST.map((l) => (
-              <Tile key={l.id || 'none'} label={nm(l)} on={!!target && curLook === l.id} onClick={() => p.onLook(l.id)}>
+              <Tile key={l.id || 'none'} label={nm(l)} pick={`effect|look:${l.id}|${nm(l)}`} on={!!target && curLook === l.id} onClick={() => p.onLook(l.id)}>
                 <span className="lt-look" style={{ filter: l.id ? LOOKS[l.id as keyof typeof LOOKS] : undefined }}>
                   <LookBase slug={slug} s={p.preview} theme={p.theme} />
                 </span>
@@ -390,6 +455,9 @@ export function Library(p: Props & { tab: LibTab; setTab: (t: LibTab) => void })
           </Section>
         </>
       );
+      break;
+    case 'sfx':
+      body = <SoundList onAdd={p.onSound} />;
       break;
     case 'audio': {
       const tracks = [...p.music.map((m) => ({ src: m.src, beats: m.beats, own: false })), ...auds.map((a) => ({ src: `${slug}/${a}`, beats: false, own: true }))];

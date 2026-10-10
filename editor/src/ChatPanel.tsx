@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Icon } from './icons';
 import { tr } from './i18n';
+import type { AiRef } from './pick';
 
 export interface ChatContext {
   format: string;
@@ -21,6 +22,7 @@ interface Tool {
 interface Item {
   role: 'user' | 'assistant';
   text: string;
+  refs?: string[];
   tools: Tool[];
   pending?: boolean;
   error?: string;
@@ -206,7 +208,16 @@ function Connection({ st, onChange, onClose }: { st: AiStatus | null; onChange: 
   );
 }
 
-export function ChatPanel({ slug, context, where }: { slug: string; context: () => ChatContext; where: string }) {
+interface Pointing {
+  refs: AiRef[];
+  onRemoveRef: (key: string) => void;
+  onClearRefs: () => void;
+  armed: boolean;
+  onArm: () => void;
+  focusKey: number;
+}
+
+export function ChatPanel({ slug, context, where, refs, onRemoveRef, onClearRefs, armed, onArm, focusKey }: { slug: string; context: () => ChatContext; where: string } & Pointing) {
   const [items, setItems] = useState<Item[]>([]);
   const [status, setStatus] = useState<AiStatus | null>(null);
   const [settings, setSettings] = useState(false);
@@ -235,7 +246,7 @@ export function ChatPanel({ slug, context, where }: { slug: string; context: () 
       .then((j) => {
         if (!alive) return;
         setRunning(!!j.running);
-        setItems((j.history ?? []).map((h: { role: 'user' | 'assistant'; text: string; tools?: { cmd: string; ok: boolean }[] }) => ({ role: h.role, text: h.text, tools: (h.tools ?? []).map((t, i) => ({ id: String(i), cmd: t.cmd, ok: t.ok })) })));
+        setItems((j.history ?? []).map((h: { role: 'user' | 'assistant'; text: string; refs?: string[]; tools?: { cmd: string; ok: boolean }[] }) => ({ role: h.role, text: h.text, refs: h.refs, tools: (h.tools ?? []).map((t, i) => ({ id: String(i), cmd: t.cmd, ok: t.ok })) })));
       })
       .catch(() => undefined);
     return () => {
@@ -248,16 +259,23 @@ export function ChatPanel({ slug, context, where }: { slug: string; context: () 
     list.current?.scrollTo({ top: settings ? 0 : list.current.scrollHeight });
   }, [items, settings]);
 
+  // A new pointed-at reference puts the cursor in the input
+  useEffect(() => {
+    if (focusKey) ta.current?.focus();
+  }, [focusKey, !!provider]);
+
   const patchLast = (fn: (it: Item) => Item) => setItems((xs) => (xs.length ? [...xs.slice(0, -1), fn(xs[xs.length - 1])] : xs));
 
   const send = async (text = input) => {
     const msg = text.trim();
-    if (!msg || running) return;
+    const sent = refs;
+    if ((!msg && !sent.length) || running) return;
     setInput('');
+    onClearRefs();
     setRunning(true);
-    setItems((xs) => [...xs, { role: 'user', text: msg, tools: [] }, { role: 'assistant', text: '', tools: [], pending: true }]);
+    setItems((xs) => [...xs, { role: 'user', text: msg, refs: sent.map((r) => r.label), tools: [] }, { role: 'assistant', text: '', tools: [], pending: true }]);
     try {
-      const r = await post('/api/chat', { slug, message: msg, context: context(), model });
+      const r = await post('/api/chat', { slug, message: msg, refs: sent.map(({ label, detail }) => ({ label, detail })), context: context(), model });
       const reader = r.body!.getReader();
       const dec = new TextDecoder();
       let buf = '';
@@ -331,6 +349,10 @@ export function ChatPanel({ slug, context, where }: { slug: string; context: () 
               <Icon name="sparkle" size={22} />
               <p>{tr('Say what to change. Edits show up in the preview right away, and you can undo them.', '直接说要怎么改。改动马上出现在预览里，也能撤销。')}</p>
             </div>
+            <div className="chat-tip">
+              <kbd>Ctrl</kbd>
+              <span>{tr('+ click anything (a scene, a caption, a spot in the preview, an effect, a setting) to point the AI at it, then say what you think.', '+ 点任何东西（段落、字幕、画面上某一点、特效、某个设置），就把它指给 AI，再说你的意见。')}</span>
+            </div>
             <div className="sugg">
               {SUGGEST.map((s) => (
                 <button key={s} className="sugg-btn" onClick={() => send(s)} disabled={!provider}>
@@ -343,6 +365,16 @@ export function ChatPanel({ slug, context, where }: { slug: string; context: () 
           items.map((it, i) =>
             it.role === 'user' ? (
               <div key={i} className="msg user">
+                {it.refs?.length ? (
+                  <div className="msg-refs">
+                    {it.refs.map((r, k) => (
+                      <span key={k} className="ref-chip">
+                        <Icon name="target" size={11} />
+                        {r}
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
                 {it.text}
               </div>
             ) : (
@@ -372,12 +404,25 @@ export function ChatPanel({ slug, context, where }: { slug: string; context: () 
       {!settings ? (
         <div className="chat-input">
           <div className="ctx">{where}</div>
+          {refs.length ? (
+            <div className="chat-refs">
+              {refs.map((r) => (
+                <span key={r.key} className="ref-chip" title={r.detail}>
+                  <Icon name="target" size={11} />
+                  {r.label}
+                  <button onClick={() => onRemoveRef(r.key)} aria-label={tr('Remove', '移除')}>
+                    <Icon name="close" size={10} />
+                  </button>
+                </span>
+              ))}
+            </div>
+          ) : null}
           <div className="box">
             <textarea
               ref={ta}
               value={input}
               rows={2}
-              placeholder={provider ? tr('e.g. make the selected scene 3 s long and give it a warm look', '比如：把选中这段缩短到 3 秒，加个暖色滤镜') : tr('Connect the AI above first', '先在上面连接 AI')}
+              placeholder={!provider ? tr('Connect the AI above first', '先在上面连接 AI') : refs.length ? tr('What do you think about this?', '你觉得这里怎么样？要怎么改？') : tr('e.g. make the selected scene 3 s long and give it a warm look', '比如：把选中这段缩短到 3 秒，加个暖色滤镜')}
               disabled={!provider}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => {
@@ -387,12 +432,15 @@ export function ChatPanel({ slug, context, where }: { slug: string; context: () 
                 }
               }}
             />
+            <button className={`pick-btn${armed ? ' on' : ''}`} onClick={onArm} title={tr('Point at something (or hold Ctrl and click)', '指向某个东西（或按住 Ctrl 点击）')} aria-pressed={armed}>
+              <Icon name="target" size={15} />
+            </button>
             {running ? (
               <button className="send stop" onClick={stop} title={tr('Stop', '停止')}>
                 <Icon name="close" size={14} />
               </button>
             ) : (
-              <button className="send" onClick={() => send()} disabled={!input.trim() || !provider} title={tr('Send (Enter)', '发送 (Enter)')}>
+              <button className="send" onClick={() => send()} disabled={(!input.trim() && !refs.length) || !provider} title={tr('Send (Enter)', '发送 (Enter)')}>
                 <Icon name="up" size={16} />
               </button>
             )}
