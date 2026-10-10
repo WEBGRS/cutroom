@@ -1,0 +1,47 @@
+{
+  "name": "cutroom",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A code-first video editor: a storyboard file you edit in a timeline UI while an AI assistant edits the same file. Built on Remotion.",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "postinstall": "node scripts/postinstall.mjs",
+    "setup": "node scripts/fetch-fonts.mjs",
+    "editor": "node editor/build.mjs && node editor/dist/server.mjs",
+    "app": "node editor/build.mjs && node app/launch.mjs",
+    "build": "node editor/build.mjs",
+    "studio": "remotion studio",
+    "typecheck": "tsc --noEmit && tsc -p editor/tsconfig.json",
+    "test": "node editor/build.mjs && node --test editor/dist/test/ops.test.mjs",
+    "test:e2e": "node editor/test/e2e.mjs showcase",
+    "test:oracle": "node editor/test/oracle.mjs showcase",
+    "test:app": "node editor/test/app.mjs",
+    "capture:demo": "node editor/demo/capture.mjs"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.133.0",
+    "@remotion/bundler": "^4.0.532",
+    "@remotion/cli": "^4.0.532",
+    "@remotion/media": "^4.0.532",
+    "@remotion/media-utils": "^4.0.532",
+    "@remotion/motion-blur": "^4.0.532",
+    "@remotion/noise": "^4.0.532",
+    "@remotion/paths": "^4.0.532",
+    "@remotion/renderer": "^4.0.532",
+    "@remotion/shapes": "^4.0.532",
+    "@remotion/transitions": "^4.0.532",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "remotion": "^4.0.532",
+    "@remotion/player": "^4.0.532"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.4",
+    "@types/react": "^19.3.0",
+    "electron": "^44.7.0",
+    "playwright": "^1.63.0",
+    "typescript": "^7.0.2",
+    "esbuild": "^0.28.1"
+  }
+}

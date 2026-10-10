@@ -1,0 +1,294 @@
+{
+  "slug": "showcase",
+  "title": "Cutroom showcase",
+  "header": "一个视频看完[[全部效果]]",
+  "headerEn": "Every effect in one video",
+  "fps": 60,
+  "theme": {
+    "accent": "#3b6ef5",
+    "accent2": "#8fb0ff",
+    "bg": [
+      "#0b1020",
+      "#1a2140"
+    ]
+  },
+  "music": {
+    "src": "music/aerosol-of-my-love.mp3",
+    "volume": 0.3,
+    "duck": 0.5
+  },
+  "beat": {
+    "music": "music/aerosol-of-my-love.mp3",
+    "startBar": 0,
+    "volume": 0.85
+  },
+  "frame": {
+    "radius": 22,
+    "shadow": 1.2
+  },
+  "glass": true,
+  "chapterBar": true,
+  "scenes": [
+    {
+      "id": "intro",
+      "chapter": "开场",
+      "lines": [
+        {
+          "zh": "这条视频是[[写出来]]的，不是拖出来的。",
+          "en": "This video was written, not dragged together."
+        }
+      ],
+      "visual": {
+        "kind": "title",
+        "kicker": "Cutroom",
+        "title": "用[[代码]]剪视频",
+        "sub": "你在界面里改，AI 在旁边一起改"
+      },
+      "fx": {
+        "vignette": 0.35,
+        "grain": 0.2
+      },
+      "beat": [
+        {
+          "t": "用[[代码]]剪视频",
+          "en": "Edit video as code",
+          "n": 4
+        }
+      ]
+    },
+    {
+      "id": "record",
+      "chapter": "录屏",
+      "transition": "dip",
+      "transDur": 0.7,
+      "lines": [
+        {
+          "zh": "录屏会[[跟着点击]]自动推近。",
+          "en": "Screen recordings zoom in on every click.",
+          "at": "@type-0.3"
+        },
+        {
+          "zh": "光标、点击涟漪，都是后期加上去的。",
+          "en": "The cursor and click ripples are added afterwards.",
+          "at": "@check-0.2"
+        }
+      ],
+      "visual": {
+        "kind": "screen",
+        "src": "cap/planner.mp4",
+        "from": 0.8,
+        "url": "planner.example",
+        "to": "@filter+1.2"
+      },
+      "overlays": [
+        {
+          "kind": "arrow",
+          "at": 3.6,
+          "dur": 1.8,
+          "text": "自动推近",
+          "x": 0.62,
+          "y": 0.36,
+          "w": 0.14,
+          "h": 0.16
+        }
+      ],
+      "beat": [
+        {
+          "t": "点哪里 [[推近]]哪里",
+          "en": "Zooms in on every click",
+          "n": 4
+        },
+        {
+          "t": "光标和涟漪 后期加",
+          "en": "Cursor and ripples added in post",
+          "n": 4
+        }
+      ]
+    },
+    {
+      "id": "photo",
+      "chapter": "图片",
+      "transition": "flip",
+      "transDir": "right",
+      "lines": [
+        {
+          "zh": "一张图，加上慢推、暖色和漏光，就动起来了。",
+          "en": "A still gets a slow push, a warm look and a light leak."
+        }
+      ],
+      "visual": {
+        "kind": "image",
+        "src": "media/fractal.jpg"
+      },
+      "fx": {
+        "kenburns": "in",
+        "kbAmount": 0.16,
+        "look": "warm",
+        "leak": 0.6,
+        "vignette": 0.4
+      },
+      "overlays": [
+        {
+          "kind": "lower",
+          "at": 0.5,
+          "dur": 2.6,
+          "text": "Ken Burns",
+          "sub": "慢推 · 暖色 · 漏光"
+        }
+      ],
+      "beat": [
+        {
+          "t": "静态图 也能[[动起来]]",
+          "en": "Stills that move",
+          "n": 4
+        }
+      ]
+    },
+    {
+      "id": "clip",
+      "transition": "clock",
+      "lines": [
+        {
+          "zh": "视频片段加上黑边和胶片颗粒，马上有电影感。",
+          "en": "Letterbox and film grain make any clip feel cinematic."
+        }
+      ],
+      "visual": {
+        "kind": "clip",
+        "src": "media/flow.mp4",
+        "fit": "cover"
+      },
+      "fx": {
+        "letterbox": 0.1,
+        "grain": 0.45,
+        "look": "teal"
+      },
+      "overlays": [
+        {
+          "kind": "cinema",
+          "at": 0.3,
+          "dur": 2.6,
+          "text": "CINEMA",
+          "sub": "letterbox · grain · look"
+        }
+      ],
+      "beat": [
+        {
+          "t": "黑边 + 颗粒 = [[电影感]]",
+          "en": "Letterbox + grain = cinema",
+          "n": 4
+        }
+      ]
+    },
+    {
+      "id": "numbers",
+      "chapter": "数据",
+      "transition": "slide",
+      "transDir": "down",
+      "lines": [
+        {
+          "zh": "十种转场，十几个特效参数，十种叠加元素。",
+          "en": "Ten transitions, a dozen effect controls, ten overlay types."
+        }
+      ],
+      "visual": {
+        "kind": "stats",
+        "items": [
+          {
+            "value": "10",
+            "label": "种转场",
+            "en": "transitions"
+          },
+          {
+            "value": "18",
+            "label": "个特效参数",
+            "en": "effect controls"
+          },
+          {
+            "value": "10",
+            "label": "种叠加元素",
+            "en": "overlay types"
+          }
+        ]
+      },
+      "beat": [
+        {
+          "t": "10 转场 · 18 特效 · 10 叠加",
+          "en": "10 transitions · 18 effects · 10 overlays",
+          "n": 4
+        }
+      ]
+    },
+    {
+      "id": "how",
+      "transition": "push",
+      "lines": [
+        {
+          "zh": "你在界面里拖，AI 用命令行改，[[改的是同一份文件]]。",
+          "en": "You drag in the UI, the AI edits through the CLI, both on the same file."
+        }
+      ],
+      "visual": {
+        "kind": "flow",
+        "title": "一份分镜，两个编辑者",
+        "cols": [
+          [
+            {
+              "label": "你",
+              "sub": "拖动 · 裁切 · 调参数"
+            }
+          ],
+          [
+            {
+              "label": "storyboard.json",
+              "sub": "实时同步"
+            }
+          ],
+          [
+            {
+              "label": "AI 助手",
+              "sub": "一句话改"
+            }
+          ]
+        ]
+      },
+      "beat": [
+        {
+          "t": "你和 AI 改[[同一份]]文件",
+          "en": "You and the AI, one file",
+          "n": 4
+        }
+      ]
+    },
+    {
+      "id": "outro",
+      "chapter": "结尾",
+      "transition": "zoom",
+      "tail": 1.4,
+      "lines": [
+        {
+          "zh": "开源，欢迎试用。",
+          "en": "It's open source. Give it a try."
+        }
+      ],
+      "visual": {
+        "kind": "outro",
+        "title": "Cutroom",
+        "url": "github.com/WEBGRS/cutroom",
+        "lines": [
+          "MIT · Remotion · React"
+        ]
+      },
+      "fx": {
+        "fadeOut": 1.2
+      },
+      "beat": [
+        {
+          "t": "开源 欢迎试用",
+          "en": "Open source, try it",
+          "n": 4
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,8 @@
+node_modules/
+out/
+.scratch/
+.editor/
+editor/dist/
+public/_edtest/
+public/fonts/*.ttf
+*.tmp

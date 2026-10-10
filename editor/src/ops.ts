@@ -1,0 +1,260 @@
+import { resolveTime } from '../../src/lib/timeline';
+import type { CaptureMeta, Scene, Storyboard, TimeRef, Timings, Visual } from '../../src/lib/types';
+import type { EScene, VisualKey } from './model';
+
+// Everything an edit may touch: the storyboard plus voice timings keyed by scene id
+export interface Doc {
+  board: Storyboard;
+  timings: { zh?: Timings; en?: Timings };
+}
+
+export interface Op {
+  doc: Doc;
+  desc: string;
+}
+
+export type Caps = Record<string, CaptureMeta>;
+
+const clone = <T>(x: T): T => JSON.parse(JSON.stringify(x));
+export const r2 = (x: number) => Math.round(x * 100) / 100;
+
+export const showRef = (r: TimeRef | undefined) => (r === undefined ? '—' : String(r));
+const short = (v: unknown) => {
+  const s = v === undefined ? '—' : typeof v === 'string' ? v : JSON.stringify(v);
+  return s.length > 40 ? `${s.slice(0, 38)}…` : s;
+};
+
+const fmtRef = (name: string, off: number) => {
+  const o = r2(off);
+  return o === 0 ? `@${name}` : `@${name}${o > 0 ? '+' : ''}${o}`;
+};
+
+// Capture time t written like the old ref: same mark if it used one, else seconds; nearest mark for new points
+export function toRef(t: number, cap: CaptureMeta | undefined, old?: TimeRef, nearest = false): TimeRef {
+  t = Math.max(0, t);
+  const marks = (cap?.events ?? []).filter((e) => e.type === 'mark' && e.name);
+  const m = typeof old === 'string' ? /^@([\w-]+)/.exec(old) : null;
+  const same = m ? marks.find((e) => e.name === m[1]) : undefined;
+  if (same) return fmtRef(same.name!, t - same.t);
+  if (nearest && marks.length) {
+    const best = marks.reduce((a, e) => (Math.abs(e.t - t) < Math.abs(a.t - t) ? e : a));
+    return fmtRef(best.name!, t - best.t);
+  }
+  return r2(t);
+}
+
+const at = (b: Storyboard, id: string) => {
+  const i = b.scenes.findIndex((s) => s.id === id);
+  if (i < 0) throw new Error(`没有场景 ${id}`);
+  return i;
+};
+
+export function uniqueId(b: Storyboard, base: string): string {
+  const ids = new Set(b.scenes.map((s) => s.id));
+  const stem = base.replace(/-\d+$/, '');
+  for (let n = 2; ; n++) if (!ids.has(`${stem}-${n}`)) return `${stem}-${n}`;
+}
+
+const edit = (doc: Doc, fn: (d: Doc) => string): Op => {
+  const d = clone(doc);
+  const desc = fn(d);
+  return { doc: d, desc };
+};
+
+// Place scene id right before beforeId (null = end)
+export const moveScene = (doc: Doc, id: string, beforeId: string | null): Op =>
+  edit(doc, (d) => {
+    const b = d.board;
+    const i = at(b, id);
+    const [s] = b.scenes.splice(i, 1);
+    const j = beforeId === null ? b.scenes.length : at(b, beforeId);
+    b.scenes.splice(j, 0, s);
+    return `移动 ${id}：第 ${i + 1} → 第 ${j + 1} 位`;
+  });
+
+export const trimEdge = (doc: Doc, id: string, key: VisualKey, edge: 'from' | 'to', t: number, caps: Caps): Op =>
+  edit(doc, (d) => {
+    const s = d.board.scenes[at(d.board, id)];
+    const v = s[key];
+    if (!v || v.kind !== 'screen') throw new Error(`${id} 不是录屏画面，不能裁切`);
+    const cap = caps[v.src];
+    const old = v[edge];
+    const ref = toRef(Math.min(t, cap?.duration ?? t), cap, old);
+    v[edge] = ref;
+    return `${id}${key === 'tall' ? '（竖屏）' : ''} ${edge === 'from' ? '起点' : '终点'} ${showRef(old)} → ${showRef(ref)}`;
+  });
+
+export const setMinSec = (doc: Doc, id: string, sec: number | undefined): Op =>
+  edit(doc, (d) => {
+    const s = d.board.scenes[at(d.board, id)];
+    const old = s.minSec;
+    if (sec === undefined) delete s.minSec;
+    else s.minSec = r2(sec);
+    return `${id} 最短时长 ${old ?? '—'} → ${s.minSec ?? '—'} 秒`;
+  });
+
+// Beat cut: a scene lasts ceil(sum of phrase beats / 4) bars; resize by changing the last phrase
+export const setBeatBars = (doc: Doc, id: string, bars: number): Op =>
+  edit(doc, (d) => {
+    const s = d.board.scenes[at(d.board, id)];
+    if (!s.beat?.length) throw new Error(`${id} 没有卡点字`);
+    const rest = s.beat.slice(0, -1).reduce((a, p) => a + (p.n ?? 4), 0);
+    const want = Math.max(1, Math.round(bars)) * 4 - rest;
+    if (want < 1) throw new Error(`${id} 前面的卡点字已经占满 ${Math.ceil(rest / 4)} 小节`);
+    const last = s.beat[s.beat.length - 1];
+    const old = last.n ?? 4;
+    last.n = want;
+    return `${id} 卡点长度 → ${Math.ceil((rest + want) / 4)} 小节（末句 ${old} → ${want} 拍）`;
+  });
+
+export interface SplitAt {
+  t: Partial<Record<VisualKey, number>>;
+  line: number;
+  phrase: number;
+  sec: number;
+}
+
+// Where a split at scene-relative frame f lands in each visual, line list and phrase list
+export function splitPoint(e: EScene, scene: Scene, f: number, fps: number, caps: Caps, mode: 'voice' | 'beat'): SplitAt {
+  const sec = f / fps;
+  const t: SplitAt['t'] = {};
+  for (const key of ['visual', 'tall'] as VisualKey[]) {
+    const v = scene[key];
+    if (v?.kind !== 'screen') continue;
+    if (key === e.key && e.from !== undefined) t[key] = e.from + sec * e.rate;
+    else t[key] = resolveSafe(v.from, caps[v.src]) + sec * (v.rate ?? 1);
+  }
+  const frac = Math.min(1, Math.max(0, f / Math.max(1, e.dur)));
+  // Items already started stay in the first half
+  let shown = e.lines.findIndex((l) => l.start >= f);
+  if (shown < 0) shown = e.lines.length;
+  const line = mode === 'voice' ? shown : Math.round(frac * scene.lines.length);
+  const phrase = mode === 'beat' ? shown : Math.round(frac * (scene.beat?.length ?? 0));
+  return { t, line, phrase, sec };
+}
+
+const resolveSafe = (r: TimeRef | undefined, cap: CaptureMeta | undefined) => {
+  try {
+    return resolveTime(r, cap, 0);
+  } catch {
+    return 0;
+  }
+};
+
+export const splitScene = (doc: Doc, id: string, p: SplitAt, caps: Caps): Op =>
+  edit(doc, (d) => {
+    const b = d.board;
+    const i = at(b, id);
+    const a = b.scenes[i];
+    const nid = uniqueId(b, id);
+    const z: Scene = clone(a);
+    z.id = nid;
+    for (const key of ['visual', 'tall'] as VisualKey[]) {
+      const va = a[key];
+      const vz = z[key];
+      const t = p.t[key];
+      if (va?.kind !== 'screen' || vz?.kind !== 'screen' || t === undefined) continue;
+      const cap = caps[va.src];
+      va.to = toRef(t, cap, undefined, true);
+      vz.from = va.to;
+    }
+    a.lines = a.lines.slice(0, p.line);
+    z.lines = z.lines.slice(p.line);
+    if (a.beat) {
+      a.beat = a.beat.slice(0, p.phrase);
+      z.beat = z.beat!.slice(p.phrase);
+    }
+    if (a.overlays) {
+      a.overlays = a.overlays.filter((o) => o.at < p.sec);
+      z.overlays = z.overlays!.filter((o) => o.at >= p.sec).map((o) => ({ ...o, at: r2(o.at - p.sec) }));
+    }
+    // Halves of one clip cut straight, with a short narration gap
+    z.transition = 'none';
+    a.tail ??= 0.15;
+    z.lead ??= 0.15;
+    delete a.minSec;
+    delete z.minSec;
+    for (const lang of ['zh', 'en'] as const) {
+      const tm = d.timings[lang];
+      const clips = tm?.scenes[id];
+      if (!tm || !clips) continue;
+      tm.scenes[id] = clips.slice(0, p.line);
+      tm.scenes[nid] = clips.slice(p.line);
+    }
+    b.scenes.splice(i + 1, 0, z);
+    return `拆分 ${id} → ${id} + ${nid}（在 ${r2(p.sec)} 秒处）`;
+  });
+
+// Insert a new scene after afterId (null = at the end)
+export const addScene = (doc: Doc, scene: Scene, afterId: string | null): Op =>
+  edit(doc, (d) => {
+    const s = clone(scene);
+    if (d.board.scenes.some((x) => x.id === s.id)) s.id = uniqueId(d.board, s.id);
+    const i = afterId === null ? d.board.scenes.length : at(d.board, afterId) + 1;
+    d.board.scenes.splice(i, 0, s);
+    return `新增 ${s.id}（${s.visual.kind}）在第 ${i + 1} 位`;
+  });
+
+export const removeScene = (doc: Doc, id: string): Op =>
+  edit(doc, (d) => {
+    const i = at(d.board, id);
+    d.board.scenes.splice(i, 1);
+    return `删除 ${id}`;
+  });
+
+export const duplicateScene = (doc: Doc, id: string): Op =>
+  edit(doc, (d) => {
+    const i = at(d.board, id);
+    const s: Scene = clone(d.board.scenes[i]);
+    s.id = uniqueId(d.board, id);
+    d.board.scenes.splice(i + 1, 0, s);
+    return `复制 ${id} → ${s.id}`;
+  });
+
+const parts = (path: string) => path.split('.').filter(Boolean).map((p) => (/^\d+$/.test(p) ? Number(p) : p));
+
+export function getPath(obj: unknown, path: string): unknown {
+  let o: any = obj;
+  for (const k of parts(path)) {
+    if (o == null) return undefined;
+    o = o[k];
+  }
+  return o;
+}
+
+// Set (or delete with undefined) a field of a scene, or of the board when id is null
+export const setPath = (doc: Doc, id: string | null, path: string, value: unknown): Op =>
+  edit(doc, (d) => {
+    if (id !== null && path === 'id') throw new Error('场景 id 不能改（配音按 id 对应）');
+    const root: any = id === null ? d.board : d.board.scenes[at(d.board, id)];
+    const ks = parts(path);
+    if (!ks.length) throw new Error('路径为空');
+    let o = root;
+    ks.slice(0, -1).forEach((k, n) => {
+      if (o[k] == null) o[k] = typeof ks[n + 1] === 'number' ? [] : {};
+      o = o[k];
+    });
+    const last = ks[ks.length - 1];
+    const old = o[last];
+    if (value === undefined) {
+      if (Array.isArray(o) && typeof last === 'number') o.splice(last, 1);
+      else delete o[last];
+    } else o[last] = value;
+    return `${id ?? '全片'}.${path}: ${short(old)} → ${short(value)}`;
+  });
+
+export const replaceScene = (doc: Doc, id: string, scene: Scene): Op =>
+  edit(doc, (d) => {
+    if (scene.id !== id) throw new Error('场景 id 不能改（配音按 id 对应）');
+    if (!scene.visual || !Array.isArray(scene.lines)) throw new Error('场景缺 visual 或 lines');
+    d.board.scenes[at(d.board, id)] = scene;
+    return `${id} 整段 JSON 已替换`;
+  });
+
+export const toggleTall = (doc: Doc, id: string, on: boolean): Op =>
+  edit(doc, (d) => {
+    const s = d.board.scenes[at(d.board, id)];
+    if (on) s.tall = clone(s.tall ?? (s.visual as Visual));
+    else delete s.tall;
+    return `${id} 竖屏${on ? '使用单独画面' : '改用横屏画面'}`;
+  });

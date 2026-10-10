@@ -1,0 +1,60 @@
+{
+ "voice": "fixture",
+ "lang": "zh",
+ "scenes": {
+  "intro": [
+   {
+    "file": "vo/intro-0.wav",
+    "dur": 3.864,
+    "text": "这条视频是写出来的，不是拖出来的。"
+   }
+  ],
+  "record": [
+   {
+    "file": "vo/record-0.wav",
+    "dur": 2.727,
+    "text": "录屏会跟着点击自动推近。"
+   },
+   {
+    "file": "vo/record-1.wav",
+    "dur": 3.864,
+    "text": "光标、点击涟漪，都是后期加上去的。"
+   }
+  ],
+  "photo": [
+   {
+    "file": "vo/photo-0.wav",
+    "dur": 4.773,
+    "text": "一张图，加上慢推、暖色和漏光，就动起来了。"
+   }
+  ],
+  "clip": [
+   {
+    "file": "vo/clip-0.wav",
+    "dur": 4.773,
+    "text": "视频片段加上黑边和胶片颗粒，马上有电影感。"
+   }
+  ],
+  "numbers": [
+   {
+    "file": "vo/numbers-0.wav",
+    "dur": 4.545,
+    "text": "十种转场，十几个特效参数，十种叠加元素。"
+   }
+  ],
+  "how": [
+   {
+    "file": "vo/how-0.wav",
+    "dur": 5.682,
+    "text": "你在界面里拖，AI 用命令行改，改的是同一份文件。"
+   }
+  ],
+  "outro": [
+   {
+    "file": "vo/outro-0.wav",
+    "dur": 1.818,
+    "text": "开源，欢迎试用。"
+   }
+  ]
+ }
+}

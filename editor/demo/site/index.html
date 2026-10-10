@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Planner</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 15px/1.5 "Segoe UI", system-ui, sans-serif; color: #1c2230; background: #f3f5f9; }
+  header { display: flex; align-items: center; gap: 12px; padding: 18px 40px; background: #fff; border-bottom: 1px solid #e3e7ee; }
+  header .logo { width: 30px; height: 30px; border-radius: 8px; background: linear-gradient(135deg, #3b6ef5, #8fb0ff); }
+  header h1 { font-size: 19px; margin: 0; }
+  header nav { margin-left: auto; display: flex; gap: 22px; color: #5b6475; }
+  main { max-width: 760px; margin: 34px auto; }
+  .card { background: #fff; border: 1px solid #e3e7ee; border-radius: 14px; padding: 22px 24px; box-shadow: 0 6px 24px rgba(20, 30, 60, .06); }
+  .add { display: flex; gap: 10px; }
+  .add input { flex: 1; height: 44px; border: 1px solid #d6dbe4; border-radius: 10px; padding: 0 14px; font: inherit; }
+  .add button { height: 44px; padding: 0 22px; border: 0; border-radius: 10px; background: #3b6ef5; color: #fff; font: 600 15px inherit; cursor: pointer; }
+  .tabs { display: flex; gap: 6px; margin: 18px 0 8px; }
+  .tabs button { border: 0; background: transparent; padding: 6px 14px; border-radius: 999px; font: 500 14px inherit; color: #5b6475; cursor: pointer; }
+  .tabs button.on { background: #e8eefe; color: #3b6ef5; font-weight: 600; }
+  ul { list-style: none; margin: 0; padding: 0; }
+  li { display: flex; align-items: center; gap: 12px; padding: 12px 6px; border-bottom: 1px solid #eef1f5; }
+  li:last-child { border-bottom: 0; }
+  li .box { width: 22px; height: 22px; border-radius: 6px; border: 2px solid #b9c2d1; display: grid; place-items: center; cursor: pointer; flex: none; }
+  li.done .box { background: #3b6ef5; border-color: #3b6ef5; }
+  li.done .box::after { content: ""; width: 10px; height: 5px; border-left: 2.5px solid #fff; border-bottom: 2.5px solid #fff; transform: translateY(-1px) rotate(-45deg); }
+  li.done .t { color: #9aa3b2; text-decoration: line-through; }
+  li .tag { margin-left: auto; font-size: 12px; padding: 2px 10px; border-radius: 999px; background: #fff3e6; color: #b55f00; }
+  li.new { animation: in .35s ease-out; }
+  @keyframes in { from { opacity: 0; transform: translateY(-6px); } }
+  .foot { display: flex; justify-content: space-between; margin-top: 12px; color: #6b7486; font-size: 13px; }
+  .bar { height: 6px; background: #eef1f5; border-radius: 3px; margin-top: 8px; overflow: hidden; }
+  .bar i { display: block; height: 100%; background: #3b6ef5; width: 0; transition: width .4s; }
+</style>
+</head>
+<body>
+<header><div class="logo"></div><h1>Planner</h1><nav><span>Today</span><span>Week</span><span>Settings</span></nav></header>
+<main>
+  <div class="card">
+    <div class="add"><input id="q" placeholder="Add a task…" autocomplete="off"><button id="add">Add</button></div>
+    <div class="tabs"><button class="on" data-f="all">All</button><button data-f="open">Open</button><button data-f="done">Done</button></div>
+    <ul id="list"></ul>
+    <div class="foot"><span id="count"></span><span>Progress</span></div>
+    <div class="bar"><i id="prog"></i></div>
+  </div>
+</main>
+<script>
+  const tasks = [
+    { t: 'Record the demo', tag: 'video', done: false },
+    { t: 'Write captions', tag: 'text', done: false },
+    { t: 'Pick music', tag: 'audio', done: true },
+  ];
+  let filter = 'all';
+  const list = document.getElementById('list');
+  function draw(fresh) {
+    list.innerHTML = '';
+    tasks.forEach((k, i) => {
+      if (filter === 'open' && k.done) return;
+      if (filter === 'done' && !k.done) return;
+      const li = document.createElement('li');
+      li.className = (k.done ? 'done' : '') + (i === fresh ? ' new' : '');
+      li.dataset.i = i;
+      li.innerHTML = '<span class="box"></span><span class="t"></span>' + (k.tag ? '<span class="tag"></span>' : '');
+      li.querySelector('.t').textContent = k.t;
+      if (k.tag) li.querySelector('.tag').textContent = k.tag;
+      li.querySelector('.box').onclick = () => { k.done = !k.done; draw(); };
+      list.appendChild(li);
+    });
+    const done = tasks.filter((k) => k.done).length;
+    document.getElementById('count').textContent = `${tasks.length - done} open · ${done} done`;
+    document.getElementById('prog').style.width = `${(done / tasks.length) * 100}%`;
+  }
+  document.getElementById('add').onclick = () => {
+    const q = document.getElementById('q');
+    if (!q.value.trim()) return;
+    tasks.unshift({ t: q.value.trim(), tag: 'new', done: false });
+    q.value = '';
+    draw(0);
+  };
+  document.querySelectorAll('.tabs button').forEach((b) => (b.onclick = () => {
+    document.querySelectorAll('.tabs button').forEach((x) => x.classList.toggle('on', x === b));
+    filter = b.dataset.f;
+    draw();
+  }));
+  draw();
+</script>
+</body>
+</html>
