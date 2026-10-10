@@ -95,6 +95,12 @@ const P: Record<string, React.ReactNode> = {
       <path d="M10.6 5.8a3.2 3.2 0 0 1 0 4.4M12.6 3.9a5.8 5.8 0 0 1 0 8.2" />
     </>
   ),
+  cam: (
+    <>
+      <rect x="1.5" y="4.5" width="9" height="7" rx="1.5" />
+      <path d="m10.5 7 4-2.2v6.4l-4-2.2" />
+    </>
+  ),
   mic: (
     <>
       <rect x="5.5" y="2" width="5" height="8" rx="2.5" />

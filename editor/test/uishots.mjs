@@ -52,7 +52,8 @@ async function open(q, { w = 1600, h = 960, dpr = 1, ls = {} } = {}) {
   await page.addInitScript((ls) => {
     for (const [k, v] of Object.entries(ls)) localStorage.setItem(k, v);
   }, { 'vs-side': 'props', 'vs-lib': 'media', 'vs-itab': 'visual', 'vs-btab': 'basic', ...ls });
-  await page.goto(`${B}/?${q}`);
+  // English unless the shot asks for another interface language (the app-wide setting may be Chinese)
+  await page.goto(`${B}/?${q}${q.includes('ui=') ? '' : '&ui=en'}`);
   return page;
 }
 const ready = async (page) => {

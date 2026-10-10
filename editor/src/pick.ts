@@ -31,7 +31,7 @@ function sceneDetail(e: EScene | undefined, sc: Scene | undefined, fps: number) 
 }
 
 // Elements that can be picked, innermost first
-export const PICKABLE = '[data-pick], .sfx, .clip, .cap, .vo, .mus, .frame, .lt, .item, .insp .row, .itabs button, .lib-tabs button, .top button, .top select, .transport button, .transport select, .tl-tools button';
+export const PICKABLE = '[data-pick], .sfx, .tlb, .tbadge, .clip, .cap, .vo, .mus, .frame, .lt, .item, .insp .row, .itabs button, .lib-tabs button, .top button, .top select, .transport button, .transport select, .tl-tools button';
 
 export function resolvePick(target: Element, clientX: number, clientY: number, c: PickContext): { el: Element; ref: AiRef } | null {
   const el = target.closest(PICKABLE);
@@ -83,6 +83,38 @@ export function resolvePick(target: Element, clientX: number, clientY: number, c
         detail: `Sound effect #${Number(i) + 1} "${name}" (id ${cue?.id ?? '?'}, ${cue?.at ?? 0} s into ${sceneDetail(e, sc, c.fps)}${e?.sounds[Number(i)] ? `, ${sec(e.start + e.sounds[Number(i)].f, c.fps)} on the timeline` : ''}, volume ${cue?.vol ?? 1}); its data is sounds.${i} of scene "${scn}".`,
       },
     };
+  }
+
+  // Timeline badges: overlays, effects, camera moves, transitions
+  const bsid = (el as HTMLElement).dataset?.scene;
+  if (sp && bsid && ['overlay', 'fxbar', 'camera', 'trans'].includes(sp[0])) {
+    const [kind, id, name] = sp;
+    const { e, sc } = sceneOf(bsid);
+    const where = sceneDetail(e, sc, c.fps);
+    if (kind === 'overlay') {
+      const o = sc?.overlays?.[Number(id)];
+      return {
+        el,
+        ref: {
+          key: `ov:${bsid}:${id}`,
+          label: tr(`Overlay: ${clip(name, 22)}`, `叠加：${clip(name, 14)}`),
+          detail: `Overlay #${Number(id) + 1} (${name}) in ${where}, from ${o?.at ?? 0} s for ${o?.dur ?? 1.6} s; its data is overlays.${id} of scene "${bsid}".`,
+        },
+      };
+    }
+    if (kind === 'fxbar') return { el, ref: { key: `fx:${bsid}`, label: tr(`Effects on ${bsid}`, `${bsid} 的特效`), detail: `The picture effects on ${where}: ${name}. They are the fx.* fields of that scene.` } };
+    if (kind === 'camera') {
+      const span = id.split('@')[1] ?? '';
+      return {
+        el,
+        ref: {
+          key: `cam:${id}`,
+          label: tr(`Camera: ${clip(name, 22)}`, `运镜：${clip(name, 14)}`),
+          detail: `A camera move in ${where}, ${span.replace('-', '–')} s into the scene: ${name}. Recording zooms come from visual.zoom ("auto" zooms on clicks, "off"), visual.base and visual.zooms [{at, end, x, y, scale}]; camera effects from fx.kenburns, fx.kbAmount, fx.drift, fx.focusIn, fx.stepped, fx.motionBlur, fx.shake, fx.fadeIn, fx.fadeOut.`,
+        },
+      };
+    }
+    return { el, ref: { key: `tr:${bsid}`, label: tr(`Transition: ${name}`, `转场：${name}`), detail: `The transition into ${where}: ${name} (field transition in the narrated cut, beatTransition in the beat cut).` } };
   }
 
   // Timeline: scene clips, caption chips, voice clips, music

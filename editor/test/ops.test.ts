@@ -229,3 +229,20 @@ test('sound cues can follow a recording mark', async () => {
   assert.equal(e.sounds[0].past, false);
   assert.equal(e.sounds[1].past, true, 'unknown mark is flagged');
 });
+
+test('timeline shows what each scene uses: effects, camera moves, overlays, transitions', async () => {
+  const d = fresh();
+  const e = editTimeline(await props(d, 'wide', 'voice'), 60).scenes;
+  const photo = e.find((s) => s.id === 'photo')!;
+  assert.deepEqual(photo.fx.map((x) => x.en), ['Warm', 'Vignette', 'Light leak']);
+  assert.deepEqual(photo.camera.map((x) => [x.en, x.tab]), [['Push in', 'fx']]);
+  assert.equal(photo.transIn?.en, 'Flip');
+  assert.deepEqual(photo.overlays.map((o) => [o.f, o.dur]), [[30, 156]]);
+  const record = e.find((s) => s.id === 'record')!;
+  assert.ok(record.camera.length > 0 && record.camera.every((c) => c.tab === 'visual' && c.f >= 0 && c.f + c.dur <= record.dur), 'click zooms inside the scene');
+  assert.equal(e[0].transIn, undefined, 'first scene has no transition');
+  // Beat cut hides overlays unless the board turns them on
+  const b = editTimeline(await props(d, 'wide', 'beat'), 60).scenes.find((s) => s.id === 'photo')!;
+  assert.equal(b.overlays[0].off?.en, 'the beat cut hides overlays');
+  assert.equal(b.transIn?.plain, true);
+});

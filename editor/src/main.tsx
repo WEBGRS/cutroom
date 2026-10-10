@@ -5,10 +5,10 @@ import { Main } from '../../src/Main';
 import { loadProps, type Loaded } from '../../src/lib/load';
 import type { Format, Props } from '../../src/lib/types';
 import { editTimeline, fmtTime, safe, type EScene, type ETimeline } from './model';
-import { addScene, addSound, duplicateScene, moveScene, moveSound, removeSound, removeScene, setBeatBars, setMinSec, setPath, splitPoint, splitScene, trimEdge, uniqueId, type Caps, type Doc, type Op } from './ops';
+import { addScene, addSound, duplicateScene, moveScene, moveSound, removeOverlay, removeSound, removeScene, setBeatBars, setMinSec, setPath, splitPoint, splitScene, trimEdge, uniqueId, type Caps, type Doc, type Op } from './ops';
 import { cancelRender, getAssets, getBoard, getExports, getProjects, openExports, putBoard, reveal, startRender, type Job } from './api';
 import { Timeline, type Edge } from './Timeline';
-import { Inspector } from './Inspector';
+import { Inspector, type Focus } from './Inspector';
 import { ChatPanel } from './ChatPanel';
 import { Library, type LibTab } from './Library';
 import { ADDABLE, sceneTemplate } from './templates';
@@ -203,8 +203,9 @@ function App() {
   const [sel, setSel] = useState<string | null>(null);
   const [focusLine, setFocusLine] = useState<number | null>(null);
   // Selected sound cue ("scene:i") and the cue the inspector should open
-  const [selSound, setSelSound] = useState<string | null>(null);
-  const [focusSound, setFocusSound] = useState<{ i: number; n: number } | null>(null);
+  // Selected sound or overlay on the timeline ("sound:scene:i" / "overlay:scene:i") and the inspector page to open
+  const [selCue, setSelCue] = useState<string | null>(null);
+  const [focus, setFocus] = useState<Focus | null>(null);
   const [saveState, setSaveState] = useState<'saved' | 'saving' | 'error'>('saved');
   const [toast, setToast] = useState<{ text: string; kind?: 'error' } | null>(null);
   const [job, setJob] = useState<Job | null>(null);
@@ -233,7 +234,7 @@ function App() {
       return 'media';
     }
   });
-  const [size, setSize] = useState(() => ({ lib: pref.get('vs-w-lib2', innerWidth < 1440 ? 300 : 340), side: pref.get('vs-w-side2', innerWidth < 1440 ? 330 : 356), tl: pref.get('vs-h-tl', innerHeight < 860 ? 236 : 268) }));
+  const [size, setSize] = useState(() => ({ lib: pref.get('vs-w-lib2', innerWidth < 1440 ? 300 : 340), side: pref.get('vs-w-side2', innerWidth < 1440 ? 330 : 356), tl: pref.get('vs-h-tl2', innerHeight < 860 ? 280 : 340) }));
   const size0 = useRef(size);
   const [phId, setPhId] = useState<string | null>(null);
   // Ctrl+click pointing: references waiting in the AI input
@@ -560,7 +561,7 @@ function App() {
   const select = (id: string | null, line?: number) => {
     setSel(id);
     setFocusLine(line ?? null);
-    setSelSound(null);
+    setSelCue(null);
   };
   const selE = etl?.scenes.find((s) => s.id === sel) ?? null;
 
@@ -578,10 +579,10 @@ function App() {
   };
   const doDup = () => sel && commit((d) => duplicateScene(d, sel));
   const doDel = () => {
-    if (selSound) {
-      const [sid, i] = selSound.split(':');
-      commit((d) => removeSound(d, sid, Number(i)));
-      setSelSound(null);
+    if (selCue) {
+      const [kind, sid, i] = selCue.split(':');
+      commit((d) => (kind === 'sound' ? removeSound(d, sid, Number(i)) : removeOverlay(d, sid, Number(i))));
+      setSelCue(null);
       return;
     }
     if (!sel) return;
@@ -617,19 +618,34 @@ function App() {
   };
   // Scene a frame belongs to; during a transition, the one coming in
   const sceneAtFrame = (f: number) => etl?.scenes.filter((s) => f >= s.start && f < s.start + s.dur).pop() ?? null;
-  const focusCue = (scene: string, i: number) => {
+  const focusCue = (kind: 'sound' | 'overlay', scene: string, i: number) => {
     setSel(scene);
     setFocusLine(null);
-    setSelSound(`${scene}:${i}`);
-    setFocusSound({ i, n: Date.now() });
+    setSelCue(`${kind}:${scene}:${i}`);
+    setFocus({ tab: kind === 'sound' ? 'sound' : 'over', i, n: Date.now() });
+    setSide('props');
   };
+  // Effect, camera or transition badge on the timeline: that scene's settings page
+  const openTab = (scene: string, tab: 'visual' | 'trans' | 'fx') => {
+    setSel(scene);
+    setFocusLine(null);
+    setSelCue(null);
+    setFocus({ tab, n: Date.now() });
+    setSide('props');
+  };
+  const onOverlayEdit = (scene: string, i: number, patch: { at?: number; dur?: number }) =>
+    commit((d) => {
+      let op = null as Op | null;
+      for (const [k, v] of Object.entries(patch)) op = setPath(op?.doc ?? d, scene, `overlays.${i}.${k}`, v);
+      return op!;
+    });
   const placeSound = (id: string, f: number) => {
     const s = sceneAtFrame(f);
     const def = soundDef(id);
     if (!s || !etl || !def || !docRef.current) return;
     const i = docRef.current.board.scenes.find((x) => x.id === s.id)?.sounds?.length ?? 0;
     commit((d) => addSound(d, s.id, id, (f - s.start) / etl.fps));
-    focusCue(s.id, i);
+    focusCue('sound', s.id, i);
     flash(tr(`Added "${def.en}" to ${s.id}`, `已在 ${s.id} 加上「${def.zh}」`));
   };
   const libSound = (id: string) => placeSound(id, player?.getCurrentFrame() ?? 0);
@@ -638,7 +654,7 @@ function App() {
     if (!s || !etl || !docRef.current) return;
     const j = s.id === from ? i : (docRef.current.board.scenes.find((x) => x.id === s.id)?.sounds?.length ?? 0);
     commit((d) => moveSound(d, from, i, s.id, (f - s.start) / etl.fps));
-    focusCue(s.id, j);
+    focusCue('sound', s.id, j);
   };
   const playheadIn = (id: string) => {
     const e = etl?.scenes.find((s) => s.id === id);
@@ -952,7 +968,7 @@ function App() {
     size0.current = size;
     pref.set('vs-w-lib2', size.lib);
     pref.set('vs-w-side2', size.side);
-    pref.set('vs-h-tl', size.tl);
+    pref.set('vs-h-tl2', size.tl);
   };
   const setSideTab = (k: 'props' | 'ai') => {
     setSide(k);
@@ -1231,7 +1247,7 @@ function App() {
               music={music}
               sel={sel}
               focusLine={focusLine}
-              focusSound={focusSound}
+              focus={focus}
               commit={commit}
               onSelect={(id) => select(id)}
               actions={{ split: doSplit, dup: doDup, del: doDel, up: () => nudge(-1), down: () => nudge(1) }}
@@ -1270,8 +1286,10 @@ function App() {
           canTrim={canTrim}
           onTrim={onTrim}
           missing={missing}
-          selSound={selSound}
-          onSoundPick={focusCue}
+          selCue={selCue}
+          onCuePick={focusCue}
+          onOverlayEdit={onOverlayEdit}
+          onOpen={openTab}
           onSoundMove={onSoundMove}
           onSoundDrop={placeSound}
           tools={

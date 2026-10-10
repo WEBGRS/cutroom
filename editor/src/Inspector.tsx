@@ -32,8 +32,7 @@ interface Props {
   music: { src: string; beats: boolean }[];
   sel: string | null;
   focusLine: number | null;
-  // Index of a sound cue to open, bumped by n so the same cue can be focused again
-  focusSound: { i: number; n: number } | null;
+  focus: Focus | null;
   commit: Commit;
   onSelect: (id: string | null) => void;
   actions: { split: () => void; dup: () => void; del: () => void; up: () => void; down: () => void };
@@ -46,6 +45,12 @@ const isImg = (a: string) => /\.(png|jpe?g|webp|gif)$/i.test(a);
 const isVid = (a: string) => /\.(mp4|webm|mov)$/i.test(a);
 
 type STab = 'visual' | 'trans' | 'fx' | 'over' | 'sound' | 'lines';
+// A page to open, and the item on it (bumped by n so the same one can be opened again)
+export interface Focus {
+  tab: STab;
+  i?: number;
+  n: number;
+}
 type BTab = 'basic' | 'audio' | 'caps' | 'look';
 
 // Remembered per panel, so switching scenes keeps the same page open
@@ -107,6 +112,7 @@ export function Inspector(p: Props) {
   const listRef = useRef<HTMLDivElement>(null);
   const [tab, setTab] = useTab<STab>('vs-itab', ['visual', 'trans', 'fx', 'over', 'sound', 'lines'], 'visual');
   const soundRef = useRef<HTMLDivElement>(null);
+  const bodyRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (p.focusLine === null) return;
@@ -115,10 +121,11 @@ export function Inspector(p: Props) {
   }, [p.focusLine, sel]);
 
   useEffect(() => {
-    if (!p.focusSound) return;
-    if (tab !== 'sound') setTab('sound');
-    requestAnimationFrame(() => soundRef.current?.querySelector<HTMLElement>(`[data-k="${p.focusSound!.i}"]`)?.scrollIntoView({ block: 'nearest' }));
-  }, [p.focusSound]);
+    const f = p.focus;
+    if (!f) return;
+    if (tab !== f.tab) setTab(f.tab);
+    if (f.i !== undefined) requestAnimationFrame(() => bodyRef.current?.querySelector<HTMLElement>(`[data-k="${f.i}"]`)?.scrollIntoView({ block: 'nearest' }));
+  }, [p.focus]);
 
   if (!scene) return <BoardPanel {...p} />;
 
@@ -273,7 +280,7 @@ export function Inspector(p: Props) {
           </select>
         </div>
         {(scene.overlays ?? []).length ? (
-          (scene.overlays ?? []).map((o, i) => <OverlayItem key={i} o={o} i={i} set={set} />)
+          (scene.overlays ?? []).map((o, i) => <OverlayItem key={i} o={o} i={i} focus={p.focus?.tab === 'over' && p.focus.i === i} set={set} />)
         ) : (
           <p className="hint">{tr('No overlays yet. Labels, arrows, highlight boxes, lower thirds and animated text go here; the Overlays and Text sections of the library add them too.', '这一段还没有叠加元素。标签、箭头、高亮框、字幕条、动画文字都在这里加，也可以从左边素材库的「叠加」「文字」页点选。')}</p>
         )}
@@ -305,7 +312,7 @@ export function Inspector(p: Props) {
           </select>
         </div>
         {(scene.sounds ?? []).length ? (
-          (scene.sounds ?? []).map((c, i) => <SoundItem key={i} c={c} i={i} max={e ? e.dur / fps : 10} past={!!e?.sounds[i]?.past} marks={marks} focus={p.focusSound?.i === i} set={set} del={() => p.commit((d) => removeSound(d, scene.id, i))} />)
+          (scene.sounds ?? []).map((c, i) => <SoundItem key={i} c={c} i={i} max={e ? e.dur / fps : 10} past={!!e?.sounds[i]?.past} marks={marks} focus={p.focus?.tab === 'sound' && p.focus.i === i} set={set} del={() => p.commit((d) => removeSound(d, scene.id, i))} />)
         ) : (
           <p className="hint">{tr('No sound effects in this scene. Drag one from Sound FX in the library onto the timeline, or add it here at the playhead.', '这一段还没有音效。从左边素材库的「音效」页拖到时间线上，或者在这里加在播放头位置。')}</p>
         )}
@@ -415,7 +422,9 @@ export function Inspector(p: Props) {
           ['lines', p.mode === 'voice' ? tr('Narration', '旁白') : tr('Beat text', '卡点字'), lineCount],
         ]}
       />
-      <div className="ibody">{body}</div>
+      <div className="ibody" ref={bodyRef}>
+        {body}
+      </div>
       <datalist id="marks">
         {marks.map((m) => (
           <option key={m} value={`@${m}`} />
@@ -477,12 +486,12 @@ function SoundItem({ c, i, max, past, marks, focus, set, del }: { c: SoundCue; i
 
 const XY: Record<string, [string, string]> = { x: ['x', '横 x'], y: ['y', '纵 y'], w: ['w', '宽 w'], h: ['h', '高 h'] };
 
-function OverlayItem({ o, i, set }: { o: Overlay; i: number; set: (path: string, value: unknown) => void }) {
+function OverlayItem({ o, i, focus, set }: { o: Overlay; i: number; focus: boolean; set: (path: string, value: unknown) => void }) {
   const def = OVERLAY_LIST.find((x) => x.id === o.kind);
   const f = (name: string) => `overlays.${i}.${name}`;
   const fields = def?.fields ?? ['text', 'sub', 'x', 'y'];
   return (
-    <div className="item ov" data-pick={`overlay|${i}|${def ? nm(def) : o.kind}${o.text ? ` "${o.text.slice(0, 30)}"` : ''}`}>
+    <div className={`item ov${focus ? ' focus' : ''}`} data-k={i} data-pick={`overlay|${i}|${def ? nm(def) : o.kind}${o.text ? ` "${o.text.slice(0, 30)}"` : ''}`}>
       <div className="head">
         <span className="idx">{i + 1}</span>
         <span className="ovk">

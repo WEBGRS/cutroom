@@ -268,6 +268,15 @@ export const removeSound = (doc: Doc, sceneId: string, i: number): Op =>
     return `${sceneId} 删除音效 ${cue.id}`;
   });
 
+export const removeOverlay = (doc: Doc, sceneId: string, i: number): Op =>
+  edit(doc, (d) => {
+    const s = d.board.scenes[at(d.board, sceneId)];
+    const [o] = s.overlays?.splice(i, 1) ?? [];
+    if (!o) throw new Error(`${sceneId} 没有第 ${i + 1} 个叠加元素`);
+    if (!s.overlays!.length) delete s.overlays;
+    return `${sceneId} 删除叠加 ${o.kind}`;
+  });
+
 // Moving a sound past a cut hands it to the scene it now starts in
 export const moveSound = (doc: Doc, from: string, i: number, to: string, sec: number): Op =>
   edit(doc, (d) => {

@@ -32,9 +32,12 @@ interface Props {
   onTrim: (e: EScene, edge: Edge, dSec: number, done: boolean) => void;
   tools: React.ReactNode;
   missing: Map<string, string>;
-  // Sound effects: key of the selected cue ("scene:i"), click, drag to a frame, drop from the library
-  selSound: string | null;
-  onSoundPick: (scene: string, i: number) => void;
+  // Selected sound or overlay ("sound:scene:i" / "overlay:scene:i")
+  selCue: string | null;
+  onCuePick: (kind: 'sound' | 'overlay', scene: string, i: number) => void;
+  onOverlayEdit: (scene: string, i: number, patch: { at?: number; dur?: number }) => void;
+  // Open a scene's settings page from its effect, camera or transition badge
+  onOpen: (scene: string, tab: 'visual' | 'trans' | 'fx') => void;
   onSoundMove: (scene: string, i: number, f: number) => void;
   onSoundDrop: (id: string, f: number) => void;
 }
@@ -43,7 +46,23 @@ type Drag =
   | { kind: 'move'; id: string; x0: number; moved: boolean; slot: number; px: number }
   | { kind: 'trim'; e: EScene; edge: Edge; x0: number }
   | { kind: 'scrub' }
-  | { kind: 'sound'; scene: string; i: number; f: number; x0: number; px: number; moved: boolean };
+  | { kind: 'sound'; scene: string; i: number; f: number; x0: number; px: number; moved: boolean }
+  | { kind: 'ov'; scene: string; i: number; edge: 'move' | 'r'; f: number; d: number; max: number; x0: number; px: number; moved: boolean };
+
+// Rows for overlapping blocks: each gets the first row where it fits (overlaps up to tol frames share a row)
+function stack<T extends { a: number; b: number }>(items: T[], tol = 0): { rows: number; at: Map<T, number> } {
+  const ends: number[] = [];
+  const at = new Map<T, number>();
+  for (const it of [...items].sort((x, y) => x.a - y.a)) {
+    let r = ends.findIndex((e) => e <= it.a + tol);
+    if (r < 0) r = ends.length;
+    ends[r] = it.b;
+    at.set(it, r);
+  }
+  return { rows: Math.max(1, ends.length), at };
+}
+const ROW = 20;
+const laneH = (rows: number) => rows * ROW + 8;
 
 const clamp = (x: number, a: number, b: number) => Math.min(b, Math.max(a, x));
 const stamp = (t: number, fine: boolean) => {
@@ -196,7 +215,7 @@ export function Timeline(p: Props) {
     if (!d) return;
     if (d.kind === 'scrub') return p.onSeek(frameAt(ev.clientX));
     if (d.kind === 'trim') return p.onTrim(d.e, d.edge, (ev.clientX - d.x0) / pps, false);
-    if (d.kind === 'sound') return setDrag({ ...d, px: ev.clientX - d.x0, moved: d.moved || Math.abs(ev.clientX - d.x0) > 3 });
+    if (d.kind === 'sound' || d.kind === 'ov') return setDrag({ ...d, px: ev.clientX - d.x0, moved: d.moved || Math.abs(ev.clientX - d.x0) > 3 });
     const moved = d.moved || Math.abs(ev.clientX - d.x0) > 5;
     if (moved) setDrag({ ...d, moved, slot: slotAt(frameAt(ev.clientX), d.id), px: ev.clientX - d.x0 });
   };
@@ -207,6 +226,14 @@ export function Timeline(p: Props) {
     if (d.kind === 'trim') return p.onTrim(d.e, d.edge, (ev.clientX - d.x0) / pps, true);
     if (d.kind === 'sound') {
       if (d.moved) p.onSoundMove(d.scene, d.i, clamp(Math.round(d.f + (d.px / pps) * fps), 0, etl.total - 1));
+      return;
+    }
+    if (d.kind === 'ov') {
+      if (!d.moved) return;
+      const df = (d.px / pps) * fps;
+      const r2 = (x: number) => Math.round(x * 100) / 100;
+      if (d.edge === 'move') p.onOverlayEdit(d.scene, d.i, { at: r2(clamp(d.f + df, 0, d.max - fps * 0.1) / fps) });
+      else p.onOverlayEdit(d.scene, d.i, { dur: r2(Math.max(fps * 0.3, d.d + df) / fps) });
       return;
     }
     if (d.kind !== 'move') return;
@@ -238,6 +265,22 @@ export function Timeline(p: Props) {
   const beats = beatGrid ? etl.beats!.map((b, i) => <div key={`b${i}`} className={`beat${b.down ? ' down' : ''}`} style={{ left: LAB + X(b.f) }} />) : null;
   const moving = drag?.kind === 'move' && drag.moved ? drag : null;
   const sliding = drag?.kind === 'sound' && drag.moved ? drag : null;
+  const ovDrag = drag?.kind === 'ov' && drag.moved ? drag : null;
+  // Effect, camera and overlay blocks in absolute frames; neighbouring scenes split their transition at its midpoint
+  const sceneSpan = (i: number) => {
+    const s = etl.scenes[i];
+    return [s.start + s.trans / 2, s.start + s.dur - (etl.scenes[i + 1]?.trans ?? 0) / 2];
+  };
+  const inScene = (i: number, a: number, b: number) => {
+    const [lo, hi] = sceneSpan(i);
+    const x = clamp(a, lo, hi - 2);
+    return { a: x, b: Math.max(x + 2, Math.min(b, hi)) };
+  };
+  const ovItems = etl.scenes.flatMap((s, i) => s.overlays.map((o) => ({ s, o, ...inScene(i, s.start + o.f, s.start + o.f + o.dur) })));
+  const camItems = etl.scenes.flatMap((s, i) => s.camera.map((c) => ({ s, c, ...inScene(i, s.start + c.f, s.start + c.f + c.dur) })));
+  const ovStack = stack(ovItems);
+  const camStack = stack(camItems);
+  const anyFx = etl.scenes.some((s) => s.fx.length);
   const [dropAt, setDropAt] = useState<number | null>(null);
   const isSound = (e: React.DragEvent) => [...e.dataTransfer.types].includes(SOUND_MIME);
 
@@ -285,6 +328,94 @@ export function Timeline(p: Props) {
             {beats}
             {ticks}
           </div>
+          {ovItems.length ? (
+            <div className="row lane-o" style={{ height: laneH(ovStack.rows) }}>
+              <div className="lab">
+                <Icon name="layers" size={14} />
+                {tr('Overlays', '叠加')}
+              </div>
+              {ovItems.map((it) => {
+                const { s, o } = it;
+                const key = `overlay:${s.id}:${o.i}`;
+                const dg = ovDrag && ovDrag.scene === s.id && ovDrag.i === o.i ? ovDrag : null;
+                const w = Math.max(14, X(it.b - it.a) + (dg?.edge === 'r' ? dg.px : 0));
+                return (
+                  <div
+                    key={key}
+                    data-scene={s.id}
+                    data-pick={`overlay|${o.i}|${nm(o)}`}
+                    className={`tlb ov${p.selCue === key ? ' on' : ''}${o.off ? ' off' : ''}${dg ? ' dragging' : ''}`}
+                    style={{ left: LAB + X(it.a), top: 4 + (ovStack.at.get(it) ?? 0) * ROW, width: w, transform: dg?.edge === 'move' ? `translateX(${dg.px}px)` : undefined }}
+                    title={`${nm(o)} · ${s.id} +${(o.f / fps).toFixed(2)} s, ${(o.dur / fps).toFixed(1)} s${o.off ? ` (${nm(o.off)})` : ''}`}
+                    onPointerDown={(ev) => {
+                      if (ev.button !== 0) return;
+                      ev.stopPropagation();
+                      (ev.currentTarget as HTMLElement).setPointerCapture(ev.pointerId);
+                      p.onCuePick('overlay', s.id, o.i);
+                      const edge = (ev.target as HTMLElement).classList.contains('rh') ? 'r' : 'move';
+                      setDrag({ kind: 'ov', scene: s.id, i: o.i, edge, f: o.f, d: o.dur, max: s.dur, x0: ev.clientX, px: 0, moved: false });
+                    }}
+                  >
+                    <span>{nm(o)}</span>
+                    <i className="rh" title={tr('Drag to change how long it stays', '拖动改变持续时间')} />
+                  </div>
+                );
+              })}
+            </div>
+          ) : null}
+          {anyFx ? (
+            <div className="row lane-f" style={{ height: laneH(1) }}>
+              <div className="lab">
+                <Icon name="filter" size={14} />
+                {tr('Effects', '特效')}
+              </div>
+              {etl.scenes
+                .map((s, i) => ({ s, ...inScene(i, s.start, s.start + s.dur) }))
+                .filter(({ s }) => s.fx.length)
+                .map(({ s, a, b }) => (
+                  <div
+                    key={s.id}
+                    data-scene={s.id}
+                    data-pick={`fxbar|${s.id}|${s.fx.map(nm).join(', ')}`}
+                    className={`tlb fx${p.sel === s.id ? ' cur' : ''}`}
+                    style={{ left: LAB + X(a), top: 4, width: Math.max(14, X(b - a) - 1) }}
+                    title={`${s.id}: ${s.fx.map(nm).join(' · ')}`}
+                    onPointerDown={(ev) => {
+                      if (ev.button !== 0) return;
+                      ev.stopPropagation();
+                      p.onOpen(s.id, 'fx');
+                    }}
+                  >
+                    <span>{s.fx.map(nm).join(' · ')}</span>
+                  </div>
+                ))}
+            </div>
+          ) : null}
+          {camItems.length ? (
+            <div className="row lane-c" style={{ height: laneH(camStack.rows) }}>
+              <div className="lab">
+                <Icon name="cam" size={14} />
+                {tr('Camera', '运镜')}
+              </div>
+              {camItems.map((it, k) => (
+                <div
+                  key={k}
+                  data-scene={it.s.id}
+                  data-pick={`camera|${it.s.id}@${((it.a - it.s.start) / fps).toFixed(2)}-${((it.b - it.s.start) / fps).toFixed(2)}|${nm(it.c)}`}
+                  className={`tlb cam${it.c.tab === 'visual' && !it.c.manual ? ' auto' : ''}${p.sel === it.s.id ? ' cur' : ''}`}
+                  style={{ left: LAB + X(it.a), top: 4 + (camStack.at.get(it) ?? 0) * ROW, width: Math.max(10, X(it.b - it.a) - 1) }}
+                  title={`${nm(it.c)} · ${it.s.id} ${((it.a - it.s.start) / fps).toFixed(1)}–${((it.b - it.s.start) / fps).toFixed(1)} s`}
+                  onPointerDown={(ev) => {
+                    if (ev.button !== 0) return;
+                    ev.stopPropagation();
+                    p.onOpen(it.s.id, it.c.tab);
+                  }}
+                >
+                  <span>{nm(it.c)}</span>
+                </div>
+              ))}
+            </div>
+          ) : null}
           <div
             className="row lane-v"
             onPointerDown={(ev) => {
@@ -330,6 +461,26 @@ export function Timeline(p: Props) {
                 </div>
               );
             })}
+            {etl.scenes.map((s) =>
+              s.transIn && !moving ? (
+                <button
+                  key={`t-${s.id}`}
+                  className={`tbadge${s.transIn.plain ? ' plain' : ''}`}
+                  data-scene={s.id}
+                  data-pick={`trans|${s.id}|${nm(s.transIn)}`}
+                  style={{ left: LAB + X(s.start + s.trans / 2) }}
+                  title={tr(`Transition into ${s.id}: ${s.transIn.en}`, `进入 ${s.id} 的转场：${s.transIn.zh}`)}
+                  onPointerDown={(ev) => {
+                    if (ev.button !== 0) return;
+                    ev.stopPropagation();
+                    p.onOpen(s.id, 'trans');
+                  }}
+                >
+                  <Icon name="trans" size={10} />
+                  {s.transIn.plain ? null : nm(s.transIn)}
+                </button>
+              ) : null,
+            )}
             {moving ? <div className="drop" style={{ left: LAB + slotX(moving.slot, moving.id) }} /> : null}
           </div>
           <div className="row lane-t">
@@ -405,14 +556,14 @@ export function Timeline(p: Props) {
                     key={key}
                     data-scene={s.id}
                     data-pick={`sound|${key}|${def ? nm(def) : x.id}`}
-                    className={`sfx${p.selSound === key ? ' on' : ''}${x.past ? ' past' : ''}${sl ? ' dragging' : ''}`}
+                    className={`sfx${p.selCue === `sound:${key}` ? ' on' : ''}${x.past ? ' past' : ''}${sl ? ' dragging' : ''}`}
                     style={{ left: LAB + X(s.start + Math.min(x.f, s.dur - 1)), width: w, transform: sl ? `translateX(${sl.px}px)` : undefined }}
                     title={x.past ? tr(`${def ? nm(def) : x.id}: past the end of ${s.id}, so it is silent`, `${def ? nm(def) : x.id}：超出了 ${s.id} 的结尾，不会响`) : `${def ? nm(def) : x.id} · ${s.id} +${(x.f / fps).toFixed(2)} s`}
                     onPointerDown={(ev) => {
                       if (ev.button !== 0) return;
                       ev.stopPropagation();
                       (ev.currentTarget as HTMLElement).setPointerCapture(ev.pointerId);
-                      p.onSoundPick(s.id, x.i);
+                      p.onCuePick('sound', s.id, x.i);
                       setDrag({ kind: 'sound', scene: s.id, i: x.i, f: s.start + x.f, x0: ev.clientX, px: 0, moved: false });
                     }}
                   >
