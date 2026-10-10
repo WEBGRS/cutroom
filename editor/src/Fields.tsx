@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
-import type { FieldDef } from './catalog';
+import { RULES, type FieldDef } from './catalog';
+import { nm, tr } from './i18n';
 import { Icon } from './icons';
 
 // ---- text field: local text while focused, commit on pause / blur / Enter ----
@@ -88,7 +89,7 @@ export function JsonEdit({ value, onApply }: { value: unknown; onApply: (v: any)
           }
         }}
       >
-        应用
+        {tr('Apply', '应用')}
       </button>
     </div>
   );
@@ -110,14 +111,19 @@ const fill = (v: number, d: number, min: number, max: number) => {
 // One catalog field: slider / toggle / select; default value removes the key
 export function FieldControl({ def, value, onChange }: { def: FieldDef; value: unknown; onChange: (v: unknown) => void }) {
   const [live, setLive] = useState<number | null>(null);
-  const set = (v: unknown) => onChange(v === def.def || v === '' ? undefined : v);
-  const warn = def.rule && value !== undefined && value !== def.def && value !== '' ? <span className="rule" title={def.rule}>!</span> : null;
+  // Numeric selects (e.g. stop-motion fps) store numbers
+  const set = (v: unknown) => onChange(v === def.def || v === '' ? undefined : typeof v === 'string' && /^\d+(\.\d+)?$/.test(v) && def.type === 'select' && def.path.startsWith('fx.') ? Number(v) : v);
+  const opt = def.options?.find((o) => o.id === String(value ?? ''));
+  const rule = def.rule ?? opt?.rule;
+  const warn = rule && value !== undefined && value !== def.def && value !== '' ? <span className="rule" title={nm(RULES[rule])}>!</span> : null;
+  const hint = def.hint ? nm(def.hint) : undefined;
+  const label = nm(def);
   if (def.type === 'bool') {
     const on = value === undefined ? !!def.def : !!value;
     return (
-      <label className="fc toggle" title={def.hint}>
+      <label className="fc toggle" title={hint}>
         <span className="fl">
-          {def.label}
+          {label}
           {warn}
         </span>
         <input type="checkbox" checked={on} onChange={(e) => set(e.target.checked)} />
@@ -127,15 +133,16 @@ export function FieldControl({ def, value, onChange }: { def: FieldDef; value: u
   }
   if (def.type === 'select') {
     return (
-      <div className="fc" title={def.hint}>
+      <div className="fc" title={hint}>
         <span className="fl">
-          {def.label}
+          {label}
           {warn}
         </span>
         <select value={value === undefined ? '' : String(value)} onChange={(e) => set(e.target.value || undefined)}>
-          {def.options!.map(([v, l]) => (
-            <option key={v} value={v}>
-              {l}
+          {def.options!.map((o) => (
+            <option key={o.id} value={o.id}>
+              {nm(o)}
+              {o.rule ? tr(' (against house style)', '（规范不推荐）') : ''}
             </option>
           ))}
         </select>
@@ -145,9 +152,9 @@ export function FieldControl({ def, value, onChange }: { def: FieldDef; value: u
   const cur = live ?? (typeof value === 'number' ? value : (def.def as number) ?? 0);
   const changed = value !== undefined && value !== def.def;
   return (
-    <div className={`fc range${changed ? ' on' : ''}`} title={def.hint}>
+    <div className={`fc range${changed ? ' on' : ''}`} title={hint}>
       <span className="fl">
-        {def.label}
+        {label}
         {warn}
       </span>
       <input
@@ -168,7 +175,7 @@ export function FieldControl({ def, value, onChange }: { def: FieldDef; value: u
         }}
       />
       <span className="fv">{Number(cur.toFixed(2))}</span>
-      <button className="icon sm" title="恢复默认" disabled={!changed} onClick={() => set(undefined)}>
+      <button className="icon sm" title={tr('Reset', '恢复默认')} disabled={!changed} onClick={() => set(undefined)}>
         <Icon name="close" size={12} />
       </button>
     </div>

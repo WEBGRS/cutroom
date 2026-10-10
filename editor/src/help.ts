@@ -4,7 +4,8 @@ export const HELP = `node editor/dist/cli.mjs <slug> <command> [args] [--format 
   ls                       timeline as rendered (start/dur/visual/text, capture marks)
   show <id>                scene JSON
   get <id|-> <path>        one field (- = whole board)
-  add <kind> [after-id]    new scene: title | stats | outro | flow | image <src> | clip <src> | screen <src>
+  add <kind> [after-id]    new scene: title | stats | counter | chart | checklist | quote | chat | notifs | code | terminal | flap | outro | flow
+                           | compare <img> | image <src> | clip <src> | screen <src>
   mv <id> <before-id|end>  reorder
   trim <id> [--from T] [--to T] [--tall]   T = seconds or @mark±x (screen visuals)
   min <id> <sec|off>       minimum length (voice cut)

@@ -6,6 +6,7 @@ import { ClipScene, FlowScene, ImageScene, OutroScene, ScrollScene, StatsScene, 
 import { Captions, ChapterBar, Overlays, TallHeader } from './components/Captions';
 import { FxLayer, presentation } from './components/Fx';
 import { ScreenScene } from './components/ScreenScene';
+import { FxCard } from './fx/cards';
 import { screenPaths, type ScenePath } from './lib/paths';
 import { BeatMain } from './BeatMain';
 import { SANS } from './lib/fonts';
@@ -33,7 +34,7 @@ export const SceneView: React.FC<{ s: TScene; props: Props; layout: Layout; them
   } else if (v.kind === 'scroll') {
     const d = props.images?.[v.src] ?? { w: 1920, h: 4000 };
     body = <ScrollScene v={v} slug={slug} layout={layout} dur={s.dur} imgW={d.w} imgH={d.h} look={look} />;
-  }
+  } else body = <FxCard v={v} layout={layout} theme={theme} slug={slug} />;
   return (
     <AbsoluteFill>
       <FxLayer fx={s.scene.fx} dur={s.dur}>

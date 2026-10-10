@@ -93,6 +93,7 @@ export async function record(name, opts, script) {
     await page.evaluate((ms) => window.__vt && window.__vt.advance(ms), dt);
     if (!recording) return;
     await settleFrame();
+    await page.evaluate(() => window.__vt && window.__vt.mediaReady && window.__vt.mediaReady());
     const shot = { format: 'png', optimizeForSpeed: true, captureBeyondViewport: false };
     if (region) shot.clip = { ...region, scale: 1 };
     const { data } = await cdp.send('Page.captureScreenshot', shot);

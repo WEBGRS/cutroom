@@ -72,6 +72,21 @@ export function label(v: Visual): string {
       return plain(v.title);
     case 'flow':
       return v.title ? plain(v.title) : 'flow';
+    case 'chart':
+    case 'code':
+    case 'chat':
+    case 'checklist':
+    case 'flap':
+    case 'terminal':
+      return v.title ? plain(v.title) : v.kind;
+    case 'quote':
+      return plain(v.text);
+    case 'counter':
+      return v.value;
+    case 'compare':
+      return `${v.labelA ?? v.a} / ${v.labelB ?? v.b}`;
+    case 'notifs':
+      return v.items.map((i) => i.title).join(' · ');
   }
 }
 

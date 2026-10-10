@@ -66,49 +66,55 @@ const crop = async (page, sel, name, extra = {}) => {
   await shot(page, name, { clip: { ...b, ...extra } });
 };
 const SC = 'slug=_shots&format=wide&mode=voice&lang=zh&variant=default';
+const lib = async (p, name) => {
+  await p.locator('.lib-tabs button', { hasText: name }).click();
+  await p.waitForTimeout(500);
+};
+const itab = (p, name) => p.locator('.itabs button', { hasText: name }).click();
 
 try {
   let p = await open(`${SC}&frame=200`);
   await ready(p);
   await shot(p, '01-board-media');
-  await p.locator('.itabs button', { hasText: '声音' }).click();
-  await p.locator('.lib-tabs button', { hasText: '音乐' }).click();
-  await p.waitForTimeout(300);
+  await itab(p, 'Sound');
+  await lib(p, 'Music');
   await shot(p, '02-board-audio-libmusic');
-  await p.locator('.itabs button', { hasText: '字幕' }).click();
-  await p.locator('.lib-tabs button', { hasText: '卡片' }).click();
-  await p.waitForTimeout(300);
+  await itab(p, 'Captions');
+  await lib(p, 'Cards');
+  await p.waitForTimeout(800);
   await shot(p, '03-board-captions-libcards');
-  await p.locator('.itabs button', { hasText: '画框' }).click();
-  await p.waitForTimeout(200);
-  await crop(p, '.side', '04-board-frame-side');
+  await itab(p, 'Frame');
+  await lib(p, 'Backdrop');
+  await p.waitForTimeout(800);
+  await shot(p, '04-board-frame-libbackdrop');
 
   await clip(p, 'record').click();
   await p.waitForTimeout(600);
-  await p.locator('.itabs button', { hasText: '画面' }).click();
-  await p.locator('.lib-tabs button', { hasText: '滤镜' }).click();
+  await itab(p, 'Picture');
+  await lib(p, 'Effects');
   await p.waitForTimeout(1200);
-  await shot(p, '05-scene-visual-liblooks');
-  await p.locator('.itabs button', { hasText: '转场' }).click();
-  await p.locator('.lib-tabs button', { hasText: '转场' }).click();
-  await p.waitForTimeout(300);
+  await shot(p, '05-scene-visual-libeffects');
+  await itab(p, 'Transition');
+  await lib(p, 'Transitions');
+  await p.waitForTimeout(800);
   await shot(p, '06-scene-trans-libtrans');
-  await p.locator('.lt', { hasText: '滑入' }).hover();
-  await p.waitForTimeout(700);
+  await p.locator('.lt', { hasText: 'Whip pan' }).hover();
+  await p.waitForTimeout(900);
   await crop(p, '.lib', '07-lib-trans-hover');
-  await p.locator('.itabs button', { hasText: '特效' }).click();
-  await p.locator('.lib-tabs button', { hasText: '叠加' }).click();
-  await p.waitForTimeout(300);
+  await itab(p, 'Effects');
+  await lib(p, 'Text');
+  await p.waitForTimeout(800);
   await shot(p, '08-scene-fx-libtext');
-  await p.locator('.itabs button', { hasText: '叠加' }).click();
-  await p.waitForTimeout(300);
-  await crop(p, '.side', '09-scene-overlays-side');
-  await p.locator('.itabs button', { hasText: '旁白' }).click();
+  await itab(p, 'Overlays');
+  await lib(p, 'Overlays');
+  await p.waitForTimeout(800);
+  await shot(p, '09-scene-overlays-liboverlays');
+  await itab(p, 'Narration');
   await p.waitForTimeout(300);
   await crop(p, '.side', '10-scene-lines-side');
 
   // menus, dialog, toasts
-  await p.locator('.tl-tools .menu > button', { hasText: '添加' }).click();
+  await p.locator('.tl-tools .menu > button', { hasText: 'Add' }).click();
   await p.waitForTimeout(250);
   await shot(p, '11-add-menu');
   await p.keyboard.press('Escape');
@@ -116,6 +122,10 @@ try {
   await p.locator('.split-btn .more').click();
   await p.waitForTimeout(250);
   await crop(p, 'body', '12-export-menu', { x: 1000, y: 0, width: 600, height: 420 });
+  await p.mouse.click(800, 400);
+  await p.locator('.ghost.lang').click();
+  await p.waitForTimeout(250);
+  await crop(p, 'body', '12b-lang-menu', { x: 1000, y: 0, width: 600, height: 300 });
   await p.mouse.click(800, 400);
   await p.evaluate(() => {
     const s = document.querySelector('.proj select');
@@ -130,7 +140,6 @@ try {
   await p.keyboard.press('Control+Alt+c');
   await p.waitForTimeout(250);
   await crop(p, 'body', '14-toast', { x: 400, y: 0, width: 800, height: 120 });
-  await p.locator('.lt', { hasText: '无' }).first().click().catch(() => undefined);
   await p.keyboard.press('Escape');
   await p.keyboard.press('q');
   await p.waitForTimeout(250);
@@ -156,7 +165,7 @@ try {
   await crop(p, '.side', '18-ai-settings');
   await p.close();
 
-  // tall + beat on a real voiced project
+  // tall + beat on a voiced project
   p = await open(`slug=${VOICED}&format=tall&mode=beat&lang=zh&variant=default&frame=420`);
   await ready(p);
   await shot(p, '19-tall-beat');
@@ -166,12 +175,21 @@ try {
   await p.locator('.clip').nth(1).click();
   await p.waitForTimeout(800);
   await crop(p, '.tl', '20-timeline-2x', { width: 1100 });
-  await p.locator('.itabs button', { hasText: '特效' }).click();
+  await itab(p, 'Effects');
   await p.waitForTimeout(300);
   await crop(p, '.side', '21-insp-fx-2x');
-  await p.locator('.lib-tabs button', { hasText: '素材' }).click();
+  await lib(p, 'Media');
   await p.waitForTimeout(1200);
   await crop(p, '.lib', '22-lib-media-2x');
+  await p.close();
+
+  // Chinese interface
+  p = await open(`${SC}&frame=200&ui=zh`);
+  await ready(p);
+  await clip(p, 'photo').click();
+  await lib(p, '叠加');
+  await p.waitForTimeout(800);
+  await shot(p, '22b-chinese');
   await p.close();
 
   // small window, error project, AI not connected look

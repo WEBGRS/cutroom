@@ -9,6 +9,7 @@ const configs = [
   { entryPoints: ['editor/src/main.tsx'], outfile: 'editor/dist/app.js', bundle: true, format: 'esm', jsx: 'automatic', target: 'chrome120', sourcemap: true, minify: !watch, logLevel: 'warning', define: { 'process.env.NODE_ENV': watch ? '"development"' : '"production"' } },
   { ...node, entryPoints: ['editor/src/server.ts'], outfile: 'editor/dist/server.mjs' },
   { ...node, entryPoints: ['editor/src/cli.ts'], outfile: 'editor/dist/cli.mjs' },
+  { ...node, entryPoints: ['editor/fx/previews.ts'], outfile: 'editor/dist/previews.mjs', packages: 'external' },
   { ...node, entryPoints: tests, outdir: 'editor/dist/test', outExtension: { '.js': '.mjs' } },
 ];
 

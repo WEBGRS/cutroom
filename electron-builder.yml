@@ -1,0 +1,43 @@
+# Windows installer: npm run dist  →  dist-app/Cutroom Setup <version>.exe
+appId: io.github.webgrs.cutroom
+productName: Cutroom
+directories:
+  output: dist-app
+  buildResources: build
+# Remotion bundles src/ with webpack at render time, so files stay unpacked
+asar: false
+extraMetadata:
+  main: app/main.cjs
+files:
+  - app/**
+  - editor/index.html
+  - editor/dist/server.mjs
+  - editor/dist/cli.mjs
+  - editor/dist/app.js
+  - src/**
+  - "!src/resolve/**"
+  - public/fonts/**
+  - public/music/**
+  - public/sfx/**
+  - public/_fx/**
+  - public/showcase/**
+  - remotion.config.ts
+  - tsconfig.json
+  - package.json
+  - "!node_modules/.remotion/**"
+  - "!node_modules/@remotion/google-fonts/**"
+win:
+  target: nsis
+  icon: app/icon.ico
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  multiLanguageInstaller: true
+  displayLanguageSelector: true
+  installerLanguages:
+    - en_US
+    - zh_CN
+  include: build/installer.nsh
+  createDesktopShortcut: true
+  shortcutName: Cutroom

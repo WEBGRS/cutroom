@@ -7,8 +7,11 @@ import type { Doc } from './ops';
 
 // editor/dist/*.mjs → repo root
 export const ROOT = process.env.VS_ROOT ?? path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-export const PUBLIC = path.join(ROOT, 'public');
-export const STATE = path.join(ROOT, '.editor');
+// Installed app: projects, settings and exports live in a user folder (VS_DATA), not next to the code
+export const DATA = process.env.VS_DATA ?? ROOT;
+export const PUBLIC = process.env.VS_DATA ? DATA : path.join(ROOT, 'public');
+export const STATE = path.join(DATA, '.editor');
+export const OUT = process.env.VS_DATA ? path.join(DATA, 'exports') : path.join(ROOT, 'out');
 
 export type Source = 'ui' | 'cli' | 'external';
 
@@ -32,7 +35,7 @@ const timingsFile = (slug: string, lang: 'zh' | 'en') => path.join(PUBLIC, slug,
 const stateDir = (slug: string) => path.join(STATE, slug);
 
 export function checkSlug(slug: string) {
-  if (!/^[\w-]+$/.test(slug) || !fs.existsSync(boardFile(slug))) throw new Error(`没有项目 ${slug}`);
+  if (!/^[\w-]+$/.test(slug) || !fs.existsSync(boardFile(slug))) throw new Error(`No project ${slug}`);
 }
 
 export const slugs = () =>

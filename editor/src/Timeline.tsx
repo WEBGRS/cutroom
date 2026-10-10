@@ -5,6 +5,7 @@ import type { Theme } from '../../src/lib/types';
 import type { EScene, ETimeline } from './model';
 import { peaksUrl, thumbsUrl, useAsset, type Peaks, type Thumbs } from './assets';
 import { Icon } from './icons';
+import { tr } from './i18n';
 
 const LAB = 84;
 const CLIP_H = 58;
@@ -226,7 +227,7 @@ export function Timeline(p: Props) {
         {p.tools}
         <span className="grow" />
         <div className="zoom">
-          <button className="icon sm" title="缩小" onClick={() => p.setZoom(Math.max(2, pps / 1.5))}>
+          <button className="icon sm" title={tr('Zoom out', '缩小')} onClick={() => p.setZoom(Math.max(2, pps / 1.5))}>
             <Icon name="minus" size={14} />
           </button>
           <input
@@ -234,18 +235,18 @@ export function Timeline(p: Props) {
             min={0}
             max={1000}
             value={Math.round(zoomPos * 1000)}
-            aria-label="时间线缩放"
-            title="时间线缩放"
+            aria-label={tr('Timeline zoom', '时间线缩放')}
+            title={tr('Timeline zoom', '时间线缩放')}
             style={{ ['--b' as string]: `${zoomPos * 100}%` }}
             onChange={(e) => {
               const v = Number(e.target.value) / 1000;
               p.setZoom(v <= 0 ? null : fit * Math.pow(span, v));
             }}
           />
-          <button className="icon sm" title="放大" onClick={() => p.setZoom(Math.min(MAX_ZOOM, pps * 1.5))}>
+          <button className="icon sm" title={tr('Zoom in', '放大')} onClick={() => p.setZoom(Math.min(MAX_ZOOM, pps * 1.5))}>
             <Icon name="plus" size={14} />
           </button>
-          <button className="icon sm" title="整条放进视野" onClick={() => p.setZoom(null)} disabled={p.zoom === null}>
+          <button className="icon sm" title={tr('Fit the whole video', '整条放进视野')} onClick={() => p.setZoom(null)} disabled={p.zoom === null}>
             <Icon name="fit" size={14} />
           </button>
         </div>
@@ -275,7 +276,7 @@ export function Timeline(p: Props) {
           >
             <div className="lab">
               <Icon name="film" size={14} />
-              画面
+              {tr('Video', '画面')}
             </div>
             {etl.scenes.map((s) => {
               const dragging = moving?.id === s.id;
@@ -285,11 +286,11 @@ export function Timeline(p: Props) {
                   key={s.id}
                   className={`clip${p.sel === s.id ? ' sel' : ''}${dragging ? ' dragging' : ''}${p.missing.has(s.id) ? ' missing' : ''}`}
                   style={{ left: LAB + X(s.start), width: w, transform: dragging ? `translateX(${moving!.px}px)` : undefined }}
-                  title={`${s.id}，${(s.dur / fps).toFixed(2)} 秒`}
+                  title={tr(`${s.id}, ${(s.dur / fps).toFixed(2)} s`, `${s.id}，${(s.dur / fps).toFixed(2)} 秒`)}
                   onPointerDown={(ev) => onClipDown(ev, s)}
                 >
                   {p.missing.has(s.id) ? (
-                    <div className="strip gone">缺少 {p.missing.get(s.id)}</div>
+                    <div className="strip gone">{tr('Missing ', '缺少 ')}{p.missing.get(s.id)}</div>
                   ) : s.visual.kind === 'screen' || s.visual.kind === 'clip' ? (
                     <Strip s={s} slug={p.slug} pps={pps} fps={fps} />
                   ) : s.visual.kind === 'image' ? (
@@ -298,7 +299,7 @@ export function Timeline(p: Props) {
                     <Slate s={s} theme={p.theme} />
                   )}
                   {s.trans > 0 ? <div className="xfade" style={{ width: X(s.trans) }} /> : null}
-                  {s.needed && s.needed < s.dur - 2 ? <div className="need" style={{ left: X(s.needed) }} title="旁白在这里结束" /> : null}
+                  {s.needed && s.needed < s.dur - 2 ? <div className="need" style={{ left: X(s.needed) }} title={tr('Narration ends here', '旁白在这里结束')} /> : null}
                   {s.marks.map((m) => (
                     <div key={m.name + m.f} className="mk" style={{ left: X(m.f) }} title={`@${m.name}`} />
                   ))}
@@ -313,7 +314,7 @@ export function Timeline(p: Props) {
           <div className="row lane-t">
             <div className="lab">
               <Icon name="text" size={14} />
-              字幕
+              {tr('Captions', '字幕')}
             </div>
             {etl.scenes.flatMap((s) =>
               s.lines.map((l) => (
@@ -321,7 +322,7 @@ export function Timeline(p: Props) {
                   key={`${s.id}-${l.k}`}
                   className={`cap${l.stale ? ' stale' : ''}${p.sel === s.id ? ' on' : ''}`}
                   style={{ left: LAB + X(s.start + l.start) + 1, width: Math.max(3, X(l.dur) - 2) }}
-                  title={l.stale ? `${l.text}（文字改过，配音还是旧的）` : l.text}
+                  title={l.stale ? tr(`${l.text} (text changed; the voice is still the old one)`, `${l.text}（文字改过，配音还是旧的）`) : l.text}
                   onPointerDown={(ev) => {
                     ev.stopPropagation();
                     p.onSelect(s.id, l.k);
@@ -337,7 +338,7 @@ export function Timeline(p: Props) {
             <div className="row lane-a">
               <div className="lab">
                 <Icon name="mic" size={14} />
-                旁白
+                {tr('Voice', '旁白')}
               </div>
               {etl.scenes.flatMap((s) =>
                 s.lines
@@ -354,7 +355,7 @@ export function Timeline(p: Props) {
             <div className="row lane-m">
               <div className="lab">
                 <Icon name="music" size={14} />
-                音乐
+                {tr('Music', '音乐')}
               </div>
               <div className="mus" style={{ left: LAB, width: X(etl.total) }}>
                 <Wave path={etl.music.src} width={X(etl.total)} height={22} color="#a395ff" offset={etl.music.offset} loop={etl.music.loop} pps={pps} />

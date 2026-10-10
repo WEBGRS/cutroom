@@ -18,7 +18,9 @@
     "test:oracle": "node editor/test/oracle.mjs showcase",
     "test:app": "node editor/test/app.mjs",
     "test:shots": "node editor/test/uishots.mjs",
-    "capture:demo": "node editor/demo/capture.mjs"
+    "capture:demo": "node editor/demo/capture.mjs",
+    "previews": "node editor/build.mjs && node editor/dist/previews.mjs",
+    "dist": "node editor/build.mjs && electron-builder --win"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.133.0",
@@ -29,20 +31,21 @@
     "@remotion/motion-blur": "^4.0.532",
     "@remotion/noise": "^4.0.532",
     "@remotion/paths": "^4.0.532",
+    "@remotion/player": "^4.0.532",
     "@remotion/renderer": "^4.0.532",
     "@remotion/shapes": "^4.0.532",
     "@remotion/transitions": "^4.0.532",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
-    "remotion": "^4.0.532",
-    "@remotion/player": "^4.0.532"
+    "remotion": "^4.0.532"
   },
   "devDependencies": {
     "@types/node": "^26.6.4",
     "@types/react": "^19.3.0",
     "electron": "^44.7.0",
+    "electron-builder": "^26.15.3",
+    "esbuild": "^0.28.1",
     "playwright": "^1.63.0",
-    "typescript": "^7.0.2",
-    "esbuild": "^0.28.1"
+    "typescript": "^7.0.2"
   }
 }

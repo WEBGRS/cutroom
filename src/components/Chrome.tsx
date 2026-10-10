@@ -3,6 +3,7 @@ import { AbsoluteFill, Img, staticFile, useCurrentFrame, useVideoConfig } from '
 import { MONO, SANS } from '../lib/fonts';
 import { rgba, type Rect } from '../lib/layout';
 import type { Frame, FrameStyle, Theme } from '../lib/types';
+import { FxBackground } from '../fx/backgrounds';
 
 export const Backdrop: React.FC<{ theme: Theme; slug?: string }> = ({ theme, slug }) => {
   const f = useCurrentFrame();
@@ -21,7 +22,7 @@ export const Backdrop: React.FC<{ theme: Theme; slug?: string }> = ({ theme, slu
   const y1 = 18 + Math.cos(t * 0.13) * 7;
   const x2 = 78 + Math.cos(t * 0.11) * 9;
   const y2 = 82 + Math.sin(t * 0.15) * 7;
-  return (
+  const base = (
     <AbsoluteFill
       style={{
         background: [
@@ -31,6 +32,13 @@ export const Backdrop: React.FC<{ theme: Theme; slug?: string }> = ({ theme, slu
         ].join(','),
       }}
     />
+  );
+  if (!theme.bgFx) return base;
+  return (
+    <AbsoluteFill>
+      {base}
+      <FxBackground kind={theme.bgFx} theme={theme} />
+    </AbsoluteFill>
   );
 };
 

@@ -2,10 +2,11 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawn, execFile, type ChildProcess } from 'node:child_process';
-import { Conflict, PUBLIC, ROOT, STATE, appendLog, boardFile, checkSlug, currentVersion, readDoc, readLog, slugs, snapshot, writeDoc, hash } from './store';
+import { Conflict, DATA, OUT, PUBLIC, ROOT, STATE, appendLog, boardFile, checkSlug, currentVersion, readDoc, readLog, slugs, snapshot, writeDoc, hash } from './store';
 import type { Doc } from './ops';
 import { aiStatus, aiTest, chat, history, isRunning, provider, reset, stop, writeAi } from './chat';
 import { boardTemplate } from './templates';
+import { L, readSettings, uiLang, writeSettings } from './settings';
 
 const PORT = Number(process.env.PORT ?? 8814);
 const EDITOR = path.join(ROOT, 'editor');
@@ -56,9 +57,9 @@ function onBoardChange(slug: string) {
   const last = readLog(slug).filter((e) => e.version === version).pop();
   if (!last) {
     snapshot(slug, version, text);
-    appendLog(slug, { t: new Date().toISOString(), src: 'external', version, prev, desc: ['文件在编辑器外被修改'] });
+    appendLog(slug, { t: new Date().toISOString(), src: 'external', version, prev, desc: [L('file changed outside the editor', '文件在编辑器外被修改')] });
   }
-  broadcast({ type: 'board', slug, version, src: last?.src ?? 'external', desc: last?.desc ?? ['文件在编辑器外被修改'] });
+  broadcast({ type: 'board', slug, version, src: last?.src ?? 'external', desc: last?.desc ?? [L('file changed outside the editor', '文件在编辑器外被修改')] });
 }
 // One watcher per project folder; dropped when the folder goes away so a recreated folder is watched again
 const watched = new Map<string, { w: fs.FSWatcher; id: string }>();
@@ -91,9 +92,14 @@ function watch(slug: string) {
 // ---- thumbnails and waveforms for the timeline (ffmpeg, cached by file identity) ----
 const CACHE = path.join(STATE, 'cache');
 const busy = new Map<string, Promise<unknown>>();
+// ffmpeg/ffprobe from Remotion's compositor package when present, so no system install is needed
+const COMPOSITOR = ['compositor-win32-x64-msvc', 'compositor-darwin-arm64', 'compositor-darwin-x64', 'compositor-linux-x64-gnu', 'compositor-linux-arm64-gnu']
+  .map((n) => path.join(ROOT, 'node_modules', '@remotion', n))
+  .find((d) => fs.existsSync(path.join(d, process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg')));
+const tool = (cmd: string) => (COMPOSITOR ? path.join(COMPOSITOR, process.platform === 'win32' ? `${cmd}.exe` : cmd) : cmd);
 const run = (cmd: string, args: string[]) =>
   new Promise<Buffer>((ok, bad) => {
-    const p = spawn(cmd, args, { windowsHide: true });
+    const p = spawn(tool(cmd), args, { windowsHide: true, env: { ...process.env, LD_LIBRARY_PATH: COMPOSITOR ?? process.env.LD_LIBRARY_PATH ?? '' } });
     const out: Buffer[] = [];
     let err = '';
     p.stdout.on('data', (d) => out.push(d));
@@ -167,26 +173,26 @@ interface Job {
   child?: ChildProcess;
 }
 let job: Job | null = null;
-const jobView = () => (job ? { ...job, child: undefined, out: path.relative(ROOT, job.out) } : null);
+const jobView = () => (job ? { ...job, child: undefined, out: path.relative(DATA, job.out) } : null);
 
 const CODECS: Record<string, string> = { h264: 'mp4', h265: 'mp4', vp9: 'webm', prores: 'mov', gif: 'gif' };
 
 function startRender(o: { slug: string; format: string; mode: string; variant: string; lang: string; voice: string; scale?: number; codec?: string }) {
-  if (job?.state === 'running') throw new Error('已有渲染在进行');
+  if (job?.state === 'running') throw new Error(L('A render is already running', '已有渲染在进行'));
   checkSlug(o.slug);
   const codec = o.codec && CODECS[o.codec] ? o.codec : 'h264';
   const scale = [0.5, 1, 1.5, 2].includes(Number(o.scale)) ? Number(o.scale) : 1;
   const name = [o.slug, o.format, o.mode === 'beat' ? 'beat' : null, o.variant === 'clean' ? 'clean' : null, o.lang === 'en' ? 'en' : null, o.voice === 'off' && o.mode !== 'beat' ? 'silent' : null, scale !== 1 ? `x${scale}` : null].filter(Boolean).join('-');
-  const out = path.join(ROOT, 'out', 'editor', `${name}.${CODECS[codec]}`);
+  const out = path.join(OUT, 'editor', `${name}.${CODECS[codec]}`);
   fs.mkdirSync(path.dirname(out), { recursive: true });
   fs.mkdirSync(STATE, { recursive: true });
   const propsFile = path.join(STATE, `render-props.json`);
   fs.writeFileSync(propsFile, JSON.stringify({ slug: o.slug, format: o.format, mode: o.mode, variant: o.variant, lang: o.lang, voice: o.voice }));
   const cli = path.join(ROOT, 'node_modules', '@remotion', 'cli', 'remotion-cli.js');
-  const args = [cli, 'render', 'src/index.ts', `studio-${o.format}`, out, `--props=${propsFile}`, `--codec=${codec}`];
+  const args = [cli, 'render', 'src/index.ts', `studio-${o.format}`, out, `--props=${propsFile}`, `--codec=${codec}`, `--public-dir=${PUBLIC}`];
   if (scale !== 1) args.push(`--scale=${scale}`);
   const child = spawn(process.execPath, args, { cwd: ROOT, windowsHide: true });
-  const j: Job = { slug: o.slug, name, out, state: 'running', done: 0, total: 0, phase: '打包', tail: [], started: Date.now(), child };
+  const j: Job = { slug: o.slug, name, out, state: 'running', done: 0, total: 0, phase: L('Bundling', '打包'), tail: [], started: Date.now(), child };
   job = j;
   let last = 0;
   const onData = (buf: Buffer) => {
@@ -199,7 +205,7 @@ function startRender(o: { slug: string; format: string; mode: string; variant: s
     if (m) {
       j.done = Number(m[1]);
       j.total = Number(m[2]);
-      j.phase = /encod/i.test(s) ? '编码' : '渲染';
+      j.phase = /encod/i.test(s) ? L('Encoding', '编码') : L('Rendering', '渲染');
     }
     if (Date.now() - last > 250) {
       last = Date.now();
@@ -293,11 +299,11 @@ const server = http.createServer(async (req, res) => {
     if (p === '/api/projects' && req.method === 'POST') {
       const b = await body(req);
       const s = String(b.slug ?? '').toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '');
-      if (!s || s.startsWith('_')) return send(res, 400, { error: '项目名只能用英文字母、数字和横线' });
+      if (!s || s.startsWith('_')) return send(res, 400, { error: L('Project names use letters, digits and dashes only', '项目名只能用英文字母、数字和横线') });
       const dir = path.join(PUBLIC, s);
-      if (fs.existsSync(path.join(dir, 'storyboard.json'))) return send(res, 409, { error: `已经有项目 ${s}` });
+      if (fs.existsSync(path.join(dir, 'storyboard.json'))) return send(res, 409, { error: L(`A project called ${s} already exists`, `已经有项目 ${s}`) });
       fs.mkdirSync(path.join(dir, 'media'), { recursive: true });
-      fs.writeFileSync(path.join(dir, 'storyboard.json'), JSON.stringify(boardTemplate(s, String(b.title ?? s)), null, 2));
+      fs.writeFileSync(path.join(dir, 'storyboard.json'), JSON.stringify(boardTemplate(s, String(b.title ?? s), uiLang()), null, 2));
       return send(res, 200, { slug: s });
     }
     if (p === '/api/projects') return send(res, 200, slugs().filter((s) => !s.startsWith('_') || process.env.VS_TEST));
@@ -305,7 +311,7 @@ const server = http.createServer(async (req, res) => {
       checkSlug(slug);
       const raw = path.basename(url.searchParams.get('name') ?? '');
       const ext = path.extname(raw).toLowerCase();
-      if (!/^\.(png|jpe?g|webp|gif|mp4|webm|mov|mp3|wav|m4a)$/.test(ext)) return send(res, 400, { error: `不支持的文件类型 ${ext}` });
+      if (!/^\.(png|jpe?g|webp|gif|mp4|webm|mov|mp3|wav|m4a)$/.test(ext)) return send(res, 400, { error: L(`Unsupported file type ${ext}`, `不支持的文件类型 ${ext}`) });
       const stem = raw.slice(0, -ext.length).replace(/[^\w一-龥-]+/g, '_').slice(0, 60) || 'file';
       const dir = path.join(PUBLIC, slug, 'media');
       fs.mkdirSync(dir, { recursive: true });
@@ -323,6 +329,12 @@ const server = http.createServer(async (req, res) => {
       const dir = path.join(PUBLIC, 'music');
       const files = fs.existsSync(dir) ? fs.readdirSync(dir).filter((f) => f.endsWith('.mp3')) : [];
       return send(res, 200, files.map((f) => ({ src: `music/${f}`, beats: fs.existsSync(path.join(dir, f.replace(/\.mp3$/, '.beats.json'))) })));
+    }
+    if (p === '/api/settings' && req.method === 'GET') return send(res, 200, { lang: readSettings().lang ?? null });
+    if (p === '/api/settings' && req.method === 'POST') {
+      const b = await body(req);
+      if (b.lang === 'en' || b.lang === 'zh') writeSettings({ lang: b.lang });
+      return send(res, 200, { lang: uiLang() });
     }
     if (p === '/api/ai' && req.method === 'GET') return send(res, 200, await aiStatus());
     if (p === '/api/ai' && req.method === 'POST') {
@@ -408,13 +420,18 @@ const server = http.createServer(async (req, res) => {
     }
     if (p === '/api/reveal' && req.method === 'POST') {
       const b = await body(req);
-      const f = inside(path.join(ROOT, 'out'), String(b.file ?? '').replace(/^out[\\/]/, ''));
+      const f = inside(OUT, String(b.file ?? '').replace(/^(out|exports)[\\/]/, ''));
       if (!f || !fs.existsSync(f)) return send(res, 404, { error: 'no file' });
       spawn('explorer.exe', [`/select,${f}`], { detached: true, stdio: 'ignore' }).unref();
       return send(res, 200, { ok: true });
     }
     if (p.startsWith('/api/')) return send(res, 404, { error: 'unknown api' });
-    if (p === '/' || p === '/index.html') return serveFile(req, res, path.join(EDITOR, 'index.html'));
+    // The page learns the app-wide UI language before its script runs
+    if (p === '/' || p === '/index.html') {
+      const html = fs.readFileSync(path.join(EDITOR, 'index.html'), 'utf8').replace('<html lang="zh-CN">', `<html lang="${uiLang() === 'zh' ? 'zh-CN' : 'en'}" data-lang="${uiLang()}">`);
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+      return res.end(html);
+    }
     if (p.startsWith('/app/')) {
       const f = inside(path.join(EDITOR, 'dist'), p.slice(5));
       return f ? serveFile(req, res, f) : send(res, 403, {});
@@ -432,7 +449,7 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.on('error', (e: NodeJS.ErrnoException) => {
-  console.error(e.code === 'EADDRINUSE' ? `端口 ${PORT} 已被占用` : e.message);
+  console.error(e.code === 'EADDRINUSE' ? `Port ${PORT} is already in use` : e.message);
   process.exit(1);
 });
 server.listen({ port: PORT, host: '127.0.0.1', exclusive: true }, () => {

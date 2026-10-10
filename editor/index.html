@@ -124,20 +124,23 @@ p.hint { margin: 8px 0 0; }
 .bar { width: 90px; height: 4px; background: #2c2f36; border-radius: 2px; overflow: hidden; }
 .bar > i { display: block; height: 100%; background: var(--accent); }
 .split-btn { display: inline-flex; }
+.ghost.lang { gap: 6px; color: var(--ink2); font-weight: 600; font-size: 12px; }
 .split-btn > .primary { border-radius: 6px 0 0 6px; }
 .split-btn .primary.more { border-radius: 0 6px 6px 0; padding: 0 7px; margin-left: 1px; }
 
 /* library */
-.lib { display: flex; flex-direction: column; }
-.lib-tabs { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); border-bottom: 1px solid var(--line2); flex: none; padding: 0 4px; }
-.lib-tabs button { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; height: 52px; padding: 0; border: 0; background: transparent; color: var(--ink3); font-size: 11px; border-bottom: 2px solid transparent; margin-bottom: -1px; }
-.lib-tabs button:hover { color: var(--ink); }
-.lib-tabs button.on { color: var(--ink); border-bottom-color: var(--accent); }
+.lib { display: grid; grid-template-columns: 66px minmax(0, 1fr); }
+/* vertical section rail, like the left strip of CapCut / Canva */
+.lib-tabs { display: flex; flex-direction: column; gap: 2px; padding: 8px 6px; border-right: 1px solid var(--line2); overflow-y: auto; }
+.lib-tabs button { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; min-height: 54px; padding: 4px 0; border: 0; border-radius: 8px; background: transparent; color: var(--ink3); font-size: 10.5px; line-height: 1.15; text-align: center; }
+.lib-tabs button:hover { color: var(--ink); background: var(--hover); }
+.lib-tabs button.on { color: var(--ink); background: var(--panel2); }
 .lib-tabs button.on svg { color: var(--accent-hi); }
-.lib-body { flex: 1; overflow-y: auto; padding: 12px 10px 24px; }
+.lib-body { min-width: 0; overflow-y: auto; padding: 12px 10px 24px; }
 .lib-bar { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
 .lib-note { font-size: 11px; color: var(--ink3); line-height: 1.45; }
 .lib-note.pad { padding: 12px 2px; }
+.lib-note.pad0 { margin: 0 0 12px; }
 .lib-sec + .lib-sec { margin-top: 16px; }
 .lib-sec h4 { display: flex; align-items: baseline; gap: 6px; margin: 0 0 8px; font: 500 11.5px var(--ui); color: var(--ink2); }
 .lib-sec h4 span { color: var(--ink3); font-size: 11px; }
@@ -146,9 +149,9 @@ p.hint { margin: 8px 0 0; }
 .lib-target.none { color: var(--warn); }
 .lib-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; width: 100%; height: 132px; border: 1px dashed #3a3e47; border-radius: 8px; background: transparent; color: var(--ink2); font-size: 12px; }
 .lib-empty:hover { border-color: var(--accent); color: var(--ink); }
-.lgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: 12px 8px; }
+.lgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(94px, 1fr)); gap: 12px 8px; }
 .lt { display: flex; flex-direction: column; gap: 5px; min-width: 0; padding: 0; border: 0; background: none; text-align: left; }
-.lt-box { position: relative; display: grid; place-items: center; height: 72px; border-radius: 5px; overflow: hidden; background: #0b0c0f; box-shadow: inset 0 0 0 1px var(--line); }
+.lt-box { position: relative; display: grid; place-items: center; aspect-ratio: 16 / 9; height: auto; border-radius: 5px; overflow: hidden; background: #0b0c0f; box-shadow: inset 0 0 0 1px var(--line); }
 .lt:hover .lt-box { box-shadow: inset 0 0 0 1px #50545e; }
 .lt.on .lt-box { box-shadow: 0 0 0 2px var(--accent); }
 .lt-name { font-size: 11.5px; color: var(--ink2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -159,6 +162,7 @@ p.hint { margin: 8px 0 0; }
 .lt:hover .lt-add, .lt:focus-visible .lt-add { opacity: 1; transform: none; }
 .lt-warn { position: absolute; left: 5px; top: 5px; z-index: 3; width: 15px; height: 15px; border-radius: 50%; display: grid; place-items: center; background: var(--warn); color: #1a1205; font-size: 10px; font-weight: 800; }
 .lt-img { position: absolute; inset: 0; background-size: cover; background-position: center; }
+.lt-poster, .lt-video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 .lt-img.pending { background: linear-gradient(90deg, #15161a, #1c1e23, #15161a); }
 .lt-sprite { height: 72px; background-repeat: no-repeat; }
 .lt-dur { position: absolute; left: 5px; bottom: 5px; padding: 0 5px; border-radius: 3px; background: rgba(0, 0, 0, .66); color: #fff; font-size: 10.5px; line-height: 16px; font-variant-numeric: tabular-nums; }
@@ -283,8 +287,9 @@ p.hint { margin: 8px 0 0; }
 .kdot.board { background: linear-gradient(135deg, var(--accent), #a78bfa); }
 .kind { font: 500 11px var(--ui); color: var(--ink2); background: var(--panel2); padding: 1px 7px; border-radius: 4px; flex: none; }
 .meta { margin-top: 4px; color: var(--ink3); font-size: 11.5px; font-variant-numeric: tabular-nums; }
-.itabs { display: flex; gap: 2px; padding: 0 8px; border-bottom: 1px solid var(--line2); flex: none; }
-.itabs button { display: inline-flex; align-items: center; gap: 5px; height: 32px; padding: 0 8px; border: 0; background: transparent; color: var(--ink3); border-bottom: 2px solid transparent; margin-bottom: -1px; font-weight: 500; white-space: nowrap; }
+.itabs { display: flex; gap: 0; padding: 0 6px; border-bottom: 1px solid var(--line2); flex: none; overflow-x: auto; scrollbar-width: none; }
+.itabs::-webkit-scrollbar { display: none; }
+.itabs button { display: inline-flex; align-items: center; gap: 4px; height: 32px; padding: 0 7px; font-size: 12px; flex: none; border: 0; background: transparent; color: var(--ink3); border-bottom: 2px solid transparent; margin-bottom: -1px; font-weight: 500; white-space: nowrap; }
 .itabs button:hover { color: var(--ink); }
 .itabs button.on { color: var(--ink); border-bottom-color: var(--accent); }
 .itabs .n { min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; display: inline-grid; place-items: center; background: var(--panel2); color: var(--ink2); font-size: 10px; font-weight: 600; font-variant-numeric: tabular-nums; }

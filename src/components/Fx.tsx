@@ -1,5 +1,5 @@
 import React, { useId } from 'react';
-import { AbsoluteFill, Easing, interpolate, random, useCurrentFrame, useVideoConfig } from 'remotion';
+import { AbsoluteFill, Easing, Freeze, interpolate, random, useCurrentFrame, useVideoConfig } from 'remotion';
 import { CameraMotionBlur } from '@remotion/motion-blur';
 import type { TransitionPresentation, TransitionPresentationComponentProps } from '@remotion/transitions';
 import { fade } from '@remotion/transitions/fade';
@@ -10,6 +10,9 @@ import { clockWipe } from '@remotion/transitions/clock-wipe';
 import { iris } from '@remotion/transitions/iris';
 import { pushCut } from '@remotion/transitions/push-cut';
 import type { Dir, Fx, Look, Transition } from '../lib/types';
+import { extraPresentation } from '../fx/transitions';
+import { FxOverlays, NEW_FX_KEYS, fxFilter, fxMotion } from '../fx/scenefx';
+import { EASE, clamp01 } from '../fx/ease';
 
 // Color looks as CSS filter chains
 export const LOOKS: Record<Look, string> = {
@@ -23,7 +26,7 @@ export const LOOKS: Record<Look, string> = {
   teal: 'hue-rotate(-12deg) saturate(1.25) contrast(1.06)',
 };
 
-const VISUAL_KEYS: (keyof Fx)[] = ['look', 'brightness', 'contrast', 'saturate', 'hue', 'blur', 'vignette', 'grain', 'leak', 'letterbox', 'kenburns', 'motionBlur', 'fadeIn', 'fadeOut', 'shake', 'dim'];
+const VISUAL_KEYS: (keyof Fx)[] = ['look', 'brightness', 'contrast', 'saturate', 'hue', 'blur', 'vignette', 'grain', 'leak', 'letterbox', 'kenburns', 'motionBlur', 'fadeIn', 'fadeOut', 'shake', 'dim', ...NEW_FX_KEYS];
 export const hasVisualFx = (fx?: Fx) => !!fx && VISUAL_KEYS.some((k) => fx[k] !== undefined && fx[k] !== false && fx[k] !== 0);
 
 export function filterOf(fx: Fx): string | undefined {
@@ -57,6 +60,9 @@ function kenBurns(fx: Fx, f: number, dur: number): string | undefined {
       return `scale(${s}) translateY(${t - 2 * t * p}%)`;
     case 'down':
       return `scale(${s}) translateY(${-t + 2 * t * p}%)`;
+    case 'reveal':
+      // Pull-back reveal: starts tight, eases out to the full frame
+      return `scale(${1 + Math.max(amt, 0.2) * 2 * (1 - EASE['expo.out'](clamp01(f / 72)))})`;
   }
 }
 
@@ -78,13 +84,25 @@ function Grain({ amount }: { amount: number }) {
 export const FxLayer: React.FC<{ fx?: Fx; dur: number; children: React.ReactNode }> = ({ fx, dur, children }) => {
   const f = useCurrentFrame();
   const { fps, width, height } = useVideoConfig();
+  const sid = `sf${useId().replace(/[^a-zA-Z0-9]/g, '')}`;
   if (!fx || !hasVisualFx(fx)) return <>{children}</>;
-  const filter = filterOf(fx);
+  const t = f / fps;
+  const svg = fxFilter(sid, fx, t);
+  const mo = fxMotion(fx, t);
+  const filter = [filterOf(fx), mo.blur ? `blur(${mo.blur.toFixed(2)}px)` : '', svg ? `url(#${sid})` : ''].filter(Boolean).join(' ') || undefined;
   const kb = kenBurns(fx, f, dur);
   const sh = fx.shake ? fx.shake * 14 : 0;
   const shake = sh ? `translate(${(random(`x${f}`) - 0.5) * sh}px, ${(random(`y${f}`) - 0.5) * sh}px)` : '';
-  const transform = [shake, kb].filter(Boolean).join(' ') || undefined;
-  let body = <AbsoluteFill style={{ filter, transform, transformOrigin: 'center' }}>{children}</AbsoluteFill>;
+  const transform = [shake, mo.transform, kb].filter(Boolean).join(' ') || undefined;
+  // Stop-motion cadence: hold each picture for several frames
+  const hold = fx.stepped ? Math.max(1, Math.round(fps / Number(fx.stepped))) : 1;
+  const inner = hold > 1 ? <Freeze frame={Math.floor(f / hold) * hold}>{children}</Freeze> : children;
+  let body = (
+    <AbsoluteFill style={{ filter, transform, transformOrigin: 'center' }}>
+      {svg}
+      {inner}
+    </AbsoluteFill>
+  );
   if (fx.motionBlur) body = <CameraMotionBlur shutterAngle={180} samples={6}>{body}</CameraMotionBlur>;
   const fin = fx.fadeIn ? interpolate(f, [0, fx.fadeIn * fps], [1, 0], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' }) : 0;
   const fout = fx.fadeOut ? interpolate(f, [dur - fx.fadeOut * fps, dur], [0, 1], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' }) : 0;
@@ -102,6 +120,7 @@ export const FxLayer: React.FC<{ fx?: Fx; dur: number; children: React.ReactNode
           <div style={{ position: 'absolute', left: 0, bottom: 0, width, height: lb, background: '#000' }} />
         </>
       ) : null}
+      <FxOverlays fx={fx} t={t} />
       {fx.dim ? <AbsoluteFill style={{ background: '#000', opacity: Math.min(0.9, fx.dim) }} /> : null}
       {fin || fout ? <AbsoluteFill style={{ background: '#000', opacity: Math.max(fin, fout) }} /> : null}
     </AbsoluteFill>
@@ -153,7 +172,7 @@ export function presentation(t: Transition | undefined, dir: Dir | undefined, wi
       case 'dip':
         return dipT();
       default:
-        return fade();
+        return (t ? extraPresentation(t, dir, width, height) : null) ?? fade();
     }
   })();
   return p as unknown as AnyPresentation;

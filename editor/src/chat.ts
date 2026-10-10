@@ -5,6 +5,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { ROOT, STATE } from './store';
 import { HELP } from './help';
 import { catalogText } from './catalog';
+import { L, readSettings, writeSettings } from './settings';
 
 export type ChatEvent =
   | { type: 'start'; provider: string }
@@ -70,23 +71,13 @@ interface AiSettings {
   pref?: 'auto' | 'claude-code' | 'anthropic';
   apiKey?: string;
 }
-const SETTINGS = path.join(STATE, 'settings.json');
-const readSettings = (): Record<string, any> => {
-  try {
-    return JSON.parse(fs.readFileSync(SETTINGS, 'utf8'));
-  } catch {
-    return {};
-  }
-};
 export const readAi = (): AiSettings => readSettings().ai ?? {};
 export function writeAi(patch: { pref?: string; apiKey?: string | null }) {
-  const all = readSettings();
-  const ai: AiSettings = { ...(all.ai ?? {}) };
+  const ai: AiSettings = { ...(readSettings().ai ?? {}) };
   if (patch.pref !== undefined) ai.pref = ['claude-code', 'anthropic'].includes(patch.pref) ? (patch.pref as AiSettings['pref']) : 'auto';
   if (patch.apiKey === null || patch.apiKey === '') delete ai.apiKey;
   else if (typeof patch.apiKey === 'string') ai.apiKey = patch.apiKey.trim();
-  fs.mkdirSync(STATE, { recursive: true });
-  fs.writeFileSync(SETTINGS, JSON.stringify({ ...all, ai }, null, 2));
+  writeSettings({ ai });
   authCache = null;
 }
 const apiKey = () => process.env.ANTHROPIC_API_KEY || readAi().apiKey || '';
@@ -142,14 +133,14 @@ export async function aiTest(): Promise<{ ok: boolean; message: string; ms: numb
   const t0 = Date.now();
   const prov = provider();
   const done = (ok: boolean, message: string) => ({ ok, message, ms: Date.now() - t0 });
-  if (!prov) return done(false, '还没有可用的连接：登录 Claude Code，或者填一个 API Key');
+  if (!prov) return done(false, L('No connection yet: sign in to Claude Code or add an API key', '还没有可用的连接：登录 Claude Code，或者填一个 API Key'));
   if (prov === 'anthropic') {
     try {
       const m = await new Anthropic({ apiKey: apiKey() }).models.retrieve('claude-opus-5-5');
-      return done(true, `API Key 可用，模型 ${m.display_name ?? m.id}`);
+      return done(true, L(`API key works; model ${m.display_name ?? m.id}`, `API Key 可用，模型 ${m.display_name ?? m.id}`));
     } catch (e) {
       const st = (e as { status?: number }).status;
-      return done(false, st === 401 ? 'API Key 无效（401）' : st === 403 ? '这个 Key 没有权限（403）' : `连接失败：${(e as Error).message.slice(0, 160)}`);
+      return done(false, st === 401 ? L('Invalid API key (401)', 'API Key 无效（401）') : st === 403 ? L('This key has no access (403)', '这个 Key 没有权限（403）') : L(`Connection failed: ${(e as Error).message.slice(0, 160)}`, `连接失败：${(e as Error).message.slice(0, 160)}`));
     }
   }
   return new Promise((resolve) => {
@@ -164,11 +155,11 @@ export async function aiTest(): Promise<{ ok: boolean; message: string; ms: numb
       clearTimeout(timer);
       try {
         const j = JSON.parse(out);
-        if (j.is_error) return resolve(done(false, String(j.result ?? 'Claude Code 返回错误').slice(0, 200)));
+        if (j.is_error) return resolve(done(false, String(j.result ?? L('Claude Code returned an error', 'Claude Code 返回错误')).slice(0, 200)));
         const model = Object.keys(j.modelUsage ?? {})[0];
-        resolve(done(true, `Claude Code 可用${model ? `，测试用 ${model}` : ''}`));
+        resolve(done(true, L(`Claude Code works${model ? `; tested with ${model}` : ''}`, `Claude Code 可用${model ? `，测试用 ${model}` : ''}`)));
       } catch {
-        resolve(done(false, (err || out || 'Claude Code 没有回应').trim().slice(-200)));
+        resolve(done(false, (err || out || L('Claude Code did not answer', 'Claude Code 没有回应')).trim().slice(-200)));
       }
     });
   });
@@ -186,7 +177,7 @@ How to edit:
 - Do not export/render videos; the user has an export button.
 
 How to reply:
-- Answer in the user's language (usually Chinese), in 1–3 short sentences: what you changed (scene ids, before → after). No headings, no lists unless several scenes changed.
+- Answer in the language the user writes in, in 1–3 short sentences: what you changed (scene ids, before → after). No headings, no lists unless several scenes changed.
 - Do not print any status/canary line like "[dir · turn N]"; this is an app panel, not a terminal.
 - If the request is ambiguous, pick the most likely reading, do it, and say which reading you chose.
 
@@ -197,8 +188,8 @@ ${catalogText()}`;
 }
 
 const contextLine = (c: ChatContext) => {
-  const view = `${c.format === 'tall' ? '竖屏' : '横屏'} · ${c.mode === 'beat' ? '卡点版 (--mode beat)' : '旁白版'} · ${c.lang === 'en' ? 'English' : '中文'}${c.variant === 'clean' ? ' · 无网址' : ''}`;
-  return `[编辑器状态：当前 ${view} (--format ${c.format} --mode ${c.mode} --lang ${c.lang})${c.sel ? `；选中段落 ${c.sel}` : ''}${c.t !== undefined ? `；播放头 ${c.t.toFixed(2)} 秒` : ''}]`;
+  const view = `${c.format === 'tall' ? '9:16 vertical' : '16:9 widescreen'} · ${c.mode === 'beat' ? 'beat cut (--mode beat)' : 'narrated cut'} · ${c.lang === 'en' ? 'English' : 'Chinese'}${c.variant === 'clean' ? ' · URLs hidden' : ''}`;
+  return `[Editor state: showing ${view} (--format ${c.format} --mode ${c.mode} --lang ${c.lang})${c.sel ? `; selected scene ${c.sel}` : ''}${c.t !== undefined ? `; playhead at ${c.t.toFixed(2)} s` : ''}]`;
 };
 
 // Status line the user's global instructions add to every reply; meaningless in the panel
@@ -239,8 +230,8 @@ export function stop(slug: string) {
 
 export async function chat(slug: string, message: string, ctx: ChatContext, model: string | undefined, emit: (e: ChatEvent) => void): Promise<void> {
   const prov = provider();
-  if (!prov) return emit({ type: 'error', message: '还没连上 AI：点右上角的连接设置，登录 Claude Code 或填一个 API Key。' });
-  if (running.has(slug)) return emit({ type: 'error', message: '上一条还在处理' });
+  if (!prov) return emit({ type: 'error', message: L('The AI is not connected: open the connection settings, then sign in to Claude Code or add an API key.', '还没连上 AI：点右上角的连接设置，登录 Claude Code 或填一个 API Key。') });
+  if (running.has(slug)) return emit({ type: 'error', message: L('Still working on the last message', '上一条还在处理') });
   const saved = load(slug);
   saved.log.push({ role: 'user', text: message, t: new Date().toISOString() });
   save(slug, saved);
@@ -288,7 +279,15 @@ function viaClaudeCode(slug: string, prompt: string, model: string | undefined, 
     };
     running.set(slug, { kill });
     const timer = setTimeout(kill, 5 * 60_000);
-    const filter = new CanaryFilter((s) => emit({ type: 'text', delta: s }));
+    let wrote = false;
+    let gap = false;
+    const filter = new CanaryFilter((s) => {
+      // A new assistant message after earlier text starts a new paragraph
+      if (gap && wrote) emit({ type: 'text', delta: '\n\n' });
+      gap = false;
+      wrote = true;
+      emit({ type: 'text', delta: s });
+    });
     const streamed = new Set<string>();
     let msgId = '';
     let buf = '';
@@ -314,6 +313,7 @@ function viaClaudeCode(slug: string, prompt: string, model: string | undefined, 
           if (ev?.type === 'message_start') {
             msgId = ev.message?.id ?? '';
             filter.reset();
+            gap = true;
           }
           if (ev?.type === 'content_block_delta' && ev.delta?.type === 'text_delta') {
             streamed.add(msgId);
@@ -342,7 +342,7 @@ function viaClaudeCode(slug: string, prompt: string, model: string | undefined, 
     child.on('close', (code) => {
       clearTimeout(timer);
       filter.flush();
-      if (!done) emit(code === 0 ? { type: 'done', ms: Date.now() - t0 } : { type: 'error', message: `AI 进程退出（${code}）${err ? '：' + err.slice(-300) : ''}` });
+      if (!done) emit(code === 0 ? { type: 'done', ms: Date.now() - t0 } : { type: 'error', message: L(`The AI process exited (${code})${err ? ': ' + err.slice(-300) : ''}`, `AI 进程退出（${code}）${err ? '：' + err.slice(-300) : ''}`) });
       resolve();
     });
   });
@@ -379,7 +379,7 @@ async function viaApi(slug: string, prompt: string, saved: Saved, emit: (e: Chat
     const msg = await stream.finalMessage();
     messages.push({ role: 'assistant', content: msg.content as Anthropic.Beta.BetaContentBlockParam[] });
     if (msg.stop_reason === 'refusal') {
-      emit({ type: 'error', message: '模型拒绝了这个请求' });
+      emit({ type: 'error', message: L('The model declined this request', '模型拒绝了这个请求') });
       break;
     }
     const uses = msg.content.filter((b): b is Anthropic.Beta.BetaToolUseBlock => b.type === 'tool_use');

@@ -121,6 +121,12 @@ const P: Record<string, React.ReactNode> = {
     </>
   ),
   dot: <circle cx="8" cy="8" r="3" fill="currentColor" stroke="none" />,
+  globe: (
+    <>
+      <circle cx="8" cy="8" r="6" />
+      <path d="M2 8h12M8 2c1.8 1.7 2.6 3.7 2.6 6S9.8 12.3 8 14C6.2 12.3 5.4 10.3 5.4 8S6.2 3.7 8 2z" />
+    </>
+  ),
 };
 
 export const Icon = ({ name, size = 16 }: { name: keyof typeof P | string; size?: number }) => (

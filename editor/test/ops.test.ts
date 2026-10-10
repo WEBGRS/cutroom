@@ -8,7 +8,9 @@ import { buildBeatTimeline, buildTimeline } from '../../src/lib/timeline';
 import type { CaptureMeta, Format, Props, Storyboard, Timings } from '../../src/lib/types';
 import { editTimeline } from '../src/model';
 import { addScene, duplicateScene, moveScene, removeScene, setBeatBars, setPath, splitPoint, splitScene, toRef, trimEdge, type Doc } from '../src/ops';
-import { BOARD_FX, OVERLAYS, SCENE_FX, TRANSITIONS, catalogText } from '../src/catalog';
+import { BOARD_FX, CARD_LIST, LOWER_LIST, OVERLAY_LIST, SCENE_FX, TEXT_LIST, TRANSITION_LIST, BG_LIST, catalogText } from '../src/catalog';
+import { extraPresentation } from '../../src/fx/transitions';
+import { DEMO_CARDS } from '../../src/fx/demo';
 import { ADDABLE, boardTemplate, sceneTemplate } from '../src/templates';
 
 // Fixture: the showcase project's JSON (no media needed) plus synthetic voice timings
@@ -135,8 +137,16 @@ test('effect catalog is consistent', () => {
     }
   for (const g of SCENE_FX) for (const f of g.fields) assert.ok(f.path.startsWith('fx.'), f.path);
   const text = catalogText();
-  for (const o of OVERLAYS) assert.ok(text.includes(o.kind), o.kind);
-  for (const [t] of TRANSITIONS) if (t) assert.ok(text.includes(t), t);
+  for (const o of OVERLAY_LIST) assert.ok(text.includes(o.id), o.id);
+  for (const t of TRANSITION_LIST) if (t.id) assert.ok(text.includes(t.id), t.id);
+});
+
+test('every effect has both languages and a renderer', () => {
+  const base = ['', 'slide', 'wipe', 'flip', 'clock', 'iris', 'push', 'zoom', 'dip', 'none'];
+  for (const x of [...TRANSITION_LIST, ...OVERLAY_LIST, ...LOWER_LIST, ...BG_LIST, ...CARD_LIST, ...TEXT_LIST]) assert.ok(x.en.trim() && x.zh.trim(), x.id);
+  for (const t of TRANSITION_LIST) if (!base.includes(t.id)) assert.ok(extraPresentation(t.id, undefined, 1920, 1080), t.id);
+  for (const c of CARD_LIST) assert.ok(DEMO_CARDS[c.id], c.id);
+  for (const g of [...SCENE_FX, ...BOARD_FX]) for (const f of g.fields) assert.ok(f.en && f.zh, f.path);
 });
 
 test('frame inset leaves the layout untouched when unset', () => {

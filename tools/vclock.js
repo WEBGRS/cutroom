@@ -77,7 +77,30 @@
     }
   };
 
+  // Looping autoplay clips (hover previews, background loops) follow virtual time instead of the wall clock
+  const mediaStart = new WeakMap();
+  const syncMedia = () => {
+    for (const v of document.querySelectorAll('video')) {
+      if (!v.loop || !v.autoplay) continue;
+      if (!mediaStart.has(v)) mediaStart.set(v, now);
+      if (!v.paused) v.pause();
+      if (v.duration > 0) {
+        const t = ((now - mediaStart.get(v)) / 1000) % v.duration;
+        if (Math.abs(v.currentTime - t) > 0.001) v.currentTime = t;
+      }
+    }
+  };
+
   window.__vt = {
+    // Resolves once synced clips have decoded the frame they were moved to
+    mediaReady() {
+      const busy = [...document.querySelectorAll('video')].filter((v) => v.loop && v.autoplay && (v.seeking || v.readyState < 2));
+      return Promise.all(busy.map((v) => new Promise((done) => {
+        v.addEventListener('seeked', done, { once: true });
+        v.addEventListener('loadeddata', done, { once: true });
+        setTimeout(done, 1500);
+      })));
+    },
     get now() {
       return now;
     },
@@ -95,6 +118,7 @@
         }
       }
       syncAnimations();
+      syncMedia();
       return now;
     },
   };

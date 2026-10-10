@@ -1,29 +1,70 @@
 import React, { useEffect, useRef, useState } from 'react';
-import type { Scene, Theme } from '../../src/lib/types';
+import type { Fx, Scene, Theme } from '../../src/lib/types';
 import { LOOKS } from '../../src/components/Fx';
-import { OVERLAYS, SCENE_FX, TRANSITIONS } from './catalog';
+import { FX_DEMO } from '../../src/fx/demo';
+import { BG_LIST, CARD_LIST, LOWER_LIST, OVERLAY_LIST, RULES, TEXT_LIST, TRANSITION_LIST, type Named } from './catalog';
+import { LOOK_LIST } from '../../src/fx/registry';
 import { thumbsUrl, useAsset, type Thumbs } from './assets';
 import { Icon } from './icons';
+import { nm, tr } from './i18n';
 
-export type LibTab = 'media' | 'cards' | 'text' | 'trans' | 'looks' | 'audio';
+export type LibTab = 'media' | 'cards' | 'text' | 'overlay' | 'trans' | 'fx' | 'bg' | 'audio';
 
-const TABS: [LibTab, string, string][] = [
-  ['media', '素材', 'media'],
-  ['cards', '卡片', 'cards'],
-  ['text', '叠加', 'text'],
-  ['trans', '转场', 'trans'],
-  ['looks', '滤镜', 'filter'],
-  ['audio', '音乐', 'music'],
+const TABS: [LibTab, string, string, string][] = [
+  ['media', 'Media', '素材', 'media'],
+  ['cards', 'Cards', '卡片', 'cards'],
+  ['text', 'Text', '文字', 'text'],
+  ['overlay', 'Overlays', '叠加', 'layers'],
+  ['trans', 'Transitions', '转场', 'trans'],
+  ['fx', 'Effects', '特效', 'filter'],
+  ['bg', 'Backdrop', '背景', 'board'],
+  ['audio', 'Music', '音乐', 'music'],
 ];
 
-const CARDS: [string, string, string][] = [
-  ['title', '标题卡', '开场或章节标题'],
-  ['stats', '数字卡', '三个关键数字'],
-  ['flow', '流程图', '几步走完一件事'],
-  ['outro', '片尾', '结尾和网址'],
+// Scene-effect presets shown as tiles; each id is a key of FX_DEMO
+const FX_TILES: { group: { en: string; zh: string }; items: Named[] }[] = [
+  {
+    group: { en: 'Lens & grade', zh: '镜头与调色' },
+    items: [
+      { id: 'chroma', en: 'RGB split', zh: '色散', src: 'chromatic-aberration-wipe' },
+      { id: 'bloom', en: 'Bloom', zh: '辉光' },
+      { id: 'glitch', en: 'Glitch bursts', zh: '故障闪烁', src: 'rgb-glitch-text' },
+      { id: 'crt', en: 'CRT lines', zh: '扫描线', src: 'scan-band' },
+      { id: 'pixelate', en: 'Pixelate', zh: '像素化', src: 'grid-pixelate-wipe' },
+      { id: 'posterize', en: 'Posterize', zh: '色阶分离', src: 'ordered-dither-pass' },
+      { id: 'duotone-ocean', en: 'Duotone ocean', zh: '双色·海蓝', src: 'grade-split-reveal' },
+      { id: 'duotone-sunset', en: 'Duotone sunset', zh: '双色·日落', src: 'grade-split-reveal' },
+      { id: 'duotone-mint', en: 'Duotone mint', zh: '双色·薄荷', src: 'grade-split-reveal' },
+      { id: 'duotone-rose', en: 'Duotone rose', zh: '双色·玫瑰', src: 'grade-split-reveal' },
+      { id: 'duotone-ink', en: 'Duotone ink', zh: '双色·墨色', src: 'grade-split-reveal' },
+      { id: 'blur', en: 'Blur', zh: '模糊' },
+    ],
+  },
+  {
+    group: { en: 'Camera', zh: '运镜' },
+    items: [
+      { id: 'kenburns', en: 'Push in', zh: '慢推' },
+      { id: 'reveal', en: 'Pull-back reveal', zh: '拉远揭示', src: 'pull-back-reveal' },
+      { id: 'drift', en: 'Handheld drift', zh: '手持漂移', src: 'drift-hold' },
+      { id: 'focusIn', en: 'Focus pull-in', zh: '开场对焦', src: 'focus-rack' },
+      { id: 'stepped', en: 'Stop motion', zh: '定格动画', src: 'stop-motion-cadence' },
+      { id: 'motionBlur', en: 'Motion blur pan', zh: '动态模糊平移', src: 'motion-blur' },
+      { id: 'shake', en: 'Shake', zh: '抖动', src: 'camera-shake', rule: 'shake' },
+    ],
+  },
+  {
+    group: { en: 'Atmosphere', zh: '氛围' },
+    items: [
+      { id: 'vignette', en: 'Vignette', zh: '暗角', src: 'vignette' },
+      { id: 'grain', en: 'Film grain', zh: '胶片颗粒', src: 'grain-overlay' },
+      { id: 'leak', en: 'Light leak', zh: '漏光', src: 'organic-light-leak-overlay' },
+      { id: 'letterbox', en: 'Letterbox', zh: '电影黑边' },
+      { id: 'dim', en: 'Dim', zh: '压暗' },
+      { id: 'fadeIn', en: 'Fade from black', zh: '黑场淡入' },
+    ],
+  },
 ];
-
-const LOOK_OPTS = SCENE_FX[0].fields[0].options!;
+export const FX_TILE_SOURCES = FX_TILES.flatMap((g) => g.items.map((i) => i.src)).filter((s): s is string => !!s);
 
 const isImg = (a: string) => /\.(png|jpe?g|webp|gif)$/i.test(a);
 const isVid = (a: string) => /\.(mp4|webm|mov)$/i.test(a);
@@ -31,6 +72,7 @@ const isAud = (a: string) => /\.(mp3|wav|m4a)$/i.test(a);
 const enc = (p: string) => p.split('/').map(encodeURIComponent).join('/');
 const base = (p: string) => p.replace(/^.*\//, '');
 const mmss = (t: number) => `${Math.floor(t / 60)}:${String(Math.round(t % 60)).padStart(2, '0')}`;
+const fxOn = (fx: Fx | undefined, preset: Record<string, unknown>) => !!fx && Object.entries(preset).every(([k, v]) => (fx as Record<string, unknown>)[k] === v);
 
 interface Props {
   slug: string;
@@ -43,9 +85,11 @@ interface Props {
   musicSrc: string | undefined;
   onAdd: (kind: string, src?: string) => void;
   onImport: () => void;
-  onOverlay: (kind: string) => void;
+  onOverlay: (kind: string, extra?: Record<string, unknown>) => void;
   onTransition: (t: string) => void;
   onLook: (look: string) => void;
+  onFx: (preset: Record<string, unknown>, on: boolean) => void;
+  onBg: (id: string) => void;
   onMusic: (src: string) => void;
 }
 
@@ -66,11 +110,25 @@ function Thumb({ slug, src, at = 0.3, dur = true }: { slug: string; src: string;
   );
 }
 
-function Tile({ label, sub, on, warn, onClick, children, title }: { label: string; sub?: string; on?: boolean; warn?: string; onClick: () => void; children: React.ReactNode; title?: string }) {
+// Rendered preview: poster, and the clip while hovered
+const Prev: React.FC<{ cat: string; id: string; hover: boolean }> = ({ cat, id, hover }) => {
+  const src = `/_fx/${cat}/${id || 'default'}`;
+  const [missing, setMissing] = useState(false);
+  if (missing) return <div className="lt-img pending" />;
   return (
-    <button className={`lt${on ? ' on' : ''}`} onClick={onClick} title={title ?? warn ?? label}>
+    <>
+      <img className="lt-poster" src={`${src}.jpg`} alt="" loading="lazy" onError={() => setMissing(true)} />
+      {hover ? <video className="lt-video" src={`${src}.mp4`} autoPlay muted loop playsInline /> : null}
+    </>
+  );
+};
+
+function Tile({ label, sub, on, warn, onClick, children, title, prev }: { label: string; sub?: string; on?: boolean; warn?: string; onClick: () => void; children?: React.ReactNode; title?: string; prev?: [string, string] }) {
+  const [hover, setHover] = useState(false);
+  return (
+    <button className={`lt${on ? ' on' : ''}`} onClick={onClick} title={title ?? warn ?? label} onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}>
       <span className="lt-box">
-        {children}
+        {prev ? <Prev cat={prev[0]} id={prev[1]} hover={hover} /> : children}
         {on ? (
           <span className="lt-on">
             <Icon name="check" size={12} />
@@ -96,7 +154,7 @@ function Target({ s, what }: { s: Scene | null; what: string }) {
       <b>{s.id}</b>
     </div>
   ) : (
-    <div className="lib-target none">先在时间线上点选一段</div>
+    <div className="lib-target none">{tr('Select a scene on the timeline first', '先在时间线上点选一段')}</div>
   );
 }
 
@@ -106,51 +164,6 @@ function LookBase({ slug, s, theme }: { slug: string; s: Scene | null; theme: Th
   if (v && (v.kind === 'screen' || v.kind === 'clip' || v.kind === 'image')) return <Thumb slug={slug} src={v.src} at={0.45} dur={false} />;
   const [a, b] = theme.bg ?? ['#0b1020', '#18223d'];
   return <div className="lt-img" style={{ background: `linear-gradient(160deg, ${a}, ${b})` }} />;
-}
-
-function Mock({ kind }: { kind: string }) {
-  switch (kind) {
-    case 'tag':
-      return <span className="mk-tag">标签</span>;
-    case 'note':
-      return (
-        <span className="mk-note">
-          <i />
-          <i />
-        </span>
-      );
-    case 'punch':
-      return <span className="mk-punch">重点</span>;
-    case 'lower':
-      return (
-        <span className="mk-lower">
-          <i />
-          <i />
-        </span>
-      );
-    case 'cinema':
-      return (
-        <span className="mk-cinema">
-          <b>片 名</b>
-        </span>
-      );
-    case 'box':
-      return <span className="mk-box" />;
-    case 'arrow':
-      return (
-        <svg className="mk-arrow" viewBox="0 0 40 24">
-          <path d="M6 20 30 6M30 6h-9M30 6v9" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
-      );
-    case 'spot':
-      return <span className="mk-spot" />;
-    case 'blur':
-      return <span className="mk-blur" />;
-    case 'sticker':
-      return <span className="mk-sticker">🔥</span>;
-    default:
-      return null;
-  }
 }
 
 function AudioRow({ src, label, sub, on, disabled, why, onUse }: { src: string; label: string; sub: string; on: boolean; disabled?: boolean; why?: string; onUse: () => void }) {
@@ -169,7 +182,7 @@ function AudioRow({ src, label, sub, on, disabled, why, onUse }: { src: string; 
   };
   return (
     <div className={`arow${on ? ' on' : ''}`}>
-      <button className="icon sm" onClick={toggle} title={playing ? '停止试听' : '试听'}>
+      <button className="icon sm" onClick={toggle} title={playing ? tr('Stop preview', '停止试听') : tr('Preview', '试听')}>
         <Icon name={playing ? 'pause' : 'play'} size={14} />
       </button>
       <span className="arow-t">
@@ -179,16 +192,47 @@ function AudioRow({ src, label, sub, on, disabled, why, onUse }: { src: string; 
       {on ? (
         <span className="arow-on">
           <Icon name="check" size={13} />
-          使用中
+          {tr('In use', '使用中')}
         </span>
       ) : (
         <button className="mini" disabled={disabled} title={why} onClick={onUse}>
-          使用
+          {tr('Use', '使用')}
         </button>
       )}
     </div>
   );
 }
+
+const Section: React.FC<{ title?: string; count?: number; children: React.ReactNode }> = ({ title, count, children }) => (
+  <section className="lib-sec">
+    {title ? (
+      <h4>
+        {title}
+        {count ? <span>{count}</span> : null}
+      </h4>
+    ) : null}
+    <div className="lgrid">{children}</div>
+  </section>
+);
+
+const GROUP_NAMES: Record<string, { en: string; zh: string }> = {
+  text: { en: 'Titles', zh: '标题字' },
+  callout: { en: 'Callouts', zh: '标注' },
+  draw: { en: 'Hand-drawn', zh: '手绘' },
+  ui: { en: 'Interface', zh: '界面元素' },
+  data: { en: 'Numbers', zh: '数据' },
+  fx: { en: 'Effects', zh: '效果' },
+};
+// Shown first in their tabs, like the trending row in CapCut
+const POPULAR = {
+  trans: ['whip', 'glitch', 'burn', 'cube', 'leak', 'grid', 'flash', 'cardzoom'],
+  text: ['stagger', 'decode', 'typewriter', 'flap', 'highlight', 'count', 'roll', 'glitch'],
+  overlay: ['hwcircle', 'hwarrow', 'notify', 'keys', 'counter', 'check', 'confetti', 'prompt'],
+};
+const POPULAR_TITLE = { en: 'Popular', zh: '常用' };
+const pick = <T extends { id: string }>(list: T[], ids: string[]) => ids.map((id) => list.find((x) => x.id === id)).filter((x): x is T => !!x);
+
+const CARD_GROUPS = { basic: { en: 'Basics', zh: '基础' }, data: { en: 'Numbers', zh: '数据' }, ui: { en: 'Interface', zh: '界面' } };
 
 export function Library(p: Props & { tab: LibTab; setTab: (t: LibTab) => void }) {
   const { slug, assets, target } = p;
@@ -198,22 +242,17 @@ export function Library(p: Props & { tab: LibTab; setTab: (t: LibTab) => void })
   const auds = assets.filter(isAud);
   const curTrans = p.mode === 'beat' ? (target?.beatTransition ?? '') : target?.transition === 'fade' ? '' : (target?.transition ?? '');
   const curLook = target?.fx?.look ?? '';
+  const warnOf = (x: Named) => (x.rule ? nm(RULES[x.rule]) : undefined);
 
   const media = (title: string, list: string[], kind: string) =>
     list.length ? (
-      <section className="lib-sec" key={kind}>
-        <h4>
-          {title}
-          <span>{list.length}</span>
-        </h4>
-        <div className="lgrid">
-          {list.map((a) => (
-            <Tile key={a} label={base(a)} onClick={() => p.onAdd(kind, a)} title={`添加到时间线：${a}`}>
-              <Thumb slug={slug} src={a} />
-            </Tile>
-          ))}
-        </div>
-      </section>
+      <Section key={kind} title={title} count={list.length}>
+        {list.map((a) => (
+          <Tile key={a} label={base(a)} onClick={() => p.onAdd(kind, a)} title={tr(`Add to the timeline: ${a}`, `添加到时间线：${a}`)}>
+            <Thumb slug={slug} src={a} />
+          </Tile>
+        ))}
+      </Section>
     ) : null;
 
   let body: React.ReactNode;
@@ -224,106 +263,131 @@ export function Library(p: Props & { tab: LibTab; setTab: (t: LibTab) => void })
           <div className="lib-bar">
             <button className="btn" onClick={p.onImport}>
               <Icon name="import" />
-              导入素材
+              {tr('Import', '导入素材')}
             </button>
-            <span className="lib-note">或直接拖进窗口</span>
+            <span className="lib-note">{tr('or drop files on the window', '或直接拖进窗口')}</span>
           </div>
           {caps.length + vids.length + imgs.length ? (
             <>
-              {media('录屏', caps, 'screen')}
-              {media('视频', vids, 'clip')}
-              {media('图片', imgs, 'image')}
+              {media(tr('Screen recordings', '录屏'), caps, 'screen')}
+              {media(tr('Videos', '视频'), vids, 'clip')}
+              {media(tr('Images', '图片'), imgs, 'image')}
             </>
           ) : (
             <button className="lib-empty" onClick={p.onImport}>
               <Icon name="import" size={20} />
-              导入图片或视频，点一下就加到时间线
+              {tr('Import images or videos, then click one to add it', '导入图片或视频，点一下就加到时间线')}
             </button>
           )}
         </>
       );
       break;
-    case 'cards': {
-      const [a, b] = p.theme.bg ?? ['#0b1020', '#18223d'];
+    case 'cards':
       body = (
-        <section className="lib-sec">
-          <h4>点一下加在选中段落后面</h4>
-          <div className="lgrid">
-            {CARDS.map(([k, l, sub]) => (
-              <Tile key={k} label={l} sub={sub} onClick={() => p.onAdd(k)}>
-                <span className="lt-card" style={{ background: `linear-gradient(160deg, ${a}, ${b})` }}>
-                  {k === 'stats' ? (
-                    <span className="lc-stats" style={{ color: p.theme.accent }}>
-                      <b>12</b>
-                      <b>3.4k</b>
-                      <b>98%</b>
-                    </span>
-                  ) : k === 'flow' ? (
-                    <span className="lc-flow">
-                      <i />
-                      <i />
-                      <i style={{ background: p.theme.accent }} />
-                    </span>
-                  ) : (
-                    <span className="lc-title">
-                      <small style={{ color: p.theme.accent }}>{k === 'outro' ? 'example.com' : 'KICKER'}</small>
-                      {k === 'outro' ? '谢谢观看' : '新标题'}
-                    </span>
-                  )}
-                </span>
-              </Tile>
-            ))}
-          </div>
-        </section>
+        <>
+          <div className="lib-note pad0">{tr('Click to add after the selected scene', '点一下加在选中段落后面')}</div>
+          {(['basic', 'data', 'ui'] as const).map((g) => (
+            <Section key={g} title={nm(CARD_GROUPS[g])}>
+              {CARD_LIST.filter((c) => c.group === g).map((c) => (
+                <Tile key={c.id} label={nm(c)} prev={['card', c.id]} onClick={() => p.onAdd(c.id)} />
+              ))}
+            </Section>
+          ))}
+        </>
       );
       break;
-    }
     case 'text':
       body = (
         <>
-          <Target s={target} what="加到播放头位置：" />
-          <div className="lgrid">
-            {OVERLAYS.map((o) => (
-              <Tile key={o.kind} label={o.label} warn={o.rule} onClick={() => p.onOverlay(o.kind)}>
-                <span className="lt-mock">
-                  <Mock kind={o.kind} />
-                </span>
-              </Tile>
+          <Target s={target} what={tr('Adds at the playhead in', '在播放头处加到')} />
+          <Section title={nm(POPULAR_TITLE)}>
+            {pick(TEXT_LIST, POPULAR.text).map((a) => (
+              <Tile key={a.id} label={nm(a)} prev={['text', a.id]} onClick={() => p.onOverlay('text', { anim: a.id })} />
             ))}
-          </div>
+          </Section>
+          <Section title={tr('All text animations', '全部文字动画')} count={TEXT_LIST.length}>
+            {TEXT_LIST.map((a) => (
+              <Tile key={a.id} label={nm(a)} prev={['text', a.id]} onClick={() => p.onOverlay('text', { anim: a.id })} />
+            ))}
+          </Section>
+        </>
+      );
+      break;
+    case 'overlay':
+      body = (
+        <>
+          <Target s={target} what={tr('Adds at the playhead in', '在播放头处加到')} />
+          <Section title={nm(POPULAR_TITLE)}>
+            {pick(OVERLAY_LIST, POPULAR.overlay).map((o) => (
+              <Tile key={o.id} label={nm(o)} warn={warnOf(o)} prev={['overlay', o.id]} onClick={() => p.onOverlay(o.id)} />
+            ))}
+          </Section>
+          {(['text', 'callout', 'draw', 'ui', 'data', 'fx'] as const).map((g) => (
+            <Section key={g} title={nm(GROUP_NAMES[g])}>
+              {OVERLAY_LIST.filter((o) => o.group === g && o.id !== 'text' && o.id !== 'lower').map((o) => (
+                <Tile key={o.id} label={nm(o)} warn={warnOf(o)} prev={['overlay', o.id]} onClick={() => p.onOverlay(o.id)} />
+              ))}
+            </Section>
+          ))}
+          <Section title={tr('Lower thirds', '下三分之一字幕条')} count={LOWER_LIST.length}>
+            {LOWER_LIST.map((l) => (
+              <Tile key={l.id || 'classic'} label={nm(l)} prev={['lower', l.id]} onClick={() => p.onOverlay('lower', l.id ? { style: l.id } : {})} />
+            ))}
+          </Section>
         </>
       );
       break;
     case 'trans':
       body = (
         <>
-          <Target s={target} what="设置进入这一段的转场：" />
-          <div className="lgrid">
-            {TRANSITIONS.filter(([t]) => p.mode === 'voice' || t !== 'none').map(([t, l, rule]) => (
-              <Tile key={t || 'fade'} label={`${p.mode === 'beat' && !t ? '交叉淡化' : l}${t ? '' : '（默认）'}`} warn={rule} on={!!target && curTrans === t} onClick={() => p.onTransition(t)}>
-                <span className={`tx tx-${t || 'fade'}`}>
-                  <i className="tx-a" />
-                  <i className="tx-b" />
-                </span>
-              </Tile>
+          <Target s={target} what={tr('Transition into', '进入这一段的转场：')} />
+          <Section title={nm(POPULAR_TITLE)}>
+            {pick(TRANSITION_LIST, POPULAR.trans).map((t) => (
+              <Tile key={t.id} label={nm(t)} warn={warnOf(t)} on={!!target && curTrans === t.id} prev={['transition', t.id]} onClick={() => p.onTransition(t.id)} />
             ))}
-          </div>
+          </Section>
+          <Section title={tr('All transitions', '全部转场')} count={TRANSITION_LIST.length}>
+            {TRANSITION_LIST.filter((t) => p.mode === 'voice' || t.id !== 'none').map((t) => (
+              <Tile key={t.id || 'fade'} label={`${p.mode === 'beat' && !t.id ? tr('Crossfade', '交叉淡化') : nm(t)}${t.id ? '' : tr(' (default)', '（默认）')}`} warn={warnOf(t)} on={!!target && curTrans === t.id} prev={['transition', t.id]} onClick={() => p.onTransition(t.id)} />
+            ))}
+          </Section>
         </>
       );
       break;
-    case 'looks':
+    case 'fx':
       body = (
         <>
-          <Target s={target} what="给这一段调色：" />
-          <div className="lgrid">
-            {LOOK_OPTS.map(([v, l]) => (
-              <Tile key={v || 'none'} label={l} on={!!target && curLook === v} onClick={() => p.onLook(v)}>
-                <span className="lt-look" style={{ filter: v ? LOOKS[v as keyof typeof LOOKS] : undefined }}>
+          <Target s={target} what={tr('Applies to', '作用于：')} />
+          <Section title={tr('Looks', '滤镜')}>
+            {LOOK_LIST.map((l) => (
+              <Tile key={l.id || 'none'} label={nm(l)} on={!!target && curLook === l.id} onClick={() => p.onLook(l.id)}>
+                <span className="lt-look" style={{ filter: l.id ? LOOKS[l.id as keyof typeof LOOKS] : undefined }}>
                   <LookBase slug={slug} s={p.preview} theme={p.theme} />
                 </span>
               </Tile>
             ))}
-          </div>
+          </Section>
+          {FX_TILES.map((g) => (
+            <Section key={g.group.en} title={nm(g.group)}>
+              {g.items.map((it) => {
+                const preset = FX_DEMO[it.id];
+                const on = fxOn(target?.fx, preset);
+                return <Tile key={it.id} label={nm(it)} warn={warnOf(it)} on={on} prev={['fx', it.id]} onClick={() => p.onFx(preset, on)} />;
+              })}
+            </Section>
+          ))}
+        </>
+      );
+      break;
+    case 'bg':
+      body = (
+        <>
+          <div className="lib-note pad0">{tr('Plays behind every scene of this video', '整条片子的背景动画')}</div>
+          <Section>
+            {BG_LIST.map((b) => (
+              <Tile key={b.id || 'none'} label={nm(b)} on={(p.theme.bgFx ?? '') === b.id} prev={['bg', b.id]} onClick={() => p.onBg(b.id)} />
+            ))}
+          </Section>
         </>
       );
       break;
@@ -334,9 +398,9 @@ export function Library(p: Props & { tab: LibTab; setTab: (t: LibTab) => void })
           <div className="lib-bar">
             <button className="btn" onClick={p.onImport}>
               <Icon name="import" />
-              导入音乐
+              {tr('Import music', '导入音乐')}
             </button>
-            <span className="lib-note">{p.mode === 'beat' ? '卡点版只能用分析过节拍的曲子' : '旁白版的背景音乐'}</span>
+            <span className="lib-note">{p.mode === 'beat' ? tr('Beat cut needs a track with beat data', '卡点版只能用分析过节拍的曲子') : tr('Background music for the narrated cut', '旁白版的背景音乐')}</span>
           </div>
           {tracks.length ? (
             tracks.map((t) => (
@@ -344,15 +408,15 @@ export function Library(p: Props & { tab: LibTab; setTab: (t: LibTab) => void })
                 key={t.src}
                 src={t.src}
                 label={base(t.src).replace(/\.\w+$/, '')}
-                sub={`${t.own ? '项目素材' : '曲库'}${t.beats ? ' · 有节拍数据' : ''}`}
+                sub={`${t.own ? tr('Project file', '项目素材') : tr('Library', '曲库')}${t.beats ? tr(' · beat data', ' · 有节拍数据') : ''}`}
                 on={p.musicSrc === t.src}
                 disabled={p.mode === 'beat' && !t.beats}
-                why={p.mode === 'beat' && !t.beats ? '没有节拍数据：先运行 python tools/beats.py <文件>' : undefined}
+                why={p.mode === 'beat' && !t.beats ? tr('No beat data: run python tools/beats.py <file> first', '没有节拍数据：先运行 python tools/beats.py <文件>') : undefined}
                 onUse={() => p.onMusic(t.src)}
               />
             ))
           ) : (
-            <div className="lib-note pad">还没有音乐。导入 mp3，或放进 public/music/</div>
+            <div className="lib-note pad">{tr('No music yet. Import an mp3 or put one in public/music/', '还没有音乐。导入 mp3，或放进 public/music/')}</div>
           )}
         </>
       );
@@ -362,11 +426,11 @@ export function Library(p: Props & { tab: LibTab; setTab: (t: LibTab) => void })
 
   return (
     <aside className="lib panel">
-      <nav className="lib-tabs" role="tablist">
-        {TABS.map(([k, l, ic]) => (
+      <nav className="lib-tabs" role="tablist" aria-orientation="vertical">
+        {TABS.map(([k, en, zh, ic]) => (
           <button key={k} role="tab" aria-selected={p.tab === k} className={p.tab === k ? 'on' : undefined} onClick={() => p.setTab(k)}>
             <Icon name={ic} size={18} />
-            {l}
+            {tr(en, zh)}
           </button>
         ))}
       </nav>

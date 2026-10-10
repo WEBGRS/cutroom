@@ -5,6 +5,13 @@ import type { Layout } from '../lib/layout';
 import { chunkLine, tokens, type Chunk, type Timeline, type Tok } from '../lib/timeline';
 import type { CaptionStyle, Overlay, Theme } from '../lib/types';
 import { Rich } from './Cards';
+import { fxOverlay } from '../fx/overlays';
+import { AnimText, textAnim } from '../fx/text';
+
+// Caption animations handled by animToks; any other id is a text animation
+const TOK_ANIMS = ['fade', 'pop', 'word', 'karaoke', 'typewriter'];
+const useAnim = (a?: string) => !!a && !TOK_ANIMS.includes(a) && !!textAnim(a);
+const toText = (toks: Tok[]) => toks.map((t) => (t.hi ? `[[${t.s}]]` : t.s)).join('');
 
 interface Cue {
   chunk: Chunk;
@@ -72,7 +79,7 @@ export const Captions: React.FC<{ tl: Timeline; layout: Layout; theme: Theme; en
       <AbsoluteFill style={{ fontFamily: SANS, pointerEvents: 'none' }}>
         <div style={{ position: 'absolute', left: 0, right: 0, ...(top !== undefined ? { top } : { bottom: layout.H - layout.capY }), display: 'flex', justifyContent: 'center' }}>
           <div style={{ ...box, textAlign: 'center', maxWidth: layout.W * 0.88, transform: `scale(${0.82 + 0.18 * pop})`, opacity: cs.anim === 'fade' || !cs.anim ? a : Math.min(1, pop * 1.5) }}>
-            <div style={{ fontSize: (en ? layout.zh * 0.86 : layout.zh) * k, fontWeight: 800, color: '#fff', lineHeight: 1.25, textShadow: shadow }}>{animToks(cue.chunk.toks, cs.anim, prog, hi)}</div>
+            <div style={{ fontSize: (en ? layout.zh * 0.86 : layout.zh) * k, fontWeight: 800, color: '#fff', lineHeight: 1.25, textShadow: shadow }}>{useAnim(cs.anim) ? <AnimText text={toText(cue.chunk.toks)} anim={cs.anim} t={age / fps} hi={hi} /> : animToks(cue.chunk.toks, cs.anim, prog, hi)}</div>
             {cue.en ? <div style={{ fontSize: layout.en * k, fontWeight: 500, color: 'rgba(255,255,255,.82)', lineHeight: 1.3, marginTop: 4, textShadow: shadow }}>{cue.en}</div> : null}
           </div>
         </div>
@@ -106,8 +113,10 @@ function extraOverlay(o: Overlay, key: number, age: number, d: number, out: numb
   const cy = (o.y ?? 0.5) * H;
   const w = (o.w ?? 0.3) * W;
   const h = (o.h ?? 0.2) * H;
+  const ctx = { o, t: age / fps, d: d / fps, out, layout, theme, fps, k: p };
   switch (o.kind) {
     case 'lower':
+      if (o.style) return fxOverlay(ctx, key);
       return (
         <div key={key} style={{ position: 'absolute', left: W * 0.06, top: (o.y ?? (tall ? 0.62 : 0.7)) * H, opacity: out * p, transform: `translateX(${(1 - p) * -60}px)`, display: 'flex', alignItems: 'stretch', boxShadow: '0 18px 50px rgba(0,0,0,.35)' }}>
           <div style={{ width: 12, background: theme.accent }} />
@@ -169,7 +178,7 @@ function extraOverlay(o: Overlay, key: number, age: number, d: number, out: numb
       );
     }
     default:
-      return null;
+      return fxOverlay(ctx, key);
   }
 }
 
@@ -285,7 +294,7 @@ export const BeatCaptions: React.FC<{ tl: Timeline; layout: Layout; theme: Theme
       <AbsoluteFill style={{ fontFamily: SANS, pointerEvents: 'none' }}>
         <div style={{ position: 'absolute', left: 40, right: 40, ...(top !== undefined ? { top } : { bottom: tall ? 340 : 96 }), textAlign: 'center', whiteSpace: 'nowrap', opacity: Math.min(fadeIn, out), transform: `scale(${0.82 + 0.18 * pop})` }}>
           <div style={box}>
-            <div style={{ fontSize: size * k, fontWeight: 900, color: '#fff', lineHeight: 1.15, textShadow: shadow, letterSpacing: '0.01em' }}>{animToks(tokens(cur.main), cs.anim, age / Math.max(1, cur.end - cur.start), hi)}</div>
+            <div style={{ fontSize: size * k, fontWeight: 900, color: '#fff', lineHeight: 1.15, textShadow: shadow, letterSpacing: '0.01em' }}>{useAnim(cs.anim) ? <AnimText text={cur.main} anim={cs.anim} t={age / fps} hi={hi} /> : animToks(tokens(cur.main), cs.anim, age / Math.max(1, cur.end - cur.start), hi)}</div>
             {cur.sub ? <div style={{ fontSize: (tall ? 30 : 32) * k, fontWeight: 700, color: 'rgba(255,255,255,.92)', marginTop: 10, textShadow: shadow }}>{cur.sub}</div> : null}
           </div>
         </div>

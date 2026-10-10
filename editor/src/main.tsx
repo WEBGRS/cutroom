@@ -13,7 +13,9 @@ import { ChatPanel } from './ChatPanel';
 import { Library, type LibTab } from './Library';
 import { ADDABLE, sceneTemplate } from './templates';
 import { Icon, Logo } from './icons';
-import { OVERLAYS } from './catalog';
+import { OVERLAY_LIST } from './catalog';
+import { LANG, nm, setLang, tr } from './i18n';
+import { textSample } from '../../src/fx/demo';
 import type { Fx } from '../../src/lib/types';
 
 const isImg = (a: string) => /\.(png|jpe?g|webp|gif)$/i.test(a);
@@ -222,7 +224,7 @@ function App() {
       return 'media';
     }
   });
-  const [size, setSize] = useState(() => ({ lib: pref.get('vs-w-lib', innerWidth < 1440 ? 244 : 288), side: pref.get('vs-w-side', innerWidth < 1440 ? 316 : 340), tl: pref.get('vs-h-tl', innerHeight < 860 ? 236 : 268) }));
+  const [size, setSize] = useState(() => ({ lib: pref.get('vs-w-lib2', innerWidth < 1440 ? 300 : 340), side: pref.get('vs-w-side2', innerWidth < 1440 ? 330 : 356), tl: pref.get('vs-h-tl', innerHeight < 860 ? 236 : 268) }));
   const size0 = useRef(size);
   const [phId, setPhId] = useState<string | null>(null);
   const [ask, setAsk] = useState<{ title: string; hint: string; ok: (v: string) => void } | null>(null);
@@ -381,13 +383,13 @@ function App() {
             d = x.fn(d).doc;
             kept.push(x);
           } catch {
-            flash(`和外部改动冲突，「${x.desc}」没保留`, 'error');
+            flash(tr(`Conflicts with an outside edit; dropped "${x.desc}"`, `和外部改动冲突，「${x.desc}」没保留`), 'error');
           }
         version.current = r.conflict.version;
         pending.current = kept;
         applyDoc(d);
         hist.current = { past: [], future: [] };
-        flash('文件刚在别处改过，已合并');
+        flash(tr('The file was just changed elsewhere; merged', '文件刚在别处改过，已合并'));
       }
       if (pending.current.length) pump();
       else {
@@ -402,7 +404,7 @@ function App() {
       // Keep the edits queued and try again shortly
       retries.current++;
       if (retries.current <= 5) window.setTimeout(pump, 800 * retries.current);
-      else flash(`保存失败：${(e as Error).message}`, 'error');
+      else flash(tr(`Save failed: ${(e as Error).message}`, `保存失败：${(e as Error).message}`), 'error');
       return;
     }
     retries.current = 0;
@@ -444,14 +446,14 @@ function App() {
     const e = h.past.pop();
     if (!e || !docRef.current) return;
     h.future.push({ doc: docRef.current, desc: e.desc });
-    restore(e.doc, `撤销：${e.desc}`);
+    restore(e.doc, tr(`Undo: ${e.desc}`, `撤销：${e.desc}`));
   };
   const redo = () => {
     const h = hist.current;
     const e = h.future.pop();
     if (!e || !docRef.current) return;
     h.past.push({ doc: docRef.current, desc: e.desc, t: 0 });
-    restore(e.doc, `重做：${e.desc}`);
+    restore(e.doc, tr(`Redo: ${e.desc}`, `重做：${e.desc}`));
   };
 
   // ---- live sync with edits made elsewhere (CLI, other tools) ----
@@ -467,7 +469,7 @@ function App() {
     applyDoc({ board: r.board, timings: r.timings });
     hist.current = { past: [], future: [] };
     bump((x) => x + 1);
-    if (e) flash(`${e.src === 'cli' ? 'Claude' : '外部'}改了：${e.desc.join('；')}`);
+    if (e) flash(tr(`${e.src === 'cli' ? 'Claude' : 'Outside'} edit: ${e.desc.join('; ')}`, `${e.src === 'cli' ? 'Claude' : '外部'}改了：${e.desc.join('；')}`));
   };
   const syncTimings = async () => {
     const r = await getBoard(S.current.slug);
@@ -476,7 +478,7 @@ function App() {
     if (r.version !== version.current) return syncRemote(null);
     if (JSON.stringify(r.timings) === JSON.stringify(d.timings)) return;
     applyDoc({ ...d, timings: r.timings });
-    flash('配音已更新');
+    flash(tr('Voice-over updated', '配音已更新'));
   };
   const handlers = useRef({ syncRemote, syncTimings });
   handlers.current = { syncRemote, syncTimings };
@@ -540,9 +542,9 @@ function App() {
     const f = player.getCurrentFrame();
     const inside = (s: EScene) => f > s.start && f < s.start + s.dur;
     const e = selE && inside(selE) ? selE : etl.scenes.find(inside);
-    if (!e) return flash('把播放头放到要拆的那段中间', 'error');
+    if (!e) return flash(tr('Put the playhead inside the scene you want to split', '把播放头放到要拆的那段中间'), 'error');
     const rel = f - e.start;
-    if (rel < 3 || e.dur - rel < 3) return flash('离这一段的边缘太近', 'error');
+    if (rel < 3 || e.dur - rel < 3) return flash(tr('Too close to the edge of the scene', '离这一段的边缘太近'), 'error');
     const mode = st.mode;
     commit((d) => splitScene(d, e.id, splitPoint(e, d.board.scenes.find((s) => s.id === e.id)!, rel, etl.fps, caps, mode), caps), { timings: true });
     setSel(e.id);
@@ -590,7 +592,8 @@ function App() {
     if (!docRef.current) return;
     const after = sel ?? sceneAtPlayhead()?.id ?? null;
     const id = uniqueId(docRef.current.board, `${kind}-1`);
-    commit((d) => addScene(d, sceneTemplate(kind, id, src), after));
+    const img = kind === 'compare' && !src ? assets.find((a) => /\.(png|jpe?g|webp)$/i.test(a)) : src;
+    commit((d) => addScene(d, sceneTemplate(kind, id, img, LANG), after));
     setSel(id);
   };
 
@@ -608,38 +611,38 @@ function App() {
         else if (want === 'clip' || (!want && isVid(j.path))) addKind('clip', j.path);
         else if (isAud(j.path)) commit((d) => setPath(d, null, 'music', { ...(d.board.music ?? {}), src: `${S.current.slug}/${j.path}` }));
       } catch (err) {
-        flash(`${file.name}：${(err as Error).message}`, 'error');
+        flash(`${file.name}: ${(err as Error).message}`, 'error');
       }
     }
     pendingAdd.current = null;
     refreshAssets();
-    if (n) flash(`已导入 ${n} 个文件`);
+    if (n) flash(tr(`Imported ${n} file${n > 1 ? 's' : ''}`, `已导入 ${n} 个文件`));
   };
 
   const trimToPlayhead = (edge: Edge) => {
     const e = sceneAtPlayhead();
     if (!e || !etl || !player) return;
     const secs = (player.getCurrentFrame() - e.start) / etl.fps;
-    if (secs <= 0.05 || secs >= e.dur / etl.fps - 0.05) return flash('播放头要在这一段中间', 'error');
+    if (secs <= 0.05 || secs >= e.dur / etl.fps - 0.05) return flash(tr('The playhead has to be inside the scene', '播放头要在这一段中间'), 'error');
     const mode = st.mode;
     commit((d) => {
       if (mode === 'beat' && edge === 'r') return setBeatBars(d, e.id, Math.max(1, Math.round(secs / (etl.bar ?? 1))));
       if (e.visual.kind === 'screen' && e.from !== undefined) return trimEdge(d, e.id, e.key, edge === 'l' ? 'from' : 'to', e.from + secs * e.rate, caps);
       if (edge === 'r') return setMinSec(d, e.id, secs);
-      throw new Error('这种画面只能裁右边');
+      throw new Error(tr('This kind of scene can only be trimmed at its end', '这种画面只能裁右边'));
     });
   };
 
   const exportSrt = () => {
     if (!etl) return;
     const cues = etl.scenes.flatMap((s) => s.lines.filter((l) => l.text.trim()).map((l) => ({ a: (s.start + l.start) / etl.fps, b: (s.start + l.start + l.dur) / etl.fps, t: l.text })));
-    if (!cues.length) return flash('这一版没有字幕', 'error');
+    if (!cues.length) return flash(tr('This version has no captions', '这一版没有字幕'), 'error');
     download(`${st.slug}-${st.format}-${st.mode}.srt`, cues.map((c, i) => `${i + 1}\n${srtTime(c.a)} --> ${srtTime(c.b)}\n${c.t}\n`).join('\n'));
   };
   const exportChapters = () => {
     if (!etl) return;
     const ch = etl.scenes.filter((s) => doc?.board.scenes[s.index]?.chapter).map((s) => `${fmtTime(Math.max(0, s.start), etl.fps).replace(/\.\d+$/, '')} ${doc!.board.scenes[s.index].chapter}`);
-    if (!ch.length) return flash('先在段落里填"章节名"', 'error');
+    if (!ch.length) return flash(tr('Give some scenes a chapter name first', '先在段落里填"章节名"'), 'error');
     if (!ch[0].startsWith('0:00')) ch.unshift(`0:00 ${doc!.board.title}`);
     download(`${st.slug}-chapters.txt`, ch.join('\n') + '\n');
   };
@@ -680,7 +683,7 @@ function App() {
 
   // ---- export ----
   const doRender = async (extra: Record<string, string> = {}) => {
-    if (pending.current.length || saving.current) return flash('还在保存，稍等一下再导出', 'error');
+    if (pending.current.length || saving.current) return flash(tr('Still saving; export again in a moment', '还在保存，稍等一下再导出'), 'error');
     try {
       setJob(await startRender({ slug: st.slug, format: st.format, mode: st.mode, variant: st.variant, lang: st.lang, voice: 'on', ...extra }));
     } catch (e) {
@@ -719,7 +722,7 @@ function App() {
         ev.preventDefault();
         const fx = docRef.current?.board.scenes.find((s) => s.id === sel)?.fx;
         setFxClip(fx ?? null);
-        return flash(fx ? `已复制 ${sel} 的特效` : `${sel} 没有特效`);
+        return flash(fx ? tr(`Copied the effects of ${sel}`, `已复制 ${sel} 的特效`) : tr(`${sel} has no effects`, `${sel} 没有特效`));
       }
       if (ctrl && ev.altKey && k === 'v' && sel && fxClip) {
         ev.preventDefault();
@@ -757,37 +760,50 @@ function App() {
   // Electron has no window.prompt, so new projects use an in-app dialog
   const newProject = () =>
     setAsk({
-      title: '新建项目',
-      hint: '项目名只用英文字母、数字和横线，例如 my-first-video',
+      title: tr('New project', '新建项目'),
+      hint: tr('Letters, digits and dashes only, e.g. my-first-video', '项目名只用英文字母、数字和横线，例如 my-first-video'),
       ok: async (name) => {
         const r = await fetch('/api/projects', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ slug: name, title: name }) });
         const j = await r.json();
-        if (!r.ok) return flash(j.error ?? '新建失败', 'error');
+        if (!r.ok) return flash(j.error ?? tr('Could not create the project', '新建失败'), 'error');
         setProjects(await getProjects());
         update({ slug: j.slug, mode: 'voice' });
       },
     });
   const ctxNow = () => ({ format: st.format, mode: st.mode, lang: st.lang, variant: st.variant, sel, t: (player?.getCurrentFrame() ?? 0) / fps });
-  const versionText = `${st.format === 'tall' ? '竖屏 9:16' : '横屏 16:9'} · ${st.mode === 'beat' ? '卡点版' : '旁白版'} · ${st.lang === 'en' ? '英文字幕' : '中文字幕'}${st.variant === 'clean' ? ' · 无网址' : ''}`;
-  const where = `${sel ? `选中 ${sel}` : '未选中段落'} · ${versionText}`;
+  const versionText = `${st.format === 'tall' ? tr('9:16 vertical', '竖屏 9:16') : tr('16:9 widescreen', '横屏 16:9')} · ${st.mode === 'beat' ? tr('beat cut', '卡点版') : tr('narrated cut', '旁白版')} · ${st.lang === 'en' ? tr('English', '英文版') : tr('Chinese', '中文版')}${st.variant === 'clean' ? tr(' · no URLs', ' · 无网址') : ''}`;
+  const where = `${sel ? tr(`Selected: ${sel}`, `选中 ${sel}`) : tr('No scene selected', '未选中段落')} · ${versionText}`;
 
   // Library actions land on the selected scene, else the one under the playhead
   const targetId = sel ?? phId;
   const target = doc?.board.scenes.find((s) => s.id === targetId) ?? null;
   const preview = target ?? doc?.board.scenes.find((s) => ['screen', 'image', 'clip'].includes(s.visual.kind)) ?? null;
   const needTarget = () => {
-    if (!target) flash('先在时间线上点选一段', 'error');
+    if (!target) flash(tr('Select a scene on the timeline first', '先在时间线上点选一段'), 'error');
     return target;
   };
-  const libOverlay = (kind: string) => {
+  const libOverlay = (kind: string, extra: Record<string, unknown> = {}) => {
     const t = needTarget();
-    const def = OVERLAYS.find((o) => o.kind === kind);
+    const def = OVERLAY_LIST.find((o) => o.id === kind);
     if (!t || !def) return;
     const at = Math.max(0, Math.round(playheadIn(t.id) * 10) / 10);
-    commit((d) => setPath(d, t.id, `overlays.${t.overlays?.length ?? 0}`, { kind, at, dur: 1.6, ...def.init }));
+    // Text animations start with sample text that shows the effect off
+    const text = kind === 'text' && typeof extra.anim === 'string' ? { text: textSample(extra.anim) } : {};
+    commit((d) => setPath(d, t.id, `overlays.${t.overlays?.length ?? 0}`, { kind, at, dur: 1.6, ...def.init, ...text, ...extra }));
     select(t.id);
-    flash(`已在 ${t.id} 加上「${def.label}」`);
+    flash(tr(`Added "${def.en}" to ${t.id}`, `已在 ${t.id} 加上「${def.zh}」`));
   };
+  const libFx = (preset: Record<string, unknown>, on: boolean) => {
+    const t = needTarget();
+    if (!t) return;
+    const next: Record<string, unknown> = { ...(t.fx ?? {}) };
+    for (const [k, v] of Object.entries(preset)) {
+      if (on) delete next[k];
+      else next[k] = v;
+    }
+    commit((d) => setPath(d, t.id, 'fx', Object.keys(next).length ? next : undefined));
+  };
+  const libBg = (id: string) => commit((d) => setPath(d, null, 'theme.bgFx', id || undefined));
   const libTransition = (v: string) => {
     const t = needTarget();
     if (!t) return;
@@ -808,13 +824,13 @@ function App() {
     seek(to ?? (dir < 0 ? 0 : (loaded?.durationInFrames ?? 1) - 1));
   };
   const resize = (k: 'lib' | 'side' | 'tl', d: number) => {
-    const lim = { lib: [200, 460], side: [280, 560], tl: [200, 520] }[k];
+    const lim = { lib: [250, 520], side: [280, 560], tl: [200, 520] }[k];
     setSize((s) => ({ ...s, [k]: clamp(size0.current[k] + d, lim[0], lim[1]) }));
   };
   const resized = () => {
     size0.current = size;
-    pref.set('vs-w-lib', size.lib);
-    pref.set('vs-w-side', size.side);
+    pref.set('vs-w-lib2', size.lib);
+    pref.set('vs-w-side2', size.side);
     pref.set('vs-h-tl', size.tl);
   };
   const setSideTab = (k: 'props' | 'ai') => {
@@ -858,20 +874,20 @@ function App() {
           Cutroom
         </span>
         <span className="top-sep" />
-        <label className="proj" title="切换项目">
+        <label className="proj" title={tr('Switch project', '切换项目')}>
           <Icon name="folder" size={14} />
           <span>{st.slug}</span>
           <select value={st.slug} onChange={(e) => (e.target.value === '__new' ? newProject() : update({ slug: e.target.value }))}>
             {(projects.includes(st.slug) ? projects : [st.slug, ...projects]).map((p) => (
               <option key={p}>{p}</option>
             ))}
-            <option value="__new">+ 新建项目…</option>
+            <option value="__new">{tr('+ New project…', '+ 新建项目…')}</option>
           </select>
           <Icon name="chev" size={12} />
         </label>
-        <span className={`save ${saveState}`} title={saveState === 'saved' ? '所有改动已写入 storyboard.json' : undefined}>
+        <span className={`save ${saveState}`} title={saveState === 'saved' ? tr('Every change is written to storyboard.json', '所有改动已写入 storyboard.json') : undefined}>
           <i />
-          {saveState === 'saving' ? '保存中' : saveState === 'error' ? '保存失败' : '已保存'}
+          {saveState === 'saving' ? tr('Saving', '保存中') : saveState === 'error' ? tr('Save failed', '保存失败') : tr('Saved', '已保存')}
         </span>
         <span className="grow" />
         {job?.state === 'running' ? (
@@ -880,7 +896,7 @@ function App() {
             <span className="bar">
               <i style={{ width: `${pct}%` }} />
             </span>
-            <button className="icon sm" onClick={() => cancelRender()} title="取消导出">
+            <button className="icon sm" onClick={() => cancelRender()} title={tr('Cancel export', '取消导出')}>
               <Icon name="close" size={14} />
             </button>
           </span>
@@ -890,41 +906,50 @@ function App() {
             {job.out.replace(/^.*[\\/]/, '')}
             <button className="ghost" onClick={() => reveal(job.out)}>
               <Icon name="folder" size={14} />
-              打开位置
+              {tr('Show in folder', '打开位置')}
             </button>
           </span>
         ) : job?.state === 'error' ? (
           <span className="job">
             <button className="ghost danger" onClick={() => flash(job.tail.slice(-6).join('\n'), 'error')}>
               <Icon name="warn" size={14} />
-              导出失败，看原因
+              {tr('Export failed: see why', '导出失败，看原因')}
             </button>
           </span>
         ) : null}
+        <Menu label={LANG === 'zh' ? '中文' : 'EN'} icon="globe" className="ghost lang">
+          {(close) => (
+            <>
+              <div className="menu-h">{tr('Interface language', '界面语言')}</div>
+              <button onClick={() => (close(), setLang('en'))}>English{LANG === 'en' ? '  ✓' : ''}</button>
+              <button onClick={() => (close(), setLang('zh'))}>中文{LANG === 'zh' ? '  ✓' : ''}</button>
+            </>
+          )}
+        </Menu>
         <div className="split-btn">
-          <button className="primary" onClick={() => doRender()} disabled={job?.state === 'running' || !ready} title={`导出 ${versionText}`}>
+          <button className="primary" onClick={() => doRender()} disabled={job?.state === 'running' || !ready} title={tr(`Export ${versionText}`, `导出 ${versionText}`)}>
             <Icon name="export" />
-            导出
+            {tr('Export', '导出')}
           </button>
           <Menu label="" icon="chev" className="primary more" disabled={!ready}>
             {(close) => (
               <>
-                <div className="menu-h">当前版本：{versionText}</div>
+                <div className="menu-h">{tr('This version: ', '当前版本：')}{versionText}</div>
                 <button disabled={job?.state === 'running'} onClick={() => (close(), doRender())}>
-                  MP4 视频
+                  {tr('MP4 video', 'MP4 视频')}
                 </button>
                 <button disabled={job?.state === 'running'} onClick={() => (close(), doRender({ scale: '2' }))}>
-                  2 倍分辨率（B站 4K）
+                  {tr('2× resolution (4K)', '2 倍分辨率（B站 4K）')}
                 </button>
                 <button disabled={job?.state === 'running'} onClick={() => (close(), doRender({ codec: 'gif', scale: '0.5' }))}>
-                  GIF 动图（半尺寸）
+                  {tr('GIF (half size)', 'GIF 动图（半尺寸）')}
                 </button>
                 <button disabled={job?.state === 'running'} onClick={() => (close(), doRender({ codec: 'prores' }))}>
-                  ProRes 母带（.mov）
+                  {tr('ProRes master (.mov)', 'ProRes 母带（.mov）')}
                 </button>
                 <div className="menu-sep" />
-                <button onClick={() => (close(), exportSrt())}>字幕文件 SRT</button>
-                <button onClick={() => (close(), exportChapters())}>章节时间轴（B站/YouTube）</button>
+                <button onClick={() => (close(), exportSrt())}>{tr('Subtitles (SRT)', '字幕文件 SRT')}</button>
+                <button onClick={() => (close(), exportChapters())}>{tr('Chapter list (YouTube/Bilibili)', '章节时间轴（B站/YouTube）')}</button>
               </>
             )}
           </Menu>
@@ -953,6 +978,8 @@ function App() {
               fileInput.current?.click();
             }}
             onOverlay={libOverlay}
+            onFx={libFx}
+            onBg={libBg}
             onTransition={libTransition}
             onLook={libLook}
             onMusic={libMusic}
@@ -968,7 +995,7 @@ function App() {
                 <Icon name="warn" size={14} />
                 <span>
                   {err ||
-                    `缺少素材：${[...missing].map(([id, src]) => `${id} 用的 ${src}`).join('；')}。把文件放回 public/${st.slug}/，或者在右边换一个。`}
+                    tr(`Missing media: ${[...missing].map(([id, src]) => `${src} (scene ${id})`).join('; ')}. Put the file back in public/${st.slug}/ or choose another one on the right.`, `缺少素材：${[...missing].map(([id, src]) => `${id} 用的 ${src}`).join('；')}。把文件放回 public/${st.slug}/，或者在右边换一个。`)}
                 </span>
               </div>
             ) : null}
@@ -997,38 +1024,38 @@ function App() {
             ) : !err ? (
               <div className="empty">
                 <span className="spin" />
-                载入中
+                {tr('Loading', '载入中')}
               </div>
             ) : null}
           </div>
           <div className="transport">
             <div className="tp-l">{etl ? <TimeLabel player={player} total={etl.total} fps={etl.fps} /> : null}</div>
             <div className="tp-c">
-              <button className="icon" onClick={() => jump(-1)} title="上一段开头 (Home 到片头)" disabled={!etl}>
+              <button className="icon" onClick={() => jump(-1)} title={tr('Previous scene (Home: start)', '上一段开头 (Home 到片头)')} disabled={!etl}>
                 <Icon name="prev" />
               </button>
-              <button className="play" onClick={() => player?.toggle()} title={playing ? '暂停 (空格)' : '播放 (空格)'} disabled={!ready}>
+              <button className="play" onClick={() => player?.toggle()} title={playing ? tr('Pause (Space)', '暂停 (空格)') : tr('Play (Space)', '播放 (空格)')} disabled={!ready}>
                 <Icon name={playing ? 'pause' : 'play'} size={18} />
               </button>
-              <button className="icon" onClick={() => jump(1)} title="下一段开头" disabled={!etl}>
+              <button className="icon" onClick={() => jump(1)} title={tr('Next scene', '下一段开头')} disabled={!etl}>
                 <Icon name="next" />
               </button>
             </div>
             <div className="tp-r">
-              <select className="vsel" value={st.lang} title="视频语言：字幕和旁白一起切换" aria-label="视频语言" onChange={(e) => update({ lang: e.target.value as Settings['lang'] })}>
-                <option value="zh">中文版</option>
-                <option value="en">英文版</option>
+              <select className="vsel" value={st.lang} title={tr('Video language: captions and narration switch together', '视频语言：字幕和旁白一起切换')} aria-label={tr('Video language', '视频语言')} onChange={(e) => update({ lang: e.target.value as Settings['lang'] })}>
+                <option value="zh">{tr('Chinese', '中文版')}</option>
+                <option value="en">{tr('English', '英文版')}</option>
               </select>
-              <select className="vsel" value={st.variant} title="小红书不允许画面里出现网址：选「隐藏网址」后预览和导出都去掉网址" aria-label="网址" onChange={(e) => update({ variant: e.target.value as Settings['variant'] })}>
-                <option value="default">显示网址</option>
-                <option value="clean">隐藏网址（小红书）</option>
+              <select className="vsel" value={st.variant} title={tr('Xiaohongshu bans URLs in videos: “Hide URLs” removes them from preview and export', '小红书不允许画面里出现网址：选「隐藏网址」后预览和导出都去掉网址')} aria-label={tr('URLs', '网址')} onChange={(e) => update({ variant: e.target.value as Settings['variant'] })}>
+                <option value="default">{tr('Show URLs', '显示网址')}</option>
+                <option value="clean">{tr('Hide URLs (Xiaohongshu)', '隐藏网址（小红书）')}</option>
               </select>
               <Seg
                 className="ratio"
                 value={st.format}
                 options={[
-                  ['wide', '16:9', 'wide', '横屏：B站、YouTube', '横屏'],
-                  ['tall', '9:16', 'tall', '竖屏：抖音、小红书', '竖屏'],
+                  ['wide', '16:9', 'wide', tr('Widescreen: YouTube, Bilibili', '横屏：B站、YouTube'), tr('Widescreen', '横屏')],
+                  ['tall', '9:16', 'tall', tr('Vertical: TikTok, Douyin, Xiaohongshu', '竖屏：抖音、小红书'), tr('Vertical', '竖屏')],
                 ]}
                 onChange={(v) => update({ format: v })}
               />
@@ -1040,11 +1067,11 @@ function App() {
           <div className="ptabs" role="tablist">
             <button role="tab" aria-selected={side === 'props'} className={side === 'props' ? 'on' : undefined} onClick={() => setSideTab('props')}>
               <Icon name="layers" size={14} />
-              属性
+              {tr('Properties', '属性')}
             </button>
             <button role="tab" aria-selected={side === 'ai'} className={side === 'ai' ? 'on' : undefined} onClick={() => setSideTab('ai')}>
               <Icon name="sparkle" size={14} />
-              AI 助手
+              {tr('AI assistant', 'AI 助手')}
             </button>
           </div>
           {side === 'ai' ? (
@@ -1067,7 +1094,7 @@ function App() {
               fxClip={fxClip}
               setFxClip={(fx) => {
                 setFxClip(fx);
-                if (fx) flash('已复制特效，选别的段落点"粘贴"');
+                if (fx) flash(tr('Effects copied; select another scene and press Paste', '已复制特效，选别的段落点"粘贴"'));
               }}
               playheadIn={playheadIn}
             />
@@ -1080,7 +1107,7 @@ function App() {
       {dragOver ? (
         <div className="drop-hint">
           <Icon name="import" size={22} />
-          松开导入：图片、视频变成新段落，音频设为配乐
+          {tr('Drop to import: images and videos become scenes, audio becomes the music', '松开导入：图片、视频变成新段落，音频设为配乐')}
         </div>
       ) : null}
 
@@ -1105,43 +1132,43 @@ function App() {
                 className="seq"
                 value={st.mode}
                 options={[
-                  ['voice', '旁白版', 'mic', '按配音节奏剪，有旁白和字幕：B站、YouTube'],
-                  ['beat', '卡点版', 'beat', '没有旁白，按音乐节拍切：抖音、小红书'],
+                  ['voice', tr('Narrated', '旁白版'), 'mic', tr('Cut to the voice-over, with captions: YouTube, Bilibili', '按配音节奏剪，有旁白和字幕：B站、YouTube')],
+                  ['beat', tr('Beat cut', '卡点版'), 'beat', tr('No narration, cut on the music beat: TikTok, Xiaohongshu', '没有旁白，按音乐节拍切：抖音、小红书')],
                 ]}
                 onChange={(v) => update({ mode: v })}
               />
               <span className="sep" />
-              <button className="icon" onClick={undo} disabled={!h.past.length} title={h.past.length ? `撤销：${h.past[h.past.length - 1].desc} (Ctrl+Z)` : '撤销 (Ctrl+Z)'}>
+              <button className="icon" onClick={undo} disabled={!h.past.length} title={h.past.length ? tr(`Undo: ${h.past[h.past.length - 1].desc} (Ctrl+Z)`, `撤销：${h.past[h.past.length - 1].desc} (Ctrl+Z)`) : tr('Undo (Ctrl+Z)', '撤销 (Ctrl+Z)')}>
                 <Icon name="undo" />
               </button>
-              <button className="icon" onClick={redo} disabled={!h.future.length} title={h.future.length ? `重做：${h.future[h.future.length - 1].desc} (Ctrl+Y)` : '重做 (Ctrl+Y)'}>
+              <button className="icon" onClick={redo} disabled={!h.future.length} title={h.future.length ? tr(`Redo: ${h.future[h.future.length - 1].desc} (Ctrl+Y)`, `重做：${h.future[h.future.length - 1].desc} (Ctrl+Y)`) : tr('Redo (Ctrl+Y)', '重做 (Ctrl+Y)')}>
                 <Icon name="redo" />
               </button>
               <span className="sep" />
-              <button className="icon" onClick={doSplit} title="在播放头处拆分 (Ctrl+B)">
+              <button className="icon" onClick={doSplit} title={tr('Split at the playhead (Ctrl+B)', '在播放头处拆分 (Ctrl+B)')}>
                 <Icon name="split" />
               </button>
-              <button className="icon" onClick={doDup} disabled={!sel} title="复制选中段落 (Ctrl+D)">
+              <button className="icon" onClick={doDup} disabled={!sel} title={tr('Duplicate scene (Ctrl+D)', '复制选中段落 (Ctrl+D)')}>
                 <Icon name="copy" />
               </button>
-              <button className="icon danger" onClick={doDel} disabled={!sel} title="删除选中段落 (Delete)">
+              <button className="icon danger" onClick={doDel} disabled={!sel} title={tr('Delete scene (Delete)', '删除选中段落 (Delete)')}>
                 <Icon name="trash" />
               </button>
               <span className="sep" />
-              <Menu label="添加" icon="plus">
+              <Menu label={tr('Add', '添加')} icon="plus">
                 {(close) => (
                   <>
-                    <div className="menu-h">卡片</div>
-                    {ADDABLE.filter(([, , src]) => !src).map(([k, l]) => (
+                    <div className="menu-h">{tr('Cards', '卡片')}</div>
+                    {ADDABLE.filter(([, , , src]) => !src).map(([k, en, zh]) => (
                       <button key={k} onClick={() => (close(), addKind(k))}>
-                        {l}
+                        {tr(en, zh)}
                       </button>
                     ))}
                     {(
                       [
-                        ['image', '图片', isImg],
-                        ['clip', '视频', (a: string) => isVid(a) && !a.startsWith('cap/')],
-                        ['screen', '录屏', (a: string) => a.startsWith('cap/') && isVid(a)],
+                        ['image', tr('Images', '图片'), isImg],
+                        ['clip', tr('Videos', '视频'), (a: string) => isVid(a) && !a.startsWith('cap/')],
+                        ['screen', tr('Recordings', '录屏'), (a: string) => a.startsWith('cap/') && isVid(a)],
                       ] as [string, string, (a: string) => boolean][]
                     ).map(([k, l, ok]) => {
                       const list = assets.filter(ok);
@@ -1165,14 +1192,14 @@ function App() {
                         fileInput.current?.click();
                       }}
                     >
-                      从电脑导入图片 / 视频 / 音乐…
+                      {tr('Import images, video or music…', '从电脑导入图片 / 视频 / 音乐…')}
                     </button>
                   </>
                 )}
               </Menu>
               {etl.hidden.length ? (
-                <span className="hint" title="这些段落没进当前版本（只在另一种画幅里，或不在卡点版里）">
-                  这一版没用到
+                <span className="hint" title={tr('Scenes left out of this version (other aspect ratio only, or not in the beat cut)', '这些段落没进当前版本（只在另一种画幅里，或不在卡点版里）')}>
+                  {tr('Not in this version', '这一版没用到')}
                   {etl.hidden.map((x) => (
                     <button key={x.id} className="chip-btn" onClick={() => select(x.id)} title={x.why}>
                       {x.id}
@@ -1208,10 +1235,10 @@ function AskDialog({ title, hint, ok, close }: { title: string; hint: string; ok
         <div className="hint">{hint}</div>
         <div className="modal-acts">
           <button className="ghost" onClick={close}>
-            取消
+            {tr('Cancel', '取消')}
           </button>
           <button className="primary" onClick={submit} disabled={!v.trim()}>
-            创建
+            {tr('Create', '创建')}
           </button>
         </div>
       </div>

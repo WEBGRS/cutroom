@@ -12,7 +12,7 @@ A code-first video editor. Each video is a `storyboard.json` file: you edit it i
 Most editors store a project as an opaque binary or database. Cutroom stores it as a small JSON document, which means:
 
 - **You and an AI can work on the same cut.** The chat panel runs Claude with access to one tool, the editor's CLI. Its edits appear in the preview within a second, and your edits in the UI are visible to it. Both sides go through the same versioned save path, so neither overwrites the other.
-![The AI panel: a request in Chinese, the CLI commands it ran, and its summary](docs/ai-chat.png)
+![The AI panel: a request, the CLI commands it ran, and its summary](docs/ai-chat.png)
 
 - **Timing stays tied to content.** Captions and cuts can be anchored to marks recorded with a screen capture (`"@add-0.3"`), so re-recording a demo doesn't break the edit.
 - **What you preview is what you export.** The preview is a Remotion Player running the same React composition the renderer uses. A test renders the same frames both ways and compares them; most come out bit-identical.
@@ -21,14 +21,27 @@ Most editors store a project as an opaque binary or database. Cutroom stores it 
 
 - **Timeline**: filmstrip thumbnails, waveforms, drag to reorder, drag edges to trim, split at the playhead, undo/redo, beat grid for music-cut versions.
 - **Two cuts from one storyboard**: a narrated cut and a beat-synced music cut, each in 16:9 and 9:16. Switch between them under the preview (aspect ratio, language, URLs shown or hidden) and above the timeline (narrated or beat cut).
-- **Library panel**: media, cards, overlays, transitions (preview on hover), color looks (previewed on the selected scene) and music; one click applies to the selected scene.
-- **Effects**: 18 per-scene controls (color looks, brightness/contrast/saturation/hue, blur, vignette, film grain, light leak, letterbox, dim, Ken Burns, motion blur, fades), 10 transitions, 10 overlay types (lower third, highlight box, arrow, spotlight, privacy blur, cinematic title, …), caption styles and animations, a Screen Studio-style frame for recordings, frosted cards and a chapter bar.
+- **Library panel**: eight sections (media, cards, text, overlays, transitions, effects, backdrops, music). Every effect has a rendered preview that plays on hover; one click applies it to the selected scene.
+- **182 effects**:
+  - 39 transitions (whip pan, glitch, film burn, 3D cube, light leak, tile grid, …)
+  - 33 text animations (decode, scramble, typewriter, split-flap, count-up, marker highlight, …), usable on titles, overlays and captions
+  - 41 overlays (hand-drawn circles and arrows, notifications, chat bubbles, keyboard keys, AI prompt box, counters, progress rings, confetti, …) and 12 lower-third styles
+  - 14 card scenes (bar chart, checklist, testimonial, chat thread, code typing, terminal, before/after wipe, …)
+  - 10 animated backdrops
+  - 33 scene-effect presets (looks, duotone, RGB split, bloom, CRT, pixelate, handheld drift, focus pull, stop motion, …)
+  - Many of the designs are adapted from [HyperFrames](https://github.com/heygen-com/hyperframes); see [CREDITS.md](CREDITS.md).
+- **Captions**: box, outline or plain styles, any position and size, and most text animations; a Screen Studio-style frame for recordings, frosted cards and a chapter bar.
 - **Screen recordings**: a deterministic browser recorder logs clicks and cursor moves; the editor adds smooth auto-zoom, a synthetic cursor and click ripples afterwards.
 - **AI chat**: uses your [Claude Code](https://docs.anthropic.com/en/docs/claude-code) login or an Anthropic API key. See [Connecting the AI](#connecting-the-ai).
 - **Export**: MP4, 2× resolution, GIF, ProRes, SRT subtitles and a chapter list.
-- **Desktop app**: the same editor in its own window (Electron).
+- **Desktop app**: the same editor in its own window, with a Windows installer.
+- **English and Chinese**: the interface starts in English; pick Chinese in the installer or from the globe menu in the top bar.
 
-## Quick start
+## Install (Windows)
+
+Build the installer with `npm run dist` (it lands in `dist-app/`), or download it from the releases page when one is published. The installer asks for a language first. The app keeps projects, settings and exports in `Documents\Cutroom`, so uninstalling never deletes your videos. The first export downloads Remotion's headless browser (about 110 MB) once.
+
+## Run from source
 
 Requirements: Node.js 22+, [ffmpeg](https://ffmpeg.org) on your `PATH`, and Chrome for screen recordings and browser tests. Developed and tested on Windows 11.
 
@@ -50,7 +63,7 @@ The `showcase` project opens first. It uses every effect type, so it doubles as 
 
 ## Connecting the AI
 
-Open the **AI 助手** tab. The pill at its top shows the connection; click it to change it.
+Open the **AI assistant** tab. The pill at its top shows the connection; click it to change it.
 
 - **Claude Code login** (uses your Claude subscription): install [Claude Code](https://docs.anthropic.com/en/docs/claude-code), run `claude` once in a terminal and sign in, then restart the editor.
 - **API key** (pay per use): create a key in the [Anthropic Console](https://console.anthropic.com) and paste it into the settings page, or set `ANTHROPIC_API_KEY` before starting the editor. A pasted key is stored only in `.editor/settings.json` on your machine (git-ignored) and is never sent back to the page in full.
@@ -126,7 +139,9 @@ node editor/dist/cli.mjs fx                                       # every effect
 - `src/`: the Remotion composition: scenes, camera, captions, effects, transitions.
 - `editor/src/`: UI (React), server, CLI, edit operations, the effects catalog that drives the UI, the CLI's `fx` listing and the AI's instructions.
 - `tools/capture.mjs`: deterministic screen recorder. `editor/demo/capture.mjs` shows how to script one.
-- `app/`: desktop shell.
+- `src/fx/`: the effect library: text animations, transitions, overlays, cards, backdrops, scene effects, and `registry.ts`, the list that drives the UI and the previews.
+- `editor/fx/previews.ts`: renders the hover previews into `public/_fx/` (`npm run previews`; `--only transition/whip` for one).
+- `app/`: desktop shell; `electron-builder.yml` and `build/installer.nsh` make the installer.
 
 ## Tests
 
@@ -146,8 +161,8 @@ The e2e, oracle, app and screenshot scripts need the editor running (`npm run ed
 - The timeline is scene-based and always closed up (ripple). There is no free placement on multiple tracks; overlays attach to scenes instead.
 - Twelve of Remotion's shader transitions need an experimental Chrome flag, so they are not offered.
 - Narration audio has to be produced outside the editor (any TTS or your own recording, listed in `timings.json`).
-- The desktop app runs from the source checkout; there is no installer yet.
+- The installer is unsigned, so Windows SmartScreen asks for confirmation on first run. It is built for Windows only so far.
 
 ## Credits and license
 
-Cutroom is MIT-licensed. Remotion has its own license: free for individuals and companies with up to three employees, while larger companies need a [company license](https://www.remotion.dev/license). Bundled music and sounds are listed in [CREDITS.md](CREDITS.md).
+Cutroom is MIT-licensed. Remotion has its own license: free for individuals and companies with up to three employees, while larger companies need a [company license](https://www.remotion.dev/license). Bundled music and sounds, and the HyperFrames designs the effect library adapts (Apache-2.0), are listed in [CREDITS.md](CREDITS.md).

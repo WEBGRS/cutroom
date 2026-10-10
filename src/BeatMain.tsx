@@ -31,7 +31,7 @@ export const BeatMain: React.FC<Props> = (props) => {
     if (tl.fadeBefore[i]) seq.push(<TransitionSeries.Transition key={`t-${s.scene.id}`} presentation={(s.scene.beatTransition ? presentation(s.scene.beatTransition, s.scene.transDir, layout.W, layout.H) : fade()) as never} timing={linearTiming({ durationInFrames: XFADE })} />);
     seq.push(
       <TransitionSeries.Sequence key={s.scene.id} durationInFrames={s.dur}>
-        <SceneView s={s} props={props} layout={layout} theme={theme} bare paths={paths} />
+        <SceneView s={s} props={props} layout={layout} theme={theme} bare={!board.beat?.overlays} paths={paths} />
       </TransitionSeries.Sequence>,
     );
   });

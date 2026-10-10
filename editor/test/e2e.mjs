@@ -102,7 +102,8 @@ const tab = (name) => page.locator('.itabs button', { hasText: name }).click();
 const fc = (label) => page.locator('.fc', { has: page.locator('.fl', { hasText: new RegExp(`^${label}$`) }) });
 
 try {
-  await page.goto(`${BASE}/?slug=${SLUG}&format=wide&mode=voice&lang=zh&variant=default`);
+  // Chinese UI: the selectors below use its labels
+  await page.goto(`${BASE}/?slug=${SLUG}&format=wide&mode=voice&lang=zh&variant=default&ui=zh`);
   await page.waitForSelector('.clip', { timeout: 15000 });
   await page.getByRole('tab', { name: '属性' }).click();
   await page.waitForTimeout(800);

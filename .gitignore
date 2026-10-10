@@ -5,4 +5,5 @@ out/
 editor/dist/
 public/_edtest/
 public/fonts/*.ttf
+dist-app/
 *.tmp

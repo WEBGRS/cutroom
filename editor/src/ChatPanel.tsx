@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Icon } from './icons';
+import { tr } from './i18n';
 
 export interface ChatContext {
   format: string;
@@ -33,18 +34,18 @@ interface AiStatus {
 }
 
 const MODELS: [string, string][] = [
-  ['', '默认模型'],
+  ['', tr('Default model', '默认模型')],
   ['opus', 'Opus'],
   ['sonnet', 'Sonnet'],
   ['haiku', 'Haiku'],
 ];
 
-const SUGGEST = ['把选中这段缩短一点', '给所有图片加慢推效果', '字幕改成描边样式，放大一点', '在最前面加一个标题卡'];
+const SUGGEST = [tr('Make the selected scene a bit shorter', '把选中这段缩短一点'), tr('Add a slow push-in to every image', '给所有图片加慢推效果'), tr('Use outlined captions, a little bigger', '字幕改成描边样式，放大一点'), tr('Add a title card at the start', '在最前面加一个标题卡')];
 
 const PREFS: [AiStatus['pref'], string, string][] = [
-  ['auto', '自动', '有 Claude Code 登录就用它，没有再用 API Key'],
-  ['claude-code', 'Claude Code 登录', '用你的 Claude 订阅额度，不另外付费'],
-  ['anthropic', 'API Key', '按用量付费，Key 在 console.anthropic.com 创建'],
+  ['auto', tr('Automatic', '自动'), tr('Uses your Claude Code login if there is one, otherwise the API key', '有 Claude Code 登录就用它，没有再用 API Key')],
+  ['claude-code', tr('Claude Code login', 'Claude Code 登录'), tr('Uses your Claude subscription; nothing extra to pay', '用你的 Claude 订阅额度，不另外付费')],
+  ['anthropic', 'API Key', tr('Pay per use; create a key at console.anthropic.com', '按用量付费，Key 在 console.anthropic.com 创建')],
 ];
 
 const store = {
@@ -76,7 +77,7 @@ function Rich({ text }: { text: string }) {
   );
 }
 
-const providerName = (s: AiStatus) => (s.provider === 'claude-code' ? 'Claude Code' : s.provider === 'anthropic' ? 'API Key' : '未连接');
+const providerName = (s: AiStatus) => (s.provider === 'claude-code' ? 'Claude Code' : s.provider === 'anthropic' ? 'API Key' : tr('Not connected', '未连接'));
 
 function Connection({ st, onChange, onClose }: { st: AiStatus | null; onChange: (s: AiStatus) => void; onClose: () => void }) {
   const [key, setKey] = useState('');
@@ -94,12 +95,12 @@ function Connection({ st, onChange, onClose }: { st: AiStatus | null; onChange: 
       setTest({ ok: false, message: (e as Error).message, ms: 0 });
     }
   };
-  if (!st) return <div className="conn-page">正在检查…</div>;
+  if (!st) return <div className="conn-page">{tr('Checking…', '正在检查…')}</div>;
   const c = st.claude;
   return (
     <div className="conn-page">
       <section>
-        <h4>用哪种方式连接</h4>
+        <h4>{tr('How to connect', '用哪种方式连接')}</h4>
         <div className="rcards" role="radiogroup">
           {PREFS.map(([v, l, d]) => (
             <label key={v} className={`rc${st.pref === v ? ' on' : ''}`}>
@@ -119,23 +120,27 @@ function Connection({ st, onChange, onClose }: { st: AiStatus | null; onChange: 
           <div className="state bad">
             <Icon name="close" size={14} />
             <span>
-              这台电脑上没找到 claude 命令。到 claude.com/claude-code 安装，在终端运行 <code>claude</code> 登录一次，再重开剪辑台。
+              {tr('No claude command on this computer. Install Claude Code from claude.com/claude-code, run ', '这台电脑上没找到 claude 命令。到 claude.com/claude-code 安装，在终端运行 ')}
+              <code>claude</code>
+              {tr(' once to sign in, then restart Cutroom.', ' 登录一次，再重开剪辑台。')}
             </span>
           </div>
         ) : c.loggedIn === false ? (
           <div className="state warn">
             <Icon name="warn" size={14} />
             <span>
-              已安装，但还没登录。在终端运行 <code>claude</code> 按提示登录。
+              {tr('Installed but not signed in. Run ', '已安装，但还没登录。在终端运行 ')}
+              <code>claude</code>
+              {tr(' in a terminal and follow the prompts.', ' 按提示登录。')}
             </span>
           </div>
         ) : (
           <div className="state ok">
             <Icon name="check" size={14} />
             <span>
-              {c.loggedIn ? '已登录' : '已安装'}
-              {c.method ? `（${c.method}${c.plan ? ` · ${c.plan}` : ''}）` : ''}
-              {c.version ? `，版本 ${c.version}` : ''}
+              {c.loggedIn ? tr('Signed in', '已登录') : tr('Installed', '已安装')}
+              {c.method ? ` (${c.method}${c.plan ? ` · ${c.plan}` : ''})` : ''}
+              {c.version ? tr(`, version ${c.version}`, `，版本 ${c.version}`) : ''}
             </span>
           </div>
         )}
@@ -148,18 +153,18 @@ function Connection({ st, onChange, onClose }: { st: AiStatus | null; onChange: 
           <div className="state ok">
             <Icon name="check" size={14} />
             <span>
-              {st.key.source === 'env' ? '来自环境变量 ANTHROPIC_API_KEY：' : '已保存：'}
+              {st.key.source === 'env' ? tr('From the ANTHROPIC_API_KEY variable: ', '来自环境变量 ANTHROPIC_API_KEY：') : tr('Saved: ', '已保存：')}
               <code>{st.key.masked}</code>
             </span>
             {st.key.source === 'file' ? (
               <button className="mini" onClick={() => save({ apiKey: null })}>
-                删除
+                {tr('Remove', '删除')}
               </button>
             ) : null}
           </div>
         ) : null}
         <div className="keyrow">
-          <input type="password" value={key} placeholder="粘贴 sk-ant- 开头的 Key" onChange={(e) => setKey(e.target.value)} autoComplete="off" spellCheck={false} />
+          <input type="password" value={key} placeholder={tr('Paste a key starting with sk-ant-', '粘贴 sk-ant- 开头的 Key')} onChange={(e) => setKey(e.target.value)} autoComplete="off" spellCheck={false} />
           <button
             className="btn"
             disabled={!key.trim()}
@@ -168,33 +173,33 @@ function Connection({ st, onChange, onClose }: { st: AiStatus | null; onChange: 
               setKey('');
             }}
           >
-            保存
+            {tr('Save', '保存')}
           </button>
         </div>
-        <p className="hint">Key 只存在这台电脑的 .editor/settings.json，不会进 git，也不会显示完整内容。</p>
+        <p className="hint">{tr('The key stays on this computer in .editor/settings.json. It is never committed to git or shown in full.', 'Key 只存在这台电脑的 .editor/settings.json，不会进 git，也不会显示完整内容。')}</p>
       </section>
 
       <section className="test">
         <button className="btn" onClick={runTest} disabled={test === 'run' || !st.provider}>
-          {test === 'run' ? '测试中…' : '测试连接'}
+          {test === 'run' ? tr('Testing…', '测试中…') : tr('Test connection', '测试连接')}
         </button>
         {test && test !== 'run' ? (
           <span className={`state ${test.ok ? 'ok' : 'bad'}`}>
             <Icon name={test.ok ? 'check' : 'close'} size={14} />
             <span>
               {test.message}
-              {test.ms ? `（${(test.ms / 1000).toFixed(1)} 秒）` : ''}
+              {test.ms ? tr(` (${(test.ms / 1000).toFixed(1)} s)`, `（${(test.ms / 1000).toFixed(1)} 秒）`) : ''}
             </span>
           </span>
         ) : !st.provider ? (
-          <span className="hint">{st.pref === 'anthropic' ? '先在上面保存 API Key，或改用 Claude Code 登录' : st.pref === 'claude-code' ? '先安装并登录 Claude Code' : '先登录 Claude Code 或保存 API Key'}</span>
+          <span className="hint">{st.pref === 'anthropic' ? tr('Save an API key above, or switch to the Claude Code login', '先在上面保存 API Key，或改用 Claude Code 登录') : st.pref === 'claude-code' ? tr('Install Claude Code and sign in first', '先安装并登录 Claude Code') : tr('Sign in to Claude Code or save an API key first', '先登录 Claude Code 或保存 API Key')}</span>
         ) : null}
       </section>
 
-      <p className="hint">AI 只能运行剪辑台自己的命令（读写这个项目的分镜），不能动电脑上的其他文件。</p>
+      <p className="hint">{tr('The AI can only run Cutroom’s own commands (reading and editing this project’s storyboard). It cannot touch other files on your computer.', 'AI 只能运行剪辑台自己的命令（读写这个项目的分镜），不能动电脑上的其他文件。')}</p>
       <div className="conn-acts">
         <button className="primary" onClick={onClose} disabled={!st.provider}>
-          完成
+          {tr('Done', '完成')}
         </button>
       </div>
     </div>
@@ -288,9 +293,9 @@ export function ChatPanel({ slug, context, where }: { slug: string; context: () 
   return (
     <div className="chat">
       <div className="chat-head">
-        <button className={`conn${provider ? ' ok' : ' off'}${settings ? ' open' : ''}`} onClick={() => setSettings((x) => !x)} title="连接设置">
+        <button className={`conn${provider ? ' ok' : ' off'}${settings ? ' open' : ''}`} onClick={() => setSettings((x) => !x)} title={tr('Connection settings', '连接设置')}>
           <i />
-          {status ? providerName(status) : '检查中'}
+          {status ? providerName(status) : tr('Checking', '检查中')}
           <Icon name="gear" size={13} />
         </button>
         <span className="grow" />
@@ -302,7 +307,7 @@ export function ChatPanel({ slug, context, where }: { slug: string; context: () 
               setModel(e.target.value);
               store.set('vs-chat-model', e.target.value);
             }}
-            title="模型"
+            title={tr('Model', '模型')}
           >
             {MODELS.map(([v, l]) => (
               <option key={v} value={v}>
@@ -312,8 +317,8 @@ export function ChatPanel({ slug, context, where }: { slug: string; context: () 
           </select>
         ) : null}
         {!settings ? (
-          <button className="mini" onClick={fresh} disabled={running || !items.length} title="清空对话，开始新的上下文">
-            新对话
+          <button className="mini" onClick={fresh} disabled={running || !items.length} title={tr('Clear the conversation and start fresh', '清空对话，开始新的上下文')}>
+            {tr('New chat', '新对话')}
           </button>
         ) : null}
       </div>
@@ -324,7 +329,7 @@ export function ChatPanel({ slug, context, where }: { slug: string; context: () 
           <div className="chat-empty">
             <div className="chat-hello">
               <Icon name="sparkle" size={22} />
-              <p>直接说要怎么改。改动马上出现在预览里，也能撤销。</p>
+              <p>{tr('Say what to change. Edits show up in the preview right away, and you can undo them.', '直接说要怎么改。改动马上出现在预览里，也能撤销。')}</p>
             </div>
             <div className="sugg">
               {SUGGEST.map((s) => (
@@ -357,7 +362,7 @@ export function ChatPanel({ slug, context, where }: { slug: string; context: () 
                     <Rich text={it.text.trim()} />
                   </div>
                 ) : null}
-                {it.pending && !it.text ? <div className="typing">{it.tools.length ? '正在改…' : '思考中…'}</div> : null}
+                {it.pending && !it.text ? <div className="typing">{it.tools.length ? tr('Editing…', '正在改…') : tr('Thinking…', '思考中…')}</div> : null}
                 {it.error ? <div className="err">{it.error}</div> : null}
               </div>
             ),
@@ -372,7 +377,7 @@ export function ChatPanel({ slug, context, where }: { slug: string; context: () 
               ref={ta}
               value={input}
               rows={2}
-              placeholder={provider ? '比如：把选中这段缩短到 3 秒，加个暖色滤镜' : '先在上面连接 AI'}
+              placeholder={provider ? tr('e.g. make the selected scene 3 s long and give it a warm look', '比如：把选中这段缩短到 3 秒，加个暖色滤镜') : tr('Connect the AI above first', '先在上面连接 AI')}
               disabled={!provider}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => {
@@ -383,11 +388,11 @@ export function ChatPanel({ slug, context, where }: { slug: string; context: () 
               }}
             />
             {running ? (
-              <button className="send stop" onClick={stop} title="停止">
+              <button className="send stop" onClick={stop} title={tr('Stop', '停止')}>
                 <Icon name="close" size={14} />
               </button>
             ) : (
-              <button className="send" onClick={() => send()} disabled={!input.trim() || !provider} title="发送 (Enter)">
+              <button className="send" onClick={() => send()} disabled={!input.trim() || !provider} title={tr('Send (Enter)', '发送 (Enter)')}>
                 <Icon name="up" size={16} />
               </button>
             )}

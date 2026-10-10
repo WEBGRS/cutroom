@@ -6,6 +6,7 @@ import { fit, rgba, type Layout } from '../lib/layout';
 import { tokens } from '../lib/timeline';
 import type { ClipVisual, FlowVisual, FrameStyle, ImageVisual, OutroVisual, ScrollVisual, StatsVisual, Theme, TitleVisual } from '../lib/types';
 import { Shell } from './Chrome';
+import { AnimText } from '../fx/text';
 
 // Frosted glass: blurred backdrop behind translucent cards
 const GLASS: React.CSSProperties = { background: 'rgba(255,255,255,.12)', backdropFilter: 'blur(4px) saturate(1.2)', WebkitBackdropFilter: 'blur(4px) saturate(1.2)', boxShadow: '0 20px 60px rgba(0,0,0,.25), inset 0 1px 0 rgba(255,255,255,.25)' };
@@ -36,7 +37,8 @@ export const TitleScene: React.FC<{ v: TitleVisual; layout: Layout; theme: Theme
         <div style={{ opacity: pop(f, fps, 0), fontSize: size * 0.3, letterSpacing: '0.18em', fontWeight: 700, color: theme.accent, marginBottom: 28, textTransform: 'uppercase' }}>{v.kicker}</div>
       ) : null}
       <div style={{ fontSize: size, fontWeight: 900, color: '#fff', lineHeight: 1.15, letterSpacing: '-0.01em', textShadow: '0 8px 40px rgba(0,0,0,.35)' }}>
-        {chars.map((t, i) => {
+        {v.anim ? <AnimText text={v.title} anim={v.anim} t={(f - 4) / fps} hi={theme.accent} /> : null}
+        {v.anim ? null : chars.map((t, i) => {
           const p = pop(f, fps, 4 + i * 1.6);
           return (
             <span key={i} style={{ display: 'inline-block', whiteSpace: 'pre', opacity: p, transform: `translateY(${(1 - p) * 40}px)`, color: t.hi ? theme.accent : undefined }}>

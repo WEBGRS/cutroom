@@ -3,6 +3,7 @@ import { Composition, staticFile, type CalculateMetadataFunction } from 'remotio
 import { getImageDimensions } from '@remotion/media-utils';
 import { Main } from './Main';
 import { Cover, type CoverProps } from './Cover';
+import { FxPreview, type PreviewProps } from './FxPreview';
 import { LAYOUT } from './lib/layout';
 import { loadProps } from './lib/load';
 import type { Format, Props, Storyboard } from './lib/types';
@@ -32,6 +33,8 @@ const coverCalc: CalculateMetadataFunction<CoverProps> = async ({ props }) => {
 
 export const RemotionRoot: React.FC = () => (
   <>
+    {/* One effect on sample footage, for the editor's library previews */}
+    <Composition id="fx-preview" component={FxPreview} durationInFrames={75} fps={30} width={1920} height={1080} defaultProps={{ cat: 'transition', id: 'whip' } as PreviewProps} />
     {/* Any project: pass the slug in props, e.g. --props='{"slug":"my-video"}' */}
     {(['wide', 'tall'] as Format[]).map((format) => (
       <Composition key={`studio-${format}`} id={`studio-${format}`} component={Main} defaultProps={{ slug: 'demo', format }} calculateMetadata={calc} durationInFrames={60} fps={60} width={LAYOUT[format].W} height={LAYOUT[format].H} />

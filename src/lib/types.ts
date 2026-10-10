@@ -22,8 +22,8 @@ export interface ZoomKey {
 export interface Overlay {
   at: number;
   dur?: number;
-  // lower = lower third, sticker = big emoji, box = highlight frame, arrow = pointer, blur = privacy blur
-  kind: 'punch' | 'tag' | 'note' | 'lower' | 'sticker' | 'box' | 'arrow' | 'blur' | 'spot' | 'cinema';
+  // lower = lower third, sticker = big emoji, box = highlight frame, arrow = pointer, blur = privacy blur; the rest are in src/fx/overlays.tsx
+  kind: 'punch' | 'tag' | 'note' | 'lower' | 'sticker' | 'box' | 'arrow' | 'blur' | 'spot' | 'cinema' | (string & {});
   only?: Format;
   text: string;
   sub?: string;
@@ -31,10 +31,16 @@ export interface Overlay {
   y?: number;
   w?: number;
   h?: number;
+  // Lower-third look, text animation, colour override, size multiplier, numeric value
+  style?: string;
+  anim?: string;
+  color?: string;
+  size?: number;
+  value?: number;
 }
 
 export type Look = 'warm' | 'cool' | 'mono' | 'vintage' | 'vivid' | 'fade' | 'noir' | 'teal';
-export type KenBurns = 'in' | 'out' | 'left' | 'right' | 'up' | 'down';
+export type KenBurns = 'in' | 'out' | 'left' | 'right' | 'up' | 'down' | 'reveal';
 
 // Per-scene effects; every field optional, absent = untouched
 export interface Fx {
@@ -56,6 +62,17 @@ export interface Fx {
   fadeOut?: number;
   shake?: number;
   dim?: number;
+  // Ported from HyperFrames: lens/grade passes and camera moves
+  chroma?: number;
+  glitch?: number;
+  crt?: number;
+  duotone?: string;
+  bloom?: number;
+  pixelate?: number;
+  posterize?: number;
+  drift?: number;
+  focusIn?: number;
+  stepped?: number;
 }
 
 export interface CaptionStyle {
@@ -63,7 +80,7 @@ export interface CaptionStyle {
   style?: 'box' | 'outline' | 'plain';
   pos?: 'bottom' | 'middle' | 'top';
   scale?: number;
-  anim?: 'fade' | 'pop' | 'word' | 'karaoke' | 'typewriter';
+  anim?: 'fade' | 'pop' | 'word' | 'karaoke' | 'typewriter' | (string & {});
 }
 
 // Screen Studio-style wrapper around recordings
@@ -112,6 +129,8 @@ export interface TitleVisual {
   sub?: string;
   kicker?: string;
   bg?: string;
+  // Text animation for the title (src/fx/text.tsx); absent = the classic per-word rise
+  anim?: string;
 }
 
 export interface StatsVisual {
@@ -154,9 +173,66 @@ export interface ImageVisual {
   url?: string;
 }
 
-export type Visual = ScreenVisual | ScrollVisual | TitleVisual | StatsVisual | ClipVisual | OutroVisual | FlowVisual | ImageVisual;
+// Card scenes from src/fx/cards.tsx
+export interface ChartVisual {
+  kind: 'chart';
+  title?: string;
+  unit?: string;
+  items: { label: string; value: number }[];
+}
+export interface CodeVisual {
+  kind: 'code';
+  title?: string;
+  code: string;
+}
+export interface ChatVisual {
+  kind: 'chat';
+  title?: string;
+  messages: { me?: boolean; name?: string; text: string }[];
+}
+export interface QuoteVisual {
+  kind: 'quote';
+  text: string;
+  author?: string;
+  role?: string;
+  rating?: number;
+}
+export interface ChecklistVisual {
+  kind: 'checklist';
+  title?: string;
+  items: string[];
+}
+export interface NotifsVisual {
+  kind: 'notifs';
+  items: { app: string; title: string; body?: string }[];
+}
+export interface FlapVisual {
+  kind: 'flap';
+  title?: string;
+  rows: string[];
+}
+export interface CompareVisual {
+  kind: 'compare';
+  a: string;
+  b: string;
+  labelA?: string;
+  labelB?: string;
+}
+export interface CounterVisual {
+  kind: 'counter';
+  value: string;
+  label?: string;
+  sub?: string;
+}
+export interface TerminalVisual {
+  kind: 'terminal';
+  title?: string;
+  lines: { cmd: string; out?: string }[];
+}
 
-export type Transition = 'fade' | 'slide' | 'wipe' | 'flip' | 'clock' | 'iris' | 'push' | 'zoom' | 'dip' | 'none';
+export type Visual = ScreenVisual | ScrollVisual | TitleVisual | StatsVisual | ClipVisual | OutroVisual | FlowVisual | ImageVisual | ChartVisual | CodeVisual | ChatVisual | QuoteVisual | ChecklistVisual | NotifsVisual | FlapVisual | CompareVisual | CounterVisual | TerminalVisual;
+
+export type Transition = 'fade' | 'slide' | 'wipe' | 'flip' | 'clock' | 'iris' | 'push' | 'zoom' | 'dip' | 'none' | (string & {});
 export type Dir = 'left' | 'right' | 'up' | 'down';
 
 export interface BeatText {
@@ -201,6 +277,8 @@ export interface Theme {
   // Image behind everything instead of the gradient
   wallpaper?: string;
   wallBlur?: number;
+  // Animated backdrop pattern (src/fx/backgrounds.tsx)
+  bgFx?: string;
 }
 
 export interface Storyboard {
@@ -220,7 +298,8 @@ export interface Storyboard {
   // Progress bar with chapter names along the bottom
   chapterBar?: boolean;
   cover?: { title: string; sub?: string; bg?: string; bgTall?: string; tag?: string };
-  beat?: { music: string; startBar?: number; volume?: number };
+  // overlays: show scene overlays in the beat cut too (off by default)
+  beat?: { music: string; startBar?: number; volume?: number; overlays?: boolean };
   scenes: Scene[];
 }
 
