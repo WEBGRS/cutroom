@@ -101,6 +101,12 @@ export const Row = ({ label, children }: { label: string; children: React.ReactN
   </div>
 );
 
+// Track fill between the default and the current value
+const fill = (v: number, d: number, min: number, max: number) => {
+  const pc = (x: number) => `${(((x - min) / (max - min)) * 100).toFixed(1)}%`;
+  return { ['--a' as string]: pc(Math.min(v, d)), ['--b' as string]: pc(Math.max(v, d)) } as React.CSSProperties;
+};
+
 // One catalog field: slider / toggle / select; default value removes the key
 export function FieldControl({ def, value, onChange }: { def: FieldDef; value: unknown; onChange: (v: unknown) => void }) {
   const [live, setLive] = useState<number | null>(null);
@@ -150,6 +156,7 @@ export function FieldControl({ def, value, onChange }: { def: FieldDef; value: u
         max={def.max}
         step={def.step}
         value={cur}
+        style={fill(cur, (def.def as number) ?? def.min ?? 0, def.min ?? 0, def.max ?? 1)}
         onChange={(e) => setLive(Number(e.target.value))}
         onPointerUp={() => {
           if (live !== null) set(live);

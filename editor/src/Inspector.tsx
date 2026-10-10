@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import type { Format, Fx, Overlay, Scene, StatsVisual, Visual } from '../../src/lib/types';
 import { fmtTime, visualKey, type ETimeline } from './model';
 import { getPath, replaceScene, setPath, toggleTall, type Caps, type Doc, type Op } from './ops';
@@ -32,15 +32,57 @@ interface Props {
 const isImg = (a: string) => /\.(png|jpe?g|webp|gif)$/i.test(a);
 const isVid = (a: string) => /\.(mp4|webm|mov)$/i.test(a);
 
+type STab = 'visual' | 'trans' | 'fx' | 'over' | 'lines';
+type BTab = 'basic' | 'audio' | 'caps' | 'look';
+
+// Remembered per panel, so switching scenes keeps the same page open
+function useTab<T extends string>(key: string, ok: readonly T[], d: T): [T, (t: T) => void] {
+  const [t, setT] = useState<T>(() => {
+    try {
+      const v = localStorage.getItem(key) as T;
+      return ok.includes(v) ? v : d;
+    } catch {
+      return d;
+    }
+  });
+  return [
+    t,
+    (v: T) => {
+      setT(v);
+      try {
+        localStorage.setItem(key, v);
+      } catch {
+        // Private mode
+      }
+    },
+  ];
+}
+
+function Tabs<T extends string>({ value, items, onChange }: { value: T; items: [T, string, number?][]; onChange: (t: T) => void }) {
+  return (
+    <div className="itabs" role="tablist">
+      {items.map(([k, l, n]) => (
+        <button key={k} role="tab" aria-selected={value === k} className={value === k ? 'on' : undefined} onClick={() => onChange(k)}>
+          {l}
+          {n ? <span className="n">{n}</span> : null}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+export const KIND_COLOR: Record<string, string> = { screen: '#4f8ef7', clip: '#3fb68b', image: '#e0a440', title: '#a78bfa', stats: '#a78bfa', flow: '#a78bfa', outro: '#a78bfa', scroll: '#4f8ef7' };
+
 export function Inspector(p: Props) {
   const { doc, sel } = p;
   const scene = sel ? doc.board.scenes.find((s) => s.id === sel) : undefined;
   const listRef = useRef<HTMLDivElement>(null);
+  const [tab, setTab] = useTab<STab>('vs-itab', ['visual', 'trans', 'fx', 'over', 'lines'], 'visual');
 
   useEffect(() => {
-    if (p.focusLine === null || !listRef.current) return;
-    const el = listRef.current.querySelector<HTMLElement>(`[data-k="${p.focusLine}"]`);
-    el?.scrollIntoView({ block: 'nearest' });
+    if (p.focusLine === null) return;
+    if (tab !== 'lines') setTab('lines');
+    requestAnimationFrame(() => listRef.current?.querySelector<HTMLElement>(`[data-k="${p.focusLine}"]`)?.scrollIntoView({ block: 'nearest' }));
   }, [p.focusLine, sel]);
 
   if (!scene) return <BoardPanel {...p} />;
@@ -54,98 +96,97 @@ export function Inspector(p: Props) {
   const fps = p.etl?.fps ?? 60;
   const tr = TRANSITIONS.find(([t]) => t === (scene.transition === 'fade' ? '' : (scene.transition ?? '')));
   const fxCount = scene.fx ? Object.keys(scene.fx).length : 0;
+  const lineCount = p.mode === 'voice' ? scene.lines.length : (scene.beat?.length ?? 0);
 
-  return (
-    <div className="insp">
-      <div className="ihead">
-        <h2>
-          {scene.id}
-          <span className="kind">{KIND_NAME[v.kind] ?? v.kind}</span>
-        </h2>
-        <div className="meta">{e ? `${fmtTime(e.start, fps)} 开始，${(e.dur / fps).toFixed(2)} 秒` : `这一版没用到：${hidden?.why ?? '未用'}`}</div>
-        <div className="acts">
-          <button className="icon" onClick={p.actions.up} title="前移一段">
-            <Icon name="up" />
-          </button>
-          <button className="icon" onClick={p.actions.down} title="后移一段">
-            <Icon name="down" />
-          </button>
-          <span className="sep" />
-          <button className="tool" onClick={p.actions.split} disabled={!e} title="在播放头处拆分 (Ctrl+B)">
-            <Icon name="split" />
-            拆分
-          </button>
-          <button className="tool" onClick={p.actions.dup} title="复制 (Ctrl+D)">
-            <Icon name="copy" />
-            复制
-          </button>
-          <button className="tool danger" onClick={p.actions.del}>
-            <Icon name="trash" />
-            删除
-          </button>
+  let body: React.ReactNode;
+  if (tab === 'visual')
+    body = (
+      <>
+        <div className="sec">
+          {p.format === 'tall' ? (
+            <label className="check">
+              <input type="checkbox" checked={!!scene.tall} onChange={(ev) => p.commit((d) => toggleTall(d, scene.id, ev.target.checked))} />
+              竖屏用单独画面
+            </label>
+          ) : null}
+          <VisualFields v={v} k={key} set={set} assets={p.assets} marks={marks} />
         </div>
-      </div>
-
-      <div className="sec">
-        <Row label="出现在">
-          <select value={scene.only ?? ''} onChange={(ev) => set('only', ev.target.value || undefined)}>
-            <option value="">横屏和竖屏</option>
-            <option value="wide">只在横屏</option>
-            <option value="tall">只在竖屏</option>
-          </select>
-        </Row>
-        <Row label="章节名">
-          <Field value={scene.chapter} placeholder="（不是章节开头）" onCommit={(s) => set('chapter', s || undefined)} />
-        </Row>
-      </div>
-
-      <div className="sec">
-        <h3>转场{p.mode === 'beat' ? '（卡点版）' : ''}</h3>
+        <div className="sec">
+          <h3>位置</h3>
+          <Row label="出现在">
+            <select value={scene.only ?? ''} onChange={(ev) => set('only', ev.target.value || undefined)}>
+              <option value="">横屏和竖屏</option>
+              <option value="wide">只在横屏</option>
+              <option value="tall">只在竖屏</option>
+            </select>
+          </Row>
+          <Row label="章节名">
+            <Field value={scene.chapter} placeholder="不是章节开头就留空" onCommit={(s) => set('chapter', s || undefined)} />
+          </Row>
+        </div>
         {p.mode === 'voice' ? (
-          <>
-            <div className="row3">
-              <div style={{ gridColumn: 'span 2' }}>
-                <label>进入这一段的方式{tr?.[2] ? <span className="rule" title={tr[2]}>!</span> : null}</label>
-                <select value={scene.transition === 'fade' ? '' : (scene.transition ?? '')} onChange={(ev) => set('transition', ev.target.value || undefined)}>
-                  {TRANSITIONS.map(([t, l]) => (
-                    <option key={t} value={t}>
-                      {l}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label>时长(秒)</label>
-                <Field value={scene.transDur} placeholder="默认 0.4" validate={isNum} onCommit={(s) => set('transDur', num(s))} />
-              </div>
-            </div>
-            {['slide', 'wipe', 'flip'].includes(scene.transition ?? '') ? (
-              <Row label="方向">
-                <select value={scene.transDir ?? ''} onChange={(ev) => set('transDir', ev.target.value || undefined)}>
-                  {DIRS.map(([d, l]) => (
-                    <option key={d} value={d}>
-                      {l}
-                    </option>
-                  ))}
-                </select>
-              </Row>
-            ) : null}
+          <div className="sec">
+            <h3>时长</h3>
             <div className="row3">
               <div>
-                <label>前留白(秒)</label>
-                <Field value={scene.lead} placeholder="默认 0.45" validate={isNum} onCommit={(s) => set('lead', num(s))} />
+                <label>前留白 秒</label>
+                <Field value={scene.lead} placeholder="0.45" validate={isNum} onCommit={(s) => set('lead', num(s))} />
               </div>
               <div>
-                <label>后留白(秒)</label>
-                <Field value={scene.tail} placeholder="默认 0.5" validate={isNum} onCommit={(s) => set('tail', num(s))} />
+                <label>后留白 秒</label>
+                <Field value={scene.tail} placeholder="0.5" validate={isNum} onCommit={(s) => set('tail', num(s))} />
               </div>
               <div>
-                <label>最短(秒)</label>
+                <label>最短 秒</label>
                 <Field value={scene.minSec} placeholder="不限" validate={isNum} onCommit={(s) => set('minSec', num(s))} />
               </div>
             </div>
-          </>
-        ) : (
+          </div>
+        ) : null}
+        <div className="sec">
+          <details>
+            <summary>整段 JSON</summary>
+            <JsonEdit value={scene} onApply={(x) => p.commit((d) => replaceScene(d, scene.id, x as Scene))} />
+          </details>
+        </div>
+      </>
+    );
+  else if (tab === 'trans')
+    body =
+      p.mode === 'voice' ? (
+        <div className="sec">
+          <h3>进入这一段的方式{tr?.[2] ? <span className="rule" title={tr[2]}>!</span> : null}</h3>
+          <div className="row3">
+            <div style={{ gridColumn: 'span 2' }}>
+              <label>转场</label>
+              <select value={scene.transition === 'fade' ? '' : (scene.transition ?? '')} onChange={(ev) => set('transition', ev.target.value || undefined)}>
+                {TRANSITIONS.map(([t, l]) => (
+                  <option key={t} value={t}>
+                    {l}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label>时长 秒</label>
+              <Field value={scene.transDur} placeholder="0.4" validate={isNum} onCommit={(s) => set('transDur', num(s))} />
+            </div>
+          </div>
+          {['slide', 'wipe', 'flip'].includes(scene.transition ?? '') ? (
+            <Row label="方向">
+              <select value={scene.transDir ?? ''} onChange={(ev) => set('transDir', ev.target.value || undefined)}>
+                {DIRS.map(([d, l]) => (
+                  <option key={d} value={d}>
+                    {l}
+                  </option>
+                ))}
+              </select>
+            </Row>
+          ) : null}
+        </div>
+      ) : (
+        <div className="sec">
+          <h3>卡点版切入方式</h3>
           <Row label="切入">
             <select value={scene.beatTransition ?? ''} onChange={(ev) => set('beatTransition', ev.target.value || undefined)}>
               {TRANSITIONS.filter(([t]) => t !== 'none').map(([t, l]) => (
@@ -155,48 +196,37 @@ export function Inspector(p: Props) {
               ))}
             </select>
           </Row>
-        )}
-      </div>
-
+        </div>
+      );
+  else if (tab === 'fx')
+    body = (
       <div className="sec">
-        <h3>画面{key === 'tall' ? '（竖屏单独）' : ''}</h3>
-        {p.format === 'tall' ? (
-          <label className="check">
-            <input type="checkbox" checked={!!scene.tall} onChange={(ev) => p.commit((d) => toggleTall(d, scene.id, ev.target.checked))} />
-            竖屏用单独画面
-          </label>
-        ) : null}
-        <VisualFields v={v} k={key} set={set} assets={p.assets} marks={marks} />
-      </div>
-
-      <div className="sec">
-        <h3>
-          特效{fxCount ? <span className="count">{fxCount}</span> : null}
-          <span className="grow" />
+        <div className="sec-acts">
           <button className="mini" disabled={!scene.fx} onClick={() => p.setFxClip(scene.fx ?? null)} title="复制特效 (Ctrl+Alt+C)">
-            复制
+            复制特效
           </button>
           <button className="mini" disabled={!p.fxClip} onClick={() => set('fx', p.fxClip ? { ...p.fxClip } : undefined)} title="粘贴特效 (Ctrl+Alt+V)">
             粘贴
           </button>
+          <span className="grow" />
           <button className="mini" disabled={!scene.fx} onClick={() => set('fx', undefined)}>
-            清除
+            全部清除
           </button>
-        </h3>
+        </div>
         {SCENE_FX.filter((g) => g.group !== '录屏' || v.kind === 'screen').map((g) => (
           <div className="fxg" key={g.group}>
-            <div className="fxh">{g.group}</div>
+            <h3>{g.group}</h3>
             {g.fields.map((f) => (
               <FieldControl key={f.path} def={f} value={getPath(scene, f.path)} onChange={(x) => set(f.path, x)} />
             ))}
           </div>
         ))}
       </div>
-
+    );
+  else if (tab === 'over')
+    body = (
       <div className="sec">
-        <h3>
-          叠加元素
-          <span className="grow" />
+        <div className="sec-acts">
           <select
             className="add-sel"
             value=""
@@ -215,16 +245,19 @@ export function Inspector(p: Props) {
               </option>
             ))}
           </select>
-        </h3>
-        {(scene.overlays ?? []).map((o, i) => (
-          <OverlayItem key={i} o={o} i={i} set={set} />
-        ))}
+        </div>
+        {(scene.overlays ?? []).length ? (
+          (scene.overlays ?? []).map((o, i) => <OverlayItem key={i} o={o} i={i} set={set} />)
+        ) : (
+          <p className="hint">这一段还没有叠加元素。标签、箭头、高亮框、马赛克都在这里加，也可以从左边「叠加」页点选。</p>
+        )}
       </div>
-
+    );
+  else
+    body = (
       <div className="sec" ref={listRef}>
         {p.mode === 'voice' ? (
           <>
-            <h3>旁白</h3>
             {scene.lines.map((l, k) => (
               <div key={k} data-k={k} className={`item${p.focusLine === k ? ' focus' : ''}`}>
                 <div className="head">
@@ -245,55 +278,85 @@ export function Inspector(p: Props) {
               加一句
             </button>
           </>
+        ) : !scene.beat ? (
+          <>
+            <p className="hint">这一段不在卡点版里。</p>
+            <button className="mini" onClick={() => set('beat', [{ t: '', n: 4 }])}>
+              加入卡点版
+            </button>
+          </>
         ) : (
           <>
-            <h3>
-              卡点字<span className="grow" />
-              {scene.beat ? (
-                <button className="mini" onClick={() => set('beat', undefined)}>
-                  移出卡点版
-                </button>
-              ) : null}
-            </h3>
-            {!scene.beat ? (
-              <button className="mini" onClick={() => set('beat', [{ t: '', n: 4 }])}>
-                加入卡点版
+            {scene.beat.map((b, k) => (
+              <div key={k} data-k={k} className={`item${p.focusLine === k ? ' focus' : ''}`}>
+                <div className="head">
+                  <span className="idx">{k + 1}</span>
+                  <span className="grow" />
+                  <button className="icon sm" title="删除这一句" onClick={() => set(`beat.${k}`, undefined)}>
+                    <Icon name="close" size={14} />
+                  </button>
+                </div>
+                <Field value={b.t} placeholder="屏幕上的字　[[重点]]" onCommit={(s) => set(`beat.${k}.t`, s)} autoFocus={p.focusLine === k} />
+                <Field value={b.en} placeholder="English" onCommit={(s) => set(`beat.${k}.en`, s || undefined)} />
+                <div className="row">
+                  <label>拍数</label>
+                  <Field value={b.n ?? 4} type="number" validate={(s) => Number(s) >= 1} onCommit={(s) => set(`beat.${k}.n`, Math.round(Number(s)))} />
+                </div>
+              </div>
+            ))}
+            <div className="sec-acts">
+              <button className="add" onClick={() => set(`beat.${scene.beat!.length}`, { t: '', n: 4 })}>
+                <Icon name="plus" size={14} />
+                加一句
               </button>
-            ) : (
-              <>
-                {scene.beat.map((b, k) => (
-                  <div key={k} data-k={k} className={`item${p.focusLine === k ? ' focus' : ''}`}>
-                    <div className="head">
-                      <span className="idx">{k + 1}</span>
-                      <span className="grow" />
-                      <button className="icon sm" title="删除这一句" onClick={() => set(`beat.${k}`, undefined)}>
-                        <Icon name="close" size={14} />
-                      </button>
-                    </div>
-                    <Field value={b.t} placeholder="屏幕上的字　[[重点]]" onCommit={(s) => set(`beat.${k}.t`, s)} autoFocus={p.focusLine === k} />
-                    <Field value={b.en} placeholder="English" onCommit={(s) => set(`beat.${k}.en`, s || undefined)} />
-                    <div className="row">
-                      <label>拍数</label>
-                      <Field value={b.n ?? 4} type="number" validate={(s) => Number(s) >= 1} onCommit={(s) => set(`beat.${k}.n`, Math.round(Number(s)))} />
-                    </div>
-                  </div>
-                ))}
-                <button className="add" onClick={() => set(`beat.${scene.beat!.length}`, { t: '', n: 4 })}>
-                  <Icon name="plus" size={14} />
-                  加一句
-                </button>
-              </>
-            )}
+              <span className="grow" />
+              <button className="mini" onClick={() => set('beat', undefined)}>
+                移出卡点版
+              </button>
+            </div>
           </>
         )}
       </div>
+    );
 
-      <div className="sec">
-        <details>
-          <summary>整段 JSON</summary>
-          <JsonEdit value={scene} onApply={(x) => p.commit((d) => replaceScene(d, scene.id, x as Scene))} />
-        </details>
+  return (
+    <div className="insp">
+      <div className="ihead">
+        <div className="ihead-row">
+          <span className="kdot" style={{ background: KIND_COLOR[v.kind] ?? '#8b90a0' }} />
+          <h2>{scene.id}</h2>
+          <span className="kind">{KIND_NAME[v.kind] ?? v.kind}</span>
+          <span className="grow" />
+          <button className="icon sm" onClick={p.actions.up} title="前移一段">
+            <Icon name="up" size={14} />
+          </button>
+          <button className="icon sm" onClick={p.actions.down} title="后移一段">
+            <Icon name="down" size={14} />
+          </button>
+          <button className="icon sm" onClick={p.actions.split} disabled={!e} title="在播放头处拆分 (Ctrl+B)">
+            <Icon name="split" size={14} />
+          </button>
+          <button className="icon sm" onClick={p.actions.dup} title="复制这一段 (Ctrl+D)">
+            <Icon name="copy" size={14} />
+          </button>
+          <button className="icon sm danger" onClick={p.actions.del} title="删除这一段 (Delete)">
+            <Icon name="trash" size={14} />
+          </button>
+        </div>
+        <div className="meta">{e ? `从 ${fmtTime(e.start, fps)} 开始，${(e.dur / fps).toFixed(2)} 秒` : `这一版没用到：${hidden?.why ?? '未用'}`}</div>
       </div>
+      <Tabs<STab>
+        value={tab}
+        onChange={setTab}
+        items={[
+          ['visual', '画面'],
+          ['trans', '转场'],
+          ['fx', '特效', fxCount],
+          ['over', '叠加', scene.overlays?.length],
+          ['lines', p.mode === 'voice' ? '旁白' : '卡点字', lineCount],
+        ]}
+      />
+      <div className="ibody">{body}</div>
       <datalist id="marks">
         {marks.map((m) => (
           <option key={m} value={`@${m}`} />
@@ -328,11 +391,11 @@ function OverlayItem({ o, i, set }: { o: Overlay; i: number; set: (path: string,
       {fields.includes('sub') ? <Field value={o.sub} placeholder="副标题（可空）" onCommit={(s) => set(f('sub'), s || undefined)} /> : null}
       <div className="row4">
         <div>
-          <label>开始(秒)</label>
+          <label>开始 秒</label>
           <Field value={o.at} validate={isNum} onCommit={(s) => set(f('at'), num(s) ?? 0)} />
         </div>
         <div>
-          <label>时长</label>
+          <label>时长 秒</label>
           <Field value={o.dur} placeholder="1.6" validate={isNum} onCommit={(s) => set(f('dur'), num(s))} />
         </div>
         {(['x', 'y', 'w', 'h'] as const)
@@ -521,116 +584,164 @@ function StatsFields({ v, k, set }: { v: StatsVisual; k: string; set: (path: str
   );
 }
 
+const fieldsOf = (paths: string[]) => BOARD_FX.flatMap((g) => g.fields).filter((f) => paths.includes(f.path));
+
 function BoardPanel(p: Props) {
   const b = p.doc.board;
+  const [tab, setTab] = useTab<BTab>('vs-btab', ['basic', 'audio', 'caps', 'look'], 'basic');
   const set = (path: string, value: unknown) => p.commit((d) => setPath(d, null, path, value), { coalesce: `board.${path}` });
   const audio = [...p.music.map((m) => m.src), ...p.assets.filter((a) => /\.(mp3|wav|m4a)$/i.test(a)).map((a) => `${p.slug}/${a}`)];
+  const controls = (paths: string[]) =>
+    fieldsOf(paths)
+      .filter((f) => !f.path.startsWith('music.') || (p.mode === 'voice' && !!b.music))
+      .map((f) => <FieldControl key={f.path} def={f} value={getPath(b, f.path)} onChange={(x) => set(f.path, x)} />);
+
+  let body: React.ReactNode;
+  if (tab === 'basic')
+    body = (
+      <>
+        <div className="sec">
+          <Row label="标题">
+            <Field value={b.title} onCommit={(s) => set('title', s)} />
+          </Row>
+          <Row label="竖屏顶栏">
+            <Field value={b.header} placeholder="竖屏顶部的一行字" onCommit={(s) => set('header', s || undefined)} />
+          </Row>
+          <Row label="顶栏英文">
+            <Field value={b.headerEn} onCommit={(s) => set('headerEn', s || undefined)} />
+          </Row>
+        </div>
+        <div className="sec">
+          <h3>颜色和背景</h3>
+          <div className="swatches">
+            <label>
+              <input type="color" value={b.theme.accent} onChange={(e) => set('theme.accent', e.target.value)} />
+              主色
+            </label>
+            <label>
+              <input type="color" value={b.theme.bg?.[0] ?? '#0b1020'} onChange={(e) => set('theme.bg', [e.target.value, b.theme.bg?.[1] ?? '#18223d'])} />
+              背景 1
+            </label>
+            <label>
+              <input type="color" value={b.theme.bg?.[1] ?? '#18223d'} onChange={(e) => set('theme.bg', [b.theme.bg?.[0] ?? '#0b1020', e.target.value])} />
+              背景 2
+            </label>
+          </div>
+          <Row label="背景图">
+            <select value={b.theme.wallpaper ?? ''} onChange={(e) => set('theme.wallpaper', e.target.value || undefined)}>
+              <option value="">渐变（默认）</option>
+              {p.assets.filter(isImg).map((a) => (
+                <option key={a}>{a}</option>
+              ))}
+            </select>
+          </Row>
+          {b.theme.wallpaper ? controls(['theme.wallBlur']) : null}
+        </div>
+        {p.etl?.hidden.length ? (
+          <div className="sec">
+            <h3>这一版没用到的段落</h3>
+            <div className="hidden-list">
+              {p.etl.hidden.map((h) => (
+                <button key={h.id} className="mini" onClick={() => p.onSelect(h.id)} title={h.why}>
+                  {h.id}
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : null}
+      </>
+    );
+  else if (tab === 'audio')
+    body = (
+      <>
+        {p.mode === 'voice' ? (
+          <div className="sec">
+            <h3>旁白版配乐</h3>
+            <Row label="音乐">
+              <select value={b.music?.src ?? ''} onChange={(e) => set('music', e.target.value ? { ...(b.music ?? {}), src: e.target.value } : undefined)}>
+                <option value="">无</option>
+                {[...new Set([b.music?.src ?? '', ...audio])].filter(Boolean).map((a) => (
+                  <option key={a}>{a}</option>
+                ))}
+              </select>
+            </Row>
+            <div className="row3">
+              <div>
+                <label>音量</label>
+                <Field value={b.music?.volume} placeholder="0.22" validate={isNum} onCommit={(s) => set('music.volume', num(s))} />
+              </div>
+              <div>
+                <label>说话时压到</label>
+                <Field value={b.music?.duck} placeholder="0.3" validate={isNum} onCommit={(s) => set('music.duck', num(s))} />
+              </div>
+            </div>
+            {controls(['music.fadeIn', 'music.fadeOut'])}
+          </div>
+        ) : (
+          <div className="sec">
+            <h3>卡点版配乐</h3>
+            <Row label="音乐">
+              <select value={b.beat?.music ?? ''} onChange={(e) => set('beat', e.target.value ? { ...(b.beat ?? {}), music: e.target.value } : undefined)}>
+                <option value="">无</option>
+                {[...new Set([b.beat?.music ?? '', ...p.music.filter((m) => m.beats).map((m) => m.src)])].filter(Boolean).map((a) => (
+                  <option key={a}>{a}</option>
+                ))}
+              </select>
+            </Row>
+            <div className="row3">
+              <div>
+                <label>从第几小节</label>
+                <Field value={b.beat?.startBar} placeholder="0" validate={isNum} onCommit={(s) => set('beat.startBar', num(s))} />
+              </div>
+              <div>
+                <label>音量</label>
+                <Field value={b.beat?.volume} placeholder="0.85" validate={isNum} onCommit={(s) => set('beat.volume', num(s))} />
+              </div>
+            </div>
+          </div>
+        )}
+        <div className="sec">
+          <h3>音效</h3>
+          {controls(['sfx.whoosh', 'sfx.click', 'sfx.pop', 'sfx.volume'])}
+        </div>
+      </>
+    );
+  else if (tab === 'caps')
+    body = (
+      <div className="sec">
+        {controls(['captions.off', 'captions.style', 'captions.pos', 'captions.scale', 'captions.anim', 'chapterBar'])}
+      </div>
+    );
+  else
+    body = (
+      <div className="sec">
+        <h3>录屏画框</h3>
+        {controls(['frame.radius', 'frame.shadow', 'frame.inset', 'frame.glow'])}
+        <h3 className="gap">卡片</h3>
+        {controls(['glass'])}
+      </div>
+    );
+
   return (
     <div className="insp">
       <div className="ihead">
-        <h2>全片设置</h2>
-        <div className="meta">点时间线上的段落可以编辑那一段</div>
+        <div className="ihead-row">
+          <span className="kdot board" />
+          <h2>项目设置</h2>
+        </div>
+        <div className="meta">影响整条片子。点时间线上的段落，改那一段。</div>
       </div>
-      {p.etl?.hidden.length ? (
-        <div className="sec">
-          <h3>这一版没用到的段落</h3>
-          <div className="hidden-list">
-            {p.etl.hidden.map((h) => (
-              <button key={h.id} className="mini" onClick={() => p.onSelect(h.id)} title={h.why}>
-                {h.id}
-              </button>
-            ))}
-          </div>
-        </div>
-      ) : null}
-      <div className="sec">
-        <Row label="标题">
-          <Field value={b.title} onCommit={(s) => set('title', s)} />
-        </Row>
-        <Row label="竖屏顶栏">
-          <Field value={b.header} onCommit={(s) => set('header', s || undefined)} />
-        </Row>
-        <Row label="顶栏英文">
-          <Field value={b.headerEn} onCommit={(s) => set('headerEn', s || undefined)} />
-        </Row>
-        <div className="row3">
-          <div>
-            <label>主色</label>
-            <input type="color" value={b.theme.accent} onChange={(e) => set('theme.accent', e.target.value)} />
-          </div>
-          <div>
-            <label>背景色 1</label>
-            <input type="color" value={b.theme.bg?.[0] ?? '#0b1020'} onChange={(e) => set('theme.bg', [e.target.value, b.theme.bg?.[1] ?? '#18223d'])} />
-          </div>
-          <div>
-            <label>背景色 2</label>
-            <input type="color" value={b.theme.bg?.[1] ?? '#18223d'} onChange={(e) => set('theme.bg', [b.theme.bg?.[0] ?? '#0b1020', e.target.value])} />
-          </div>
-        </div>
-        <Row label="背景图">
-          <select value={b.theme.wallpaper ?? ''} onChange={(e) => set('theme.wallpaper', e.target.value || undefined)}>
-            <option value="">渐变（默认）</option>
-            {p.assets.filter(isImg).map((a) => (
-              <option key={a}>{a}</option>
-            ))}
-          </select>
-        </Row>
-      </div>
-      {p.mode === 'voice' ? (
-        <div className="sec">
-          <h3>旁白版配乐</h3>
-          <Row label="音乐">
-            <select value={b.music?.src ?? ''} onChange={(e) => set('music', e.target.value ? { ...(b.music ?? {}), src: e.target.value } : undefined)}>
-              <option value="">无</option>
-              {[...new Set([b.music?.src ?? '', ...audio])].filter(Boolean).map((a) => (
-                <option key={a}>{a}</option>
-              ))}
-            </select>
-          </Row>
-          <div className="row3">
-            <div>
-              <label>音量</label>
-              <Field value={b.music?.volume} placeholder="默认 0.22" validate={isNum} onCommit={(s) => set('music.volume', num(s))} />
-            </div>
-            <div>
-              <label>说话时压到</label>
-              <Field value={b.music?.duck} placeholder="默认 0.3" validate={isNum} onCommit={(s) => set('music.duck', num(s))} />
-            </div>
-          </div>
-        </div>
-      ) : (
-        <div className="sec">
-          <h3>卡点版配乐</h3>
-          <Row label="音乐">
-            <select value={b.beat?.music ?? ''} onChange={(e) => set('beat', e.target.value ? { ...(b.beat ?? {}), music: e.target.value } : undefined)}>
-              <option value="">无</option>
-              {[...new Set([b.beat?.music ?? '', ...p.music.filter((m) => m.beats).map((m) => m.src)])].filter(Boolean).map((a) => (
-                <option key={a}>{a}</option>
-              ))}
-            </select>
-          </Row>
-          <div className="row3">
-            <div>
-              <label>从第几小节</label>
-              <Field value={b.beat?.startBar} placeholder="默认 0" validate={isNum} onCommit={(s) => set('beat.startBar', num(s))} />
-            </div>
-            <div>
-              <label>音量</label>
-              <Field value={b.beat?.volume} placeholder="默认 0.85" validate={isNum} onCommit={(s) => set('beat.volume', num(s))} />
-            </div>
-          </div>
-        </div>
-      )}
-      {BOARD_FX.map((g) => (
-        <div className="sec" key={g.group}>
-          <h3>{g.group}</h3>
-          {g.fields
-            .filter((f) => !f.path.startsWith('music.') || (p.mode === 'voice' && !!b.music))
-            .map((f) => (
-              <FieldControl key={f.path} def={f} value={getPath(b, f.path)} onChange={(x) => set(f.path, x)} />
-            ))}
-        </div>
-      ))}
+      <Tabs<BTab>
+        value={tab}
+        onChange={setTab}
+        items={[
+          ['basic', '基本'],
+          ['audio', '声音'],
+          ['caps', '字幕'],
+          ['look', '画框'],
+        ]}
+      />
+      <div className="ibody">{body}</div>
     </div>
   );
 }

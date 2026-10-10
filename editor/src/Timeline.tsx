@@ -6,7 +6,7 @@ import type { EScene, ETimeline } from './model';
 import { peaksUrl, thumbsUrl, useAsset, type Peaks, type Thumbs } from './assets';
 import { Icon } from './icons';
 
-const LAB = 64;
+const LAB = 84;
 const CLIP_H = 58;
 const STEPS = [0.5, 1, 2, 5, 10, 15, 30, 60];
 export const MAX_ZOOM = 300;
@@ -27,6 +27,7 @@ interface Props {
   canTrim: (e: EScene, edge: Edge) => boolean;
   onTrim: (e: EScene, edge: Edge, dSec: number, done: boolean) => void;
   tools: React.ReactNode;
+  missing: Map<string, string>;
 }
 
 type Drag = { kind: 'move'; id: string; x0: number; moved: boolean; slot: number; px: number } | { kind: 'trim'; e: EScene; edge: Edge; x0: number } | { kind: 'scrub' };
@@ -142,6 +143,9 @@ export function Timeline(p: Props) {
   const totalSec = etl.total / fps;
   const fit = Math.max(2, (width - LAB - 28) / Math.max(0.5, totalSec));
   const pps = p.zoom ?? fit;
+  // Slider position on a log scale between fit-to-window and max zoom
+  const span = Math.max(1.0001, MAX_ZOOM / fit);
+  const zoomPos = clamp(Math.log(pps / fit) / Math.log(span), 0, 1);
   const X = (f: number) => (f / fps) * pps;
   const contentW = LAB + totalSec * pps + 28;
   const voiced = etl.scenes.some((s) => s.lines.some((l) => l.file));
@@ -192,7 +196,7 @@ export function Timeline(p: Props) {
     if (!d.moved) {
       p.onSelect(d.id);
       const f = p.player?.getCurrentFrame() ?? 0;
-      if (f < s.start || f >= s.start + s.dur) p.onSeek(s.start);
+      if (f < s.start + s.trans || f >= s.start + s.dur) p.onSeek(s.start + Math.min(s.trans, s.dur / 2));
       return;
     }
     const rest = etl.scenes.filter((x) => x.id !== d.id);
@@ -222,14 +226,27 @@ export function Timeline(p: Props) {
         {p.tools}
         <span className="grow" />
         <div className="zoom">
-          <button className="icon" title="缩小" onClick={() => p.setZoom(Math.max(2, pps / 1.5))}>
-            <Icon name="minus" />
+          <button className="icon sm" title="缩小" onClick={() => p.setZoom(Math.max(2, pps / 1.5))}>
+            <Icon name="minus" size={14} />
           </button>
-          <button className="icon" title="放大" onClick={() => p.setZoom(Math.min(MAX_ZOOM, pps * 1.5))}>
-            <Icon name="plus" />
+          <input
+            type="range"
+            min={0}
+            max={1000}
+            value={Math.round(zoomPos * 1000)}
+            aria-label="时间线缩放"
+            title="时间线缩放"
+            style={{ ['--b' as string]: `${zoomPos * 100}%` }}
+            onChange={(e) => {
+              const v = Number(e.target.value) / 1000;
+              p.setZoom(v <= 0 ? null : fit * Math.pow(span, v));
+            }}
+          />
+          <button className="icon sm" title="放大" onClick={() => p.setZoom(Math.min(MAX_ZOOM, pps * 1.5))}>
+            <Icon name="plus" size={14} />
           </button>
-          <button className="icon" title="整条放进视野" onClick={() => p.setZoom(null)} disabled={p.zoom === null}>
-            <Icon name="fit" />
+          <button className="icon sm" title="整条放进视野" onClick={() => p.setZoom(null)} disabled={p.zoom === null}>
+            <Icon name="fit" size={14} />
           </button>
         </div>
       </div>
@@ -256,19 +273,24 @@ export function Timeline(p: Props) {
               }
             }}
           >
-            <div className="lab">画面</div>
+            <div className="lab">
+              <Icon name="film" size={14} />
+              画面
+            </div>
             {etl.scenes.map((s) => {
               const dragging = moving?.id === s.id;
               const w = Math.max(4, X(s.dur));
               return (
                 <div
                   key={s.id}
-                  className={`clip${p.sel === s.id ? ' sel' : ''}${dragging ? ' dragging' : ''}`}
+                  className={`clip${p.sel === s.id ? ' sel' : ''}${dragging ? ' dragging' : ''}${p.missing.has(s.id) ? ' missing' : ''}`}
                   style={{ left: LAB + X(s.start), width: w, transform: dragging ? `translateX(${moving!.px}px)` : undefined }}
                   title={`${s.id}，${(s.dur / fps).toFixed(2)} 秒`}
                   onPointerDown={(ev) => onClipDown(ev, s)}
                 >
-                  {s.visual.kind === 'screen' || s.visual.kind === 'clip' ? (
+                  {p.missing.has(s.id) ? (
+                    <div className="strip gone">缺少 {p.missing.get(s.id)}</div>
+                  ) : s.visual.kind === 'screen' || s.visual.kind === 'clip' ? (
                     <Strip s={s} slug={p.slug} pps={pps} fps={fps} />
                   ) : s.visual.kind === 'image' ? (
                     <div className="strip" style={{ background: `url("/${p.slug}/${s.visual.src.split('/').map(encodeURIComponent).join('/')}") center / cover` }} />
@@ -289,7 +311,10 @@ export function Timeline(p: Props) {
             {moving ? <div className="drop" style={{ left: LAB + slotX(moving.slot, moving.id) }} /> : null}
           </div>
           <div className="row lane-t">
-            <div className="lab">文字</div>
+            <div className="lab">
+              <Icon name="text" size={14} />
+              字幕
+            </div>
             {etl.scenes.flatMap((s) =>
               s.lines.map((l) => (
                 <div
@@ -310,13 +335,16 @@ export function Timeline(p: Props) {
           </div>
           {voiced ? (
             <div className="row lane-a">
-              <div className="lab">旁白</div>
+              <div className="lab">
+                <Icon name="mic" size={14} />
+                旁白
+              </div>
               {etl.scenes.flatMap((s) =>
                 s.lines
                   .filter((l) => l.file)
                   .map((l) => (
                     <div key={`a${s.id}-${l.k}`} className="vo" style={{ left: LAB + X(s.start + l.start), width: Math.max(2, X(l.dur)) }}>
-                      <Wave path={`${p.slug}/${l.file}`} width={Math.max(2, X(l.dur))} height={24} color="#23845f" pps={pps} />
+                      <Wave path={`${p.slug}/${l.file}`} width={Math.max(2, X(l.dur))} height={24} color="#3fcf8e" pps={pps} />
                     </div>
                   )),
               )}
@@ -324,9 +352,12 @@ export function Timeline(p: Props) {
           ) : null}
           {etl.music ? (
             <div className="row lane-m">
-              <div className="lab">音乐</div>
+              <div className="lab">
+                <Icon name="music" size={14} />
+                音乐
+              </div>
               <div className="mus" style={{ left: LAB, width: X(etl.total) }}>
-                <Wave path={etl.music.src} width={X(etl.total)} height={22} color="#7a5cc0" offset={etl.music.offset} loop={etl.music.loop} pps={pps} />
+                <Wave path={etl.music.src} width={X(etl.total)} height={22} color="#a395ff" offset={etl.music.offset} loop={etl.music.loop} pps={pps} />
               </div>
             </div>
           ) : null}

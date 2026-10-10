@@ -1,4 +1,4 @@
-import { spawn, type ChildProcess } from 'node:child_process';
+import { execFile, spawn, type ChildProcess } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import Anthropic from '@anthropic-ai/sdk';
@@ -65,12 +65,113 @@ export function findClaude(): string | null {
   return null;
 }
 
+// Connection settings saved from the AI panel; the key never leaves this machine
+interface AiSettings {
+  pref?: 'auto' | 'claude-code' | 'anthropic';
+  apiKey?: string;
+}
+const SETTINGS = path.join(STATE, 'settings.json');
+const readSettings = (): Record<string, any> => {
+  try {
+    return JSON.parse(fs.readFileSync(SETTINGS, 'utf8'));
+  } catch {
+    return {};
+  }
+};
+export const readAi = (): AiSettings => readSettings().ai ?? {};
+export function writeAi(patch: { pref?: string; apiKey?: string | null }) {
+  const all = readSettings();
+  const ai: AiSettings = { ...(all.ai ?? {}) };
+  if (patch.pref !== undefined) ai.pref = ['claude-code', 'anthropic'].includes(patch.pref) ? (patch.pref as AiSettings['pref']) : 'auto';
+  if (patch.apiKey === null || patch.apiKey === '') delete ai.apiKey;
+  else if (typeof patch.apiKey === 'string') ai.apiKey = patch.apiKey.trim();
+  fs.mkdirSync(STATE, { recursive: true });
+  fs.writeFileSync(SETTINGS, JSON.stringify({ ...all, ai }, null, 2));
+  authCache = null;
+}
+const apiKey = () => process.env.ANTHROPIC_API_KEY || readAi().apiKey || '';
+const pref = () => readAi().pref ?? (process.env.EDITOR_AI === 'anthropic' ? 'anthropic' : 'auto');
+
+// `claude auth status` costs no tokens; cached so the panel can poll it
+let authCache: { t: number; v: { loggedIn: boolean; method?: string; plan?: string } | null } | null = null;
+function claudeAuth(bin: string): Promise<{ loggedIn: boolean; method?: string; plan?: string } | null> {
+  if (authCache && Date.now() - authCache.t < 60_000) return Promise.resolve(authCache.v);
+  return new Promise((resolve) => {
+    execFile(bin, ['auth', 'status', '--json'], { windowsHide: true, timeout: 15_000 }, (err, out) => {
+      let v: { loggedIn: boolean; method?: string; plan?: string } | null = null;
+      try {
+        const j = JSON.parse(out);
+        v = { loggedIn: !!j.loggedIn, method: j.authMethod, plan: j.subscriptionType };
+      } catch {
+        v = err ? null : { loggedIn: false };
+      }
+      authCache = { t: Date.now(), v };
+      resolve(v);
+    });
+  });
+}
+const claudeVersion = (bin: string) =>
+  new Promise<string | null>((resolve) => execFile(bin, ['--version'], { windowsHide: true, timeout: 10_000 }, (err, out) => resolve(err ? null : out.trim().split(/\s/)[0])));
+
 export function provider(): 'claude-code' | 'anthropic' | null {
-  const pref = process.env.EDITOR_AI;
-  if (pref === 'anthropic' && process.env.ANTHROPIC_API_KEY) return 'anthropic';
-  if (pref !== 'anthropic' && findClaude()) return 'claude-code';
-  if (process.env.ANTHROPIC_API_KEY) return 'anthropic';
+  const p = pref();
+  if (p === 'anthropic') return apiKey() ? 'anthropic' : null;
+  if (p === 'claude-code') return findClaude() ? 'claude-code' : null;
+  // Auto: the local login first, unless it is known to be logged out and a key exists
+  if (findClaude() && !(authCache?.v && !authCache.v.loggedIn && apiKey())) return 'claude-code';
+  if (apiKey()) return 'anthropic';
   return null;
+}
+
+const mask = (k: string) => (k.length > 14 ? `${k.slice(0, 10)}…${k.slice(-4)}` : '••••');
+
+export async function aiStatus() {
+  const bin = findClaude();
+  const [auth, version] = bin ? await Promise.all([claudeAuth(bin), claudeVersion(bin)]) : [null, null];
+  const key = apiKey();
+  return {
+    provider: provider(),
+    pref: pref(),
+    claude: bin ? { path: bin, version, loggedIn: auth?.loggedIn ?? null, method: auth?.method ?? null, plan: auth?.plan ?? null } : null,
+    key: key ? { source: process.env.ANTHROPIC_API_KEY ? 'env' : 'file', masked: mask(key) } : null,
+  };
+}
+
+// One tiny real request through whichever connection is active
+export async function aiTest(): Promise<{ ok: boolean; message: string; ms: number }> {
+  const t0 = Date.now();
+  const prov = provider();
+  const done = (ok: boolean, message: string) => ({ ok, message, ms: Date.now() - t0 });
+  if (!prov) return done(false, '还没有可用的连接：登录 Claude Code，或者填一个 API Key');
+  if (prov === 'anthropic') {
+    try {
+      const m = await new Anthropic({ apiKey: apiKey() }).models.retrieve('claude-opus-5-5');
+      return done(true, `API Key 可用，模型 ${m.display_name ?? m.id}`);
+    } catch (e) {
+      const st = (e as { status?: number }).status;
+      return done(false, st === 401 ? 'API Key 无效（401）' : st === 403 ? '这个 Key 没有权限（403）' : `连接失败：${(e as Error).message.slice(0, 160)}`);
+    }
+  }
+  return new Promise((resolve) => {
+    const child = spawn(findClaude()!, ['-p', '--output-format', 'json', '--model', 'haiku', '--max-turns', '1', '--setting-sources', 'project,local', '--strict-mcp-config'], { cwd: ROOT, windowsHide: true });
+    let out = '';
+    let err = '';
+    const timer = setTimeout(() => child.kill(), 60_000);
+    child.stdin!.end('Reply with the single word OK.');
+    child.stdout!.on('data', (d) => (out += d));
+    child.stderr!.on('data', (d) => (err += d));
+    child.on('close', () => {
+      clearTimeout(timer);
+      try {
+        const j = JSON.parse(out);
+        if (j.is_error) return resolve(done(false, String(j.result ?? 'Claude Code 返回错误').slice(0, 200)));
+        const model = Object.keys(j.modelUsage ?? {})[0];
+        resolve(done(true, `Claude Code 可用${model ? `，测试用 ${model}` : ''}`));
+      } catch {
+        resolve(done(false, (err || out || 'Claude Code 没有回应').trim().slice(-200)));
+      }
+    });
+  });
 }
 
 export function systemPrompt(slug: string): string {
@@ -127,7 +228,7 @@ class CanaryFilter {
   }
 }
 
-const shortCmd = (cmd: string, slug: string) => cmd.replace(`${CLI} ${slug} `, '').replace(`${CLI} `, '');
+const shortCmd = (cmd: string, slug: string) => cmd.replaceAll(`${CLI} ${slug} `, '').replaceAll(`${CLI} `, '');
 const textOf = (c: unknown): string => (typeof c === 'string' ? c : Array.isArray(c) ? c.map((x) => (typeof x === 'string' ? x : (x?.text ?? ''))).join('') : '');
 
 const running = new Map<string, { kill: () => void }>();
@@ -138,7 +239,7 @@ export function stop(slug: string) {
 
 export async function chat(slug: string, message: string, ctx: ChatContext, model: string | undefined, emit: (e: ChatEvent) => void): Promise<void> {
   const prov = provider();
-  if (!prov) return emit({ type: 'error', message: '没找到 AI：请安装并登录 Claude Code（claude 命令），或设置环境变量 ANTHROPIC_API_KEY。' });
+  if (!prov) return emit({ type: 'error', message: '还没连上 AI：点右上角的连接设置，登录 Claude Code 或填一个 API Key。' });
   if (running.has(slug)) return emit({ type: 'error', message: '上一条还在处理' });
   const saved = load(slug);
   saved.log.push({ role: 'user', text: message, t: new Date().toISOString() });
@@ -249,7 +350,7 @@ function viaClaudeCode(slug: string, prompt: string, model: string | undefined, 
 
 // Anthropic API with an API key: one tool that runs the editor CLI (no shell)
 async function viaApi(slug: string, prompt: string, saved: Saved, emit: (e: ChatEvent) => void, t0: number): Promise<void> {
-  const client = new Anthropic();
+  const client = new Anthropic({ apiKey: apiKey() });
   const controller = new AbortController();
   running.set(slug, { kill: () => controller.abort() });
   const tools: Anthropic.Beta.BetaTool[] = [

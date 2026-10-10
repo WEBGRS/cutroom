@@ -38,7 +38,7 @@ async function createWindow() {
     minWidth: 1100,
     minHeight: 680,
     title: 'Cutroom',
-    backgroundColor: '#e4e6ea',
+    backgroundColor: '#0c0d10',
     icon: path.join(__dirname, 'icon.png'),
     autoHideMenuBar: true,
     // Tests run the app without flashing a window on the desktop

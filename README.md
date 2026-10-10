@@ -5,7 +5,7 @@ A code-first video editor. Each video is a `storyboard.json` file: you edit it i
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![CI](https://github.com/WEBGRS/cutroom/actions/workflows/ci.yml/badge.svg)](https://github.com/WEBGRS/cutroom/actions/workflows/ci.yml)
 
-![Cutroom editor: preview, filmstrip timeline and effects panel](docs/screenshot.png)
+![Cutroom editor: media library, preview, filmstrip timeline and properties panel](docs/screenshot.png)
 
 ## Why
 
@@ -20,10 +20,11 @@ Most editors store a project as an opaque binary or database. Cutroom stores it 
 ## Features
 
 - **Timeline**: filmstrip thumbnails, waveforms, drag to reorder, drag edges to trim, split at the playhead, undo/redo, beat grid for music-cut versions.
-- **Two cuts from one storyboard**: a narrated cut and a beat-synced music cut, each in 16:9 and 9:16.
+- **Two cuts from one storyboard**: a narrated cut and a beat-synced music cut, each in 16:9 and 9:16. Switch between them under the preview (aspect ratio, language, URLs shown or hidden) and above the timeline (narrated or beat cut).
+- **Library panel**: media, cards, overlays, transitions (preview on hover), color looks (previewed on the selected scene) and music; one click applies to the selected scene.
 - **Effects**: 18 per-scene controls (color looks, brightness/contrast/saturation/hue, blur, vignette, film grain, light leak, letterbox, dim, Ken Burns, motion blur, fades), 10 transitions, 10 overlay types (lower third, highlight box, arrow, spotlight, privacy blur, cinematic title, …), caption styles and animations, a Screen Studio-style frame for recordings, frosted cards and a chapter bar.
 - **Screen recordings**: a deterministic browser recorder logs clicks and cursor moves; the editor adds smooth auto-zoom, a synthetic cursor and click ripples afterwards.
-- **AI chat**: uses your [Claude Code](https://docs.anthropic.com/en/docs/claude-code) login if it's installed, or an `ANTHROPIC_API_KEY`.
+- **AI chat**: uses your [Claude Code](https://docs.anthropic.com/en/docs/claude-code) login or an Anthropic API key. See [Connecting the AI](#connecting-the-ai).
 - **Export**: MP4, 2× resolution, GIF, ProRes, SRT subtitles and a chapter list.
 - **Desktop app**: the same editor in its own window (Electron).
 
@@ -46,6 +47,15 @@ npm run app
 ```
 
 The `showcase` project opens first. It uses every effect type, so it doubles as a reference.
+
+## Connecting the AI
+
+Open the **AI 助手** tab. The pill at its top shows the connection; click it to change it.
+
+- **Claude Code login** (uses your Claude subscription): install [Claude Code](https://docs.anthropic.com/en/docs/claude-code), run `claude` once in a terminal and sign in, then restart the editor.
+- **API key** (pay per use): create a key in the [Anthropic Console](https://console.anthropic.com) and paste it into the settings page, or set `ANTHROPIC_API_KEY` before starting the editor. A pasted key is stored only in `.editor/settings.json` on your machine (git-ignored) and is never sent back to the page in full.
+
+**Test connection** sends one short request through whichever option is active. In auto mode the editor prefers the Claude Code login and falls back to the key. Either way the assistant can only run the editor's own CLI on the open project.
 
 ## A storyboard
 
@@ -126,9 +136,10 @@ npm run typecheck
 npm run test:e2e     # drives the editor in headless Chrome against a throwaway copy of the showcase
 npm run test:oracle  # preview frames vs. Remotion's renderer (PSNR ≥ 50 dB; most frames identical)
 npm run test:app     # launches the desktop app hidden and checks it starts and cleans up
+npm run test:shots   # screenshots every panel, tab, menu, dialog and error state into .scratch/uishots
 ```
 
-The e2e, oracle and app tests need the editor running (`npm run editor`) and Chrome installed.
+The e2e, oracle, app and screenshot scripts need the editor running (`npm run editor`) and Chrome installed.
 
 ## Limitations
 

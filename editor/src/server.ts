@@ -4,7 +4,7 @@ import path from 'node:path';
 import { spawn, execFile, type ChildProcess } from 'node:child_process';
 import { Conflict, PUBLIC, ROOT, STATE, appendLog, boardFile, checkSlug, currentVersion, readDoc, readLog, slugs, snapshot, writeDoc, hash } from './store';
 import type { Doc } from './ops';
-import { chat, history, isRunning, provider, reset, stop } from './chat';
+import { aiStatus, aiTest, chat, history, isRunning, provider, reset, stop, writeAi } from './chat';
 import { boardTemplate } from './templates';
 
 const PORT = Number(process.env.PORT ?? 8814);
@@ -276,6 +276,9 @@ const server = http.createServer(async (req, res) => {
   const p = decodeURIComponent(url.pathname);
   const slug = url.searchParams.get('slug') ?? '';
   try {
+    // Writes only from the editor's own page: blocks other sites posting to localhost
+    const origin = req.headers.origin;
+    if (req.method !== 'GET' && p.startsWith('/api/') && origin && !/^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(origin)) return send(res, 403, { error: 'forbidden origin' });
     if (p === '/api/events') {
       res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store', Connection: 'keep-alive' });
       res.write(`data: ${JSON.stringify({ type: 'hello', job: jobView() })}\n\n`);
@@ -321,6 +324,13 @@ const server = http.createServer(async (req, res) => {
       const files = fs.existsSync(dir) ? fs.readdirSync(dir).filter((f) => f.endsWith('.mp3')) : [];
       return send(res, 200, files.map((f) => ({ src: `music/${f}`, beats: fs.existsSync(path.join(dir, f.replace(/\.mp3$/, '.beats.json'))) })));
     }
+    if (p === '/api/ai' && req.method === 'GET') return send(res, 200, await aiStatus());
+    if (p === '/api/ai' && req.method === 'POST') {
+      const b = await body(req);
+      writeAi({ pref: b.pref, apiKey: b.apiKey });
+      return send(res, 200, await aiStatus());
+    }
+    if (p === '/api/ai/test' && req.method === 'POST') return send(res, 200, await aiTest());
     if (p === '/api/chat' && req.method === 'GET') return send(res, 200, { provider: provider(), history: history(slug), running: isRunning(slug) });
     if (p === '/api/chat/reset' && req.method === 'POST') {
       reset((await body(req)).slug);

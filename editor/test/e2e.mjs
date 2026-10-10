@@ -98,12 +98,13 @@ const view = async (format, mode) => {
   await page.getByRole('button', { name: mode === 'beat' ? '卡点版' : '旁白版', exact: true }).click();
   await page.waitForTimeout(1500);
 };
+const tab = (name) => page.locator('.itabs button', { hasText: name }).click();
 const fc = (label) => page.locator('.fc', { has: page.locator('.fl', { hasText: new RegExp(`^${label}$`) }) });
 
 try {
   await page.goto(`${BASE}/?slug=${SLUG}&format=wide&mode=voice&lang=zh&variant=default`);
   await page.waitForSelector('.clip', { timeout: 15000 });
-  await page.getByRole('button', { name: '属性' }).click();
+  await page.getByRole('tab', { name: '属性' }).click();
   await page.waitForTimeout(800);
 
   await step('select scene', async () => {
@@ -113,6 +114,7 @@ try {
   });
 
   await step('edit narration text', async () => {
+    await tab('旁白');
     await page.locator('.insp .item textarea').first().fill('改过的旁白（测试）');
     await page.locator('.insp h2').click();
     await until('file updated', () => sceneOf(R.screen).lines[0].zh === '改过的旁白（测试）');
@@ -184,6 +186,7 @@ try {
     await view('wide', 'voice');
     await block(R.fx).click();
     const v0 = sceneOf(R.fx).fx?.vignette ?? 0;
+    await tab('特效');
     await fc('滤镜').locator('select').selectOption('cool');
     await until('look', () => sceneOf(R.fx).fx?.look === 'cool');
     const r = fc('暗角').locator('input[type=range]');
@@ -193,9 +196,11 @@ try {
   });
 
   await step('transition and overlay', async () => {
+    await tab('转场');
     await page.locator('.sec', { hasText: '进入这一段的方式' }).locator('select').first().selectOption('dip');
     await until('dip', () => sceneOf(R.fx).transition === 'dip');
     const n = sceneOf(R.fx).overlays?.length ?? 0;
+    await tab('叠加');
     await page.locator('select.add-sel').selectOption('box');
     await until('overlay', () => sceneOf(R.fx).overlays?.length === n + 1 && sceneOf(R.fx).overlays.at(-1).kind === 'box');
   });
@@ -218,6 +223,7 @@ try {
     await page.keyboard.press('Escape');
     await page.locator('.tl .ruler').click({ position: { x: 300, y: 10 } });
     await page.keyboard.press('Escape');
+    await tab('字幕');
     await fc('样式').locator('select').selectOption('outline');
     await until('captions', () => board().captions?.style === 'outline');
   });
@@ -236,7 +242,7 @@ try {
   });
 
   await step('chat tab', async () => {
-    await page.getByRole('button', { name: 'AI 助手' }).click();
+    await page.getByRole('tab', { name: 'AI 助手' }).click();
     await page.locator('.chat-head').waitFor();
     if (process.env.E2E_AI) {
       await page.locator('.chat-input textarea').fill(`把 ${R.chat} 这一段的滤镜改成黑白`);

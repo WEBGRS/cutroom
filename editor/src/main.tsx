@@ -10,8 +10,10 @@ import { cancelRender, getAssets, getBoard, getProjects, putBoard, reveal, start
 import { Timeline, type Edge } from './Timeline';
 import { Inspector } from './Inspector';
 import { ChatPanel } from './ChatPanel';
+import { Library, type LibTab } from './Library';
 import { ADDABLE, sceneTemplate } from './templates';
-import { Icon } from './icons';
+import { Icon, Logo } from './icons';
+import { OVERLAYS } from './catalog';
 import type { Fx } from '../../src/lib/types';
 
 const isImg = (a: string) => /\.(png|jpe?g|webp|gif)$/i.test(a);
@@ -101,15 +103,53 @@ function writeSettings(s: Settings) {
 
 const clamp = (x: number, a: number, b: number) => Math.min(b, Math.max(a, x));
 
-function Seg<T extends string>({ value, options, onChange }: { value: T; options: [T, string][]; onChange: (v: T) => void }) {
+function Seg<T extends string>({ value, options, onChange, className }: { value: T; options: [T, string, string?, string?, string?][]; onChange: (v: T) => void; className?: string }) {
   return (
-    <span className="seg">
-      {options.map(([v, label]) => (
-        <button key={v} className={v === value ? 'on' : undefined} onClick={() => onChange(v)}>
+    <span className={`seg${className ? ' ' + className : ''}`}>
+      {options.map(([v, label, icon, title, aria]) => (
+        <button key={v} className={v === value ? 'on' : undefined} onClick={() => onChange(v)} title={title} aria-label={aria} aria-pressed={v === value}>
+          {icon ? <Icon name={icon} size={14} /> : null}
           {label}
         </button>
       ))}
     </span>
+  );
+}
+
+const pref = {
+  get: (k: string, d: number) => {
+    try {
+      const v = Number(localStorage.getItem(k));
+      return v > 0 ? v : d;
+    } catch {
+      return d;
+    }
+  },
+  set: (k: string, v: number | string) => {
+    try {
+      localStorage.setItem(k, String(v));
+    } catch {
+      // Private mode
+    }
+  },
+};
+
+// Drag handle between panels; reports the pointer delta since the drag began
+function Splitter({ dir, onDrag, onEnd }: { dir: 'x' | 'y'; onDrag: (d: number) => void; onEnd: () => void }) {
+  const start = useRef<number | null>(null);
+  return (
+    <div
+      className={`split-${dir}`}
+      onPointerDown={(e) => {
+        (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+        start.current = dir === 'x' ? e.clientX : e.clientY;
+      }}
+      onPointerMove={(e) => start.current !== null && onDrag((dir === 'x' ? e.clientX : e.clientY) - start.current)}
+      onPointerUp={() => {
+        start.current = null;
+        onEnd();
+      }}
+    />
   );
 }
 
@@ -129,7 +169,7 @@ function TimeLabel({ player, total, fps }: { player: PlayerRef | null; total: nu
   return (
     <span className="time">
       <b>{fmtTime(f, fps)}</b>
-      <span>{fmtTime(total, fps)}</span>
+      <span>/ {fmtTime(total, fps)}</span>
     </span>
   );
 }
@@ -165,6 +205,7 @@ function App() {
   const [playing, setPlaying] = useState(false);
   const [zoom, setZoom] = useState<number | null>(null);
   const [assets, setAssets] = useState<string[]>([]);
+  const [assetsOf, setAssetsOf] = useState('');
   const [music, setMusic] = useState<{ src: string; beats: boolean }[]>([]);
   const [side, setSide] = useState<'props' | 'ai'>(() => {
     try {
@@ -174,6 +215,16 @@ function App() {
     }
   });
   const [fxClip, setFxClip] = useState<Fx | null>(null);
+  const [libTab, setLibTab] = useState<LibTab>(() => {
+    try {
+      return (localStorage.getItem('vs-lib') as LibTab) || 'media';
+    } catch {
+      return 'media';
+    }
+  });
+  const [size, setSize] = useState(() => ({ lib: pref.get('vs-w-lib', innerWidth < 1440 ? 244 : 288), side: pref.get('vs-w-side', innerWidth < 1440 ? 316 : 340), tl: pref.get('vs-h-tl', innerHeight < 860 ? 236 : 268) }));
+  const size0 = useRef(size);
+  const [phId, setPhId] = useState<string | null>(null);
   const [ask, setAsk] = useState<{ title: string; hint: string; ok: (v: string) => void } | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -231,7 +282,11 @@ function App() {
       })
       .catch((e) => alive && setErr((e as Error).message));
     getAssets(st.slug)
-      .then((a) => alive && setAssets(a))
+      .then((a) => {
+        if (!alive) return;
+        setAssets(a);
+        setAssetsOf(st.slug);
+      })
       .catch(() => undefined);
     return () => {
       alive = false;
@@ -289,6 +344,16 @@ function App() {
     }
   }, [ready, loaded, view, st.lang]);
   const caps: Caps = loaded?.props.captures ?? {};
+  // Scenes whose media file is not in the project folder
+  const missing = useMemo(() => {
+    const out = new Map<string, string>();
+    if (!doc || assetsOf !== st.slug) return out;
+    const have = new Set(assets);
+    for (const s of doc.board.scenes)
+      for (const v of [st.format === 'tall' ? (s.tall ?? s.visual) : s.visual])
+        if (v && (v.kind === 'screen' || v.kind === 'clip' || v.kind === 'image') && v.src && !v.src.startsWith('../') && !have.has(v.src)) out.set(s.id, v.src);
+    return out;
+  }, [doc, assets, assetsOf, st.slug, st.format]);
   const fps = loaded?.fps ?? 60;
 
   // ---- saving: ops queue up, each save carries the version it was based on ----
@@ -446,6 +511,21 @@ function App() {
       player.removeEventListener('ended', off);
     };
   }, [player]);
+  useEffect(() => {
+    if (!player || !etl) return;
+    const upd = (f: number) => {
+      const s = etl.scenes.find((x) => f >= x.start && f < x.start + x.dur);
+      setPhId(s?.id ?? null);
+    };
+    const h = (e: { detail: { frame: number } }) => upd(e.detail.frame);
+    player.addEventListener('frameupdate', h);
+    player.addEventListener('seeked', h);
+    upd(player.getCurrentFrame());
+    return () => {
+      player.removeEventListener('frameupdate', h);
+      player.removeEventListener('seeked', h);
+    };
+  }, [player, etl]);
   const seek = (f: number) => player?.seekTo(clamp(Math.round(f), 0, (loaded?.durationInFrames ?? 1) - 1));
 
   // ---- scene actions ----
@@ -671,7 +751,7 @@ function App() {
   const h = hist.current;
   // Preview box at the composition's exact aspect ratio
   const ar = loaded ? loaded.width / loaded.height : 16 / 9;
-  const fw = Math.max(0, Math.min(stage.w - 48, (stage.h - 40) * ar));
+  const fw = Math.max(0, Math.min(stage.w - 32, (stage.h - 24) * ar));
   const fh = fw / ar;
 
   // Electron has no window.prompt, so new projects use an in-app dialog
@@ -688,11 +768,64 @@ function App() {
       },
     });
   const ctxNow = () => ({ format: st.format, mode: st.mode, lang: st.lang, variant: st.variant, sel, t: (player?.getCurrentFrame() ?? 0) / fps });
-  const where = `${sel ? `选中 ${sel}` : '未选中段落'} · ${st.format === 'tall' ? '竖屏' : '横屏'}${st.mode === 'beat' ? '卡点版' : '旁白版'}`;
+  const versionText = `${st.format === 'tall' ? '竖屏 9:16' : '横屏 16:9'} · ${st.mode === 'beat' ? '卡点版' : '旁白版'} · ${st.lang === 'en' ? '英文字幕' : '中文字幕'}${st.variant === 'clean' ? ' · 无网址' : ''}`;
+  const where = `${sel ? `选中 ${sel}` : '未选中段落'} · ${versionText}`;
+
+  // Library actions land on the selected scene, else the one under the playhead
+  const targetId = sel ?? phId;
+  const target = doc?.board.scenes.find((s) => s.id === targetId) ?? null;
+  const preview = target ?? doc?.board.scenes.find((s) => ['screen', 'image', 'clip'].includes(s.visual.kind)) ?? null;
+  const needTarget = () => {
+    if (!target) flash('先在时间线上点选一段', 'error');
+    return target;
+  };
+  const libOverlay = (kind: string) => {
+    const t = needTarget();
+    const def = OVERLAYS.find((o) => o.kind === kind);
+    if (!t || !def) return;
+    const at = Math.max(0, Math.round(playheadIn(t.id) * 10) / 10);
+    commit((d) => setPath(d, t.id, `overlays.${t.overlays?.length ?? 0}`, { kind, at, dur: 1.6, ...def.init }));
+    select(t.id);
+    flash(`已在 ${t.id} 加上「${def.label}」`);
+  };
+  const libTransition = (v: string) => {
+    const t = needTarget();
+    if (!t) return;
+    commit((d) => setPath(d, t.id, st.mode === 'beat' ? 'beatTransition' : 'transition', v || undefined));
+  };
+  const libLook = (v: string) => {
+    const t = needTarget();
+    if (!t) return;
+    commit((d) => setPath(d, t.id, 'fx.look', v || undefined));
+  };
+  const libMusic = (src: string) =>
+    commit((d) => (st.mode === 'beat' ? setPath(d, null, 'beat', { ...(d.board.beat ?? {}), music: src }) : setPath(d, null, 'music', { ...(d.board.music ?? {}), src })));
+  const jump = (dir: -1 | 1) => {
+    if (!etl || !player) return;
+    const f = player.getCurrentFrame();
+    const starts = etl.scenes.map((s) => Math.max(0, s.start));
+    const to = dir < 0 ? [...starts].reverse().find((x) => x < f - 2) : starts.find((x) => x > f + 1);
+    seek(to ?? (dir < 0 ? 0 : (loaded?.durationInFrames ?? 1) - 1));
+  };
+  const resize = (k: 'lib' | 'side' | 'tl', d: number) => {
+    const lim = { lib: [200, 460], side: [280, 560], tl: [200, 520] }[k];
+    setSize((s) => ({ ...s, [k]: clamp(size0.current[k] + d, lim[0], lim[1]) }));
+  };
+  const resized = () => {
+    size0.current = size;
+    pref.set('vs-w-lib', size.lib);
+    pref.set('vs-w-side', size.side);
+    pref.set('vs-h-tl', size.tl);
+  };
+  const setSideTab = (k: 'props' | 'ai') => {
+    setSide(k);
+    pref.set('vs-side', k);
+  };
 
   return (
     <div
-      className={`app${dragOver ? ' drop' : ''}`}
+      className={`app${dragOver ? ' filedrop' : ''}`}
+      style={{ ['--lib-w' as string]: `${size.lib}px`, ['--side-w' as string]: `${size.side}px`, ['--tl-h' as string]: `${size.tl}px` }}
       onDragOver={(e) => {
         if (![...e.dataTransfer.types].includes('Files')) return;
         e.preventDefault();
@@ -719,63 +852,67 @@ function App() {
           e.target.value = '';
         }}
       />
-      <div className="top">
-        <select className="proj" value={st.slug} onChange={(e) => (e.target.value === '__new' ? newProject() : update({ slug: e.target.value }))} title="项目">
-          {(projects.includes(st.slug) ? projects : [st.slug, ...projects]).map((p) => (
-            <option key={p}>{p}</option>
-          ))}
-          <option value="__new">+ 新建项目…</option>
-        </select>
-        <div className="versions">
-          <Seg value={st.format} options={[['wide', '横屏'], ['tall', '竖屏']]} onChange={(v) => update({ format: v })} />
-          <Seg value={st.mode} options={[['voice', '旁白版'], ['beat', '卡点版']]} onChange={(v) => update({ mode: v })} />
-          <Seg value={st.lang} options={[['zh', '中文'], ['en', 'English']]} onChange={(v) => update({ lang: v })} />
-          <Seg value={st.variant} options={[['default', '带网址'], ['clean', '无网址']]} onChange={(v) => update({ variant: v })} />
-        </div>
-        <span className="grow" />
-        <div className="hist">
-          <button className="icon" onClick={undo} disabled={!h.past.length} title={h.past.length ? `撤销：${h.past[h.past.length - 1].desc}` : '撤销'}>
-            <Icon name="undo" />
-          </button>
-          <button className="icon" onClick={redo} disabled={!h.future.length} title={h.future.length ? `重做：${h.future[h.future.length - 1].desc}` : '重做'}>
-            <Icon name="redo" />
-          </button>
-        </div>
-        <span className={`save ${saveState}`}>
+      <header className="top">
+        <span className="brand">
+          <Logo size={20} />
+          Cutroom
+        </span>
+        <span className="top-sep" />
+        <label className="proj" title="切换项目">
+          <Icon name="folder" size={14} />
+          <span>{st.slug}</span>
+          <select value={st.slug} onChange={(e) => (e.target.value === '__new' ? newProject() : update({ slug: e.target.value }))}>
+            {(projects.includes(st.slug) ? projects : [st.slug, ...projects]).map((p) => (
+              <option key={p}>{p}</option>
+            ))}
+            <option value="__new">+ 新建项目…</option>
+          </select>
+          <Icon name="chev" size={12} />
+        </label>
+        <span className={`save ${saveState}`} title={saveState === 'saved' ? '所有改动已写入 storyboard.json' : undefined}>
           <i />
           {saveState === 'saving' ? '保存中' : saveState === 'error' ? '保存失败' : '已保存'}
         </span>
+        <span className="grow" />
         {job?.state === 'running' ? (
           <span className="job">
             {job.phase} {pct}%
             <span className="bar">
               <i style={{ width: `${pct}%` }} />
             </span>
-            <button className="icon" onClick={() => cancelRender()} title="取消导出">
-              <Icon name="close" />
+            <button className="icon sm" onClick={() => cancelRender()} title="取消导出">
+              <Icon name="close" size={14} />
             </button>
           </span>
         ) : job?.state === 'done' ? (
           <span className="job">
+            <Icon name="check" size={14} />
             {job.out.replace(/^.*[\\/]/, '')}
             <button className="ghost" onClick={() => reveal(job.out)}>
-              <Icon name="folder" />
+              <Icon name="folder" size={14} />
               打开位置
             </button>
           </span>
         ) : job?.state === 'error' ? (
           <span className="job">
-            <button className="ghost danger" onClick={() => flash(job.tail.slice(-6).join('\n'), 'error')}>导出失败，看原因</button>
+            <button className="ghost danger" onClick={() => flash(job.tail.slice(-6).join('\n'), 'error')}>
+              <Icon name="warn" size={14} />
+              导出失败，看原因
+            </button>
           </span>
         ) : null}
         <div className="split-btn">
-          <button className="primary" onClick={() => doRender()} disabled={job?.state === 'running' || !ready}>
+          <button className="primary" onClick={() => doRender()} disabled={job?.state === 'running' || !ready} title={`导出 ${versionText}`}>
             <Icon name="export" />
-            导出视频
+            导出
           </button>
-          <Menu label="" icon="down" className="primary more" disabled={!ready}>
+          <Menu label="" icon="chev" className="primary more" disabled={!ready}>
             {(close) => (
               <>
+                <div className="menu-h">当前版本：{versionText}</div>
+                <button disabled={job?.state === 'running'} onClick={() => (close(), doRender())}>
+                  MP4 视频
+                </button>
                 <button disabled={job?.state === 'running'} onClick={() => (close(), doRender({ scale: '2' }))}>
                   2 倍分辨率（B站 4K）
                 </button>
@@ -792,60 +929,123 @@ function App() {
             )}
           </Menu>
         </div>
-      </div>
+      </header>
 
-      <div className="mid">
-        <div className="stage" ref={stageRef}>
-          {err ? <div className="banner">{err}</div> : null}
-          {ready ? (
-            <div className="frame" style={{ width: fw, height: fh }}>
-              <div className="iso">
-              <Player
-                ref={setPlayer}
-                component={Main}
-                inputProps={loaded!.props}
-                durationInFrames={loaded!.durationInFrames}
-                compositionWidth={loaded!.width}
-                compositionHeight={loaded!.height}
-                fps={loaded!.fps}
-                style={{ width: '100%', height: '100%' }}
-                controls={false}
-                clickToPlay={false}
-                doubleClickToFullscreen={false}
-                spaceKeyToPlayOrPause={false}
-                numberOfSharedAudioTags={16}
-                errorFallback={({ error }) => <div style={{ padding: 20, color: '#b42318', background: '#fff' }}>{error.message}</div>}
-                acknowledgeRemotionLicense
-              />
+      <div className="work">
+        {doc ? (
+          <Library
+            tab={libTab}
+            setTab={(t) => {
+              setLibTab(t);
+              pref.set('vs-lib', t);
+            }}
+            slug={st.slug}
+            assets={assets}
+            music={music}
+            theme={doc.board.theme}
+            mode={st.mode}
+            target={target}
+            preview={preview}
+            musicSrc={st.mode === 'beat' ? doc.board.beat?.music : doc.board.music?.src}
+            onAdd={addKind}
+            onImport={() => {
+              pendingAdd.current = null;
+              fileInput.current?.click();
+            }}
+            onOverlay={libOverlay}
+            onTransition={libTransition}
+            onLook={libLook}
+            onMusic={libMusic}
+          />
+        ) : (
+          <aside className="lib panel" />
+        )}
+        <Splitter dir="x" onDrag={(d) => resize('lib', d)} onEnd={resized} />
+        <section className="viewer panel">
+          <div className="stage" ref={stageRef}>
+            {err || missing.size ? (
+              <div className="banner">
+                <Icon name="warn" size={14} />
+                <span>
+                  {err ||
+                    `缺少素材：${[...missing].map(([id, src]) => `${id} 用的 ${src}`).join('；')}。把文件放回 public/${st.slug}/，或者在右边换一个。`}
+                </span>
               </div>
-            </div>
-          ) : (
-            <div className="empty">载入中…</div>
-          )}
-        </div>
-        <div className="side">
-          <div className="tabs">
-            {(
-              [
-                ['props', '属性'],
-                ['ai', 'AI 助手'],
-              ] as const
-            ).map(([k, l]) => (
-              <button
-                key={k}
-                className={side === k ? 'on' : undefined}
-                onClick={() => {
-                  setSide(k);
-                  try {
-                    localStorage.setItem('vs-side', k);
-                  } catch {
-                    // Private mode
-                  }
-                }}
-              >
-                {l}
+            ) : null}
+            {ready ? (
+              <div className="frame" style={{ width: fw, height: fh }}>
+                <div className="iso">
+                  <Player
+                    ref={setPlayer}
+                    component={Main}
+                    inputProps={loaded!.props}
+                    durationInFrames={loaded!.durationInFrames}
+                    compositionWidth={loaded!.width}
+                    compositionHeight={loaded!.height}
+                    fps={loaded!.fps}
+                    style={{ width: '100%', height: '100%' }}
+                    controls={false}
+                    clickToPlay={false}
+                    doubleClickToFullscreen={false}
+                    spaceKeyToPlayOrPause={false}
+                    numberOfSharedAudioTags={16}
+                    errorFallback={({ error }) => <div style={{ padding: 20, color: '#ffb4ab', background: '#1a1012', font: '14px sans-serif' }}>{error.message}</div>}
+                    acknowledgeRemotionLicense
+                  />
+                </div>
+              </div>
+            ) : !err ? (
+              <div className="empty">
+                <span className="spin" />
+                载入中
+              </div>
+            ) : null}
+          </div>
+          <div className="transport">
+            <div className="tp-l">{etl ? <TimeLabel player={player} total={etl.total} fps={etl.fps} /> : null}</div>
+            <div className="tp-c">
+              <button className="icon" onClick={() => jump(-1)} title="上一段开头 (Home 到片头)" disabled={!etl}>
+                <Icon name="prev" />
               </button>
-            ))}
+              <button className="play" onClick={() => player?.toggle()} title={playing ? '暂停 (空格)' : '播放 (空格)'} disabled={!ready}>
+                <Icon name={playing ? 'pause' : 'play'} size={18} />
+              </button>
+              <button className="icon" onClick={() => jump(1)} title="下一段开头" disabled={!etl}>
+                <Icon name="next" />
+              </button>
+            </div>
+            <div className="tp-r">
+              <select className="vsel" value={st.lang} title="视频语言：字幕和旁白一起切换" aria-label="视频语言" onChange={(e) => update({ lang: e.target.value as Settings['lang'] })}>
+                <option value="zh">中文版</option>
+                <option value="en">英文版</option>
+              </select>
+              <select className="vsel" value={st.variant} title="小红书不允许画面里出现网址：选「隐藏网址」后预览和导出都去掉网址" aria-label="网址" onChange={(e) => update({ variant: e.target.value as Settings['variant'] })}>
+                <option value="default">显示网址</option>
+                <option value="clean">隐藏网址（小红书）</option>
+              </select>
+              <Seg
+                className="ratio"
+                value={st.format}
+                options={[
+                  ['wide', '16:9', 'wide', '横屏：B站、YouTube', '横屏'],
+                  ['tall', '9:16', 'tall', '竖屏：抖音、小红书', '竖屏'],
+                ]}
+                onChange={(v) => update({ format: v })}
+              />
+            </div>
+          </div>
+        </section>
+        <Splitter dir="x" onDrag={(d) => resize('side', -d)} onEnd={resized} />
+        <aside className="side panel">
+          <div className="ptabs" role="tablist">
+            <button role="tab" aria-selected={side === 'props'} className={side === 'props' ? 'on' : undefined} onClick={() => setSideTab('props')}>
+              <Icon name="layers" size={14} />
+              属性
+            </button>
+            <button role="tab" aria-selected={side === 'ai'} className={side === 'ai' ? 'on' : undefined} onClick={() => setSideTab('ai')}>
+              <Icon name="sparkle" size={14} />
+              AI 助手
+            </button>
           </div>
           {side === 'ai' ? (
             <ChatPanel slug={st.slug} context={ctxNow} where={where} />
@@ -874,9 +1074,15 @@ function App() {
           ) : (
             <div className="insp" />
           )}
-        </div>
+        </aside>
       </div>
-      {dragOver ? <div className="drop-hint">松开鼠标导入素材：图片、视频变成新段落，音频设为配乐</div> : null}
+      <Splitter dir="y" onDrag={(d) => resize('tl', -d)} onEnd={resized} />
+      {dragOver ? (
+        <div className="drop-hint">
+          <Icon name="import" size={22} />
+          松开导入：图片、视频变成新段落，音频设为配乐
+        </div>
+      ) : null}
 
       {etl ? (
         <Timeline
@@ -892,22 +1098,45 @@ function App() {
           onMove={onMove}
           canTrim={canTrim}
           onTrim={onTrim}
+          missing={missing}
           tools={
             <>
-              <button className="play" onClick={() => player?.toggle()} title={playing ? '暂停' : '播放'}>
-                <Icon name={playing ? 'pause' : 'play'} size={18} />
+              <Seg
+                className="seq"
+                value={st.mode}
+                options={[
+                  ['voice', '旁白版', 'mic', '按配音节奏剪，有旁白和字幕：B站、YouTube'],
+                  ['beat', '卡点版', 'beat', '没有旁白，按音乐节拍切：抖音、小红书'],
+                ]}
+                onChange={(v) => update({ mode: v })}
+              />
+              <span className="sep" />
+              <button className="icon" onClick={undo} disabled={!h.past.length} title={h.past.length ? `撤销：${h.past[h.past.length - 1].desc} (Ctrl+Z)` : '撤销 (Ctrl+Z)'}>
+                <Icon name="undo" />
               </button>
-              <TimeLabel player={player} total={etl.total} fps={etl.fps} />
+              <button className="icon" onClick={redo} disabled={!h.future.length} title={h.future.length ? `重做：${h.future[h.future.length - 1].desc} (Ctrl+Y)` : '重做 (Ctrl+Y)'}>
+                <Icon name="redo" />
+              </button>
+              <span className="sep" />
+              <button className="icon" onClick={doSplit} title="在播放头处拆分 (Ctrl+B)">
+                <Icon name="split" />
+              </button>
+              <button className="icon" onClick={doDup} disabled={!sel} title="复制选中段落 (Ctrl+D)">
+                <Icon name="copy" />
+              </button>
+              <button className="icon danger" onClick={doDel} disabled={!sel} title="删除选中段落 (Delete)">
+                <Icon name="trash" />
+              </button>
               <span className="sep" />
               <Menu label="添加" icon="plus">
                 {(close) => (
                   <>
+                    <div className="menu-h">卡片</div>
                     {ADDABLE.filter(([, , src]) => !src).map(([k, l]) => (
                       <button key={k} onClick={() => (close(), addKind(k))}>
                         {l}
                       </button>
                     ))}
-                    <div className="menu-sep" />
                     {(
                       [
                         ['image', '图片', isImg],
@@ -918,6 +1147,7 @@ function App() {
                       const list = assets.filter(ok);
                       return list.length ? (
                         <div key={k} className="menu-group">
+                          <div className="menu-sep" />
                           <div className="menu-h">{l}</div>
                           {list.slice(0, 12).map((a) => (
                             <button key={a} onClick={() => (close(), addKind(k, a))} title={a}>
@@ -940,20 +1170,8 @@ function App() {
                   </>
                 )}
               </Menu>
-              <button className="tool" onClick={doSplit} title="在播放头处拆分 (Ctrl+B)">
-                <Icon name="split" />
-                拆分
-              </button>
-              <button className="tool" onClick={doDup} disabled={!sel}>
-                <Icon name="copy" />
-                复制
-              </button>
-              <button className="tool danger" onClick={doDel} disabled={!sel}>
-                <Icon name="trash" />
-                删除
-              </button>
               {etl.hidden.length ? (
-                <span className="hint">
+                <span className="hint" title="这些段落没进当前版本（只在另一种画幅里，或不在卡点版里）">
                   这一版没用到
                   {etl.hidden.map((x) => (
                     <button key={x.id} className="chip-btn" onClick={() => select(x.id)} title={x.why}>
@@ -966,10 +1184,10 @@ function App() {
           }
         />
       ) : (
-        <div className="tl" />
+        <div className="tl panel" />
       )}
 
-      {toast ? <div className={`toast${toast.kind === 'error' ? ' error' : ''}`} style={{ whiteSpace: 'pre-wrap' }}>{toast.text}</div> : null}
+      {toast ? <div className={`toast${toast.kind === 'error' ? ' error' : ''}`}>{toast.text}</div> : null}
       {ask ? <AskDialog {...ask} close={() => setAsk(null)} /> : null}
     </div>
   );
