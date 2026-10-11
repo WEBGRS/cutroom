@@ -8,10 +8,17 @@ import { PUBLIC, ROOT } from './store';
 // ffmpeg from Remotion's compositor package when present, so no system install is needed
 export function ffmpegBin(): string {
   const exe = process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg';
-  const dir = ['compositor-win32-x64-msvc', 'compositor-darwin-arm64', 'compositor-darwin-x64', 'compositor-linux-x64-gnu', 'compositor-linux-arm64-gnu']
-    .map((n) => path.join(ROOT, 'node_modules', '@remotion', n))
-    .find((d) => fs.existsSync(path.join(d, exe)));
-  return dir ? path.join(dir, exe) : 'ffmpeg';
+  for (const n of ['compositor-win32-x64-msvc', 'compositor-darwin-arm64', 'compositor-darwin-x64', 'compositor-linux-x64-gnu', 'compositor-linux-arm64-gnu']) {
+    // Package resolution walks up from this file, so tests bundled deeper in editor/dist find it too
+    let dir = path.join(ROOT, 'node_modules', '@remotion', n);
+    try {
+      dir = path.dirname(require.resolve(`@remotion/${n}/package.json`));
+    } catch {
+      // Not installed for this platform
+    }
+    if (fs.existsSync(path.join(dir, exe))) return path.join(dir, exe);
+  }
+  return 'ffmpeg';
 }
 
 // Installed Chrome, else Edge (always present on Windows), else Chromium on PATH
