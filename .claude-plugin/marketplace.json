@@ -1,0 +1,15 @@
+{
+  "name": "cutroom",
+  "description": "The Cutroom plugin: demo videos of the software you build, from your coding agent.",
+  "owner": {
+    "name": "WEBGRS",
+    "url": "https://github.com/WEBGRS"
+  },
+  "plugins": [
+    {
+      "name": "cutroom",
+      "source": "./",
+      "description": "Demo videos of the software you build: record the app, cut it with captions and voice-over, re-record after UI changes, export MP4."
+    }
+  ]
+}

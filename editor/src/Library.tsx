@@ -11,6 +11,7 @@ import { SOUNDS, SOUND_CATS, soundSrc } from '../../src/fx/sounds';
 import { SOUND_MIME } from './Timeline';
 import { usePrefs } from './prefs';
 import { VoicePanel } from './VoicePanel';
+import { HtmlThumb, isHtml, pageName } from './HtmlParts';
 
 export type LibTab = 'media' | 'cards' | 'text' | 'overlay' | 'trans' | 'fx' | 'bg' | 'voice' | 'sfx' | 'audio';
 
@@ -371,6 +372,7 @@ export function Library(p: Props & { tab: LibTab; setTab: (t: LibTab) => void })
   const caps = assets.filter((a) => a.startsWith('cap/') && isVid(a));
   const vids = assets.filter((a) => isVid(a) && !a.startsWith('cap/'));
   const imgs = assets.filter(isImg);
+  const pages = assets.filter(isHtml);
   const auds = assets.filter(isAud);
   const curTrans = p.mode === 'beat' ? (target?.beatTransition ?? '') : target?.transition === 'fade' ? '' : (target?.transition ?? '');
   const curLook = target?.fx?.look ?? '';
@@ -380,8 +382,8 @@ export function Library(p: Props & { tab: LibTab; setTab: (t: LibTab) => void })
     list.length ? (
       <Section key={kind} title={title} count={list.length}>
         {list.map((a) => (
-          <Tile key={a} label={base(a)} pick={`effect|media:${a}|${base(a)}`} onClick={() => p.onAdd(kind, a)} title={tr(`Add to the timeline: ${a}`, `添加到时间线：${a}`)}>
-            <Thumb slug={slug} src={a} />
+          <Tile key={a} label={kind === 'html' ? pageName(a) : base(a)} pick={`effect|media:${a}|${base(a)}`} onClick={() => p.onAdd(kind, a)} title={tr(`Add to the timeline: ${a}`, `添加到时间线：${a}`)}>
+            {kind === 'html' ? <HtmlThumb slug={slug} src={a} h={TH} /> : <Thumb slug={slug} src={a} />}
           </Tile>
         ))}
       </Section>
@@ -399,11 +401,12 @@ export function Library(p: Props & { tab: LibTab; setTab: (t: LibTab) => void })
             </button>
             <RecordWeb slug={slug} />
           </div>
-          {caps.length + vids.length + imgs.length ? (
+          {caps.length + vids.length + imgs.length + pages.length ? (
             <>
               {media(tr('Screen recordings', '录屏'), caps, 'screen')}
               {media(tr('Videos', '视频'), vids, 'clip')}
               {media(tr('Images', '图片'), imgs, 'image')}
+              {media(tr('HTML pages', 'HTML 页面'), pages, 'html')}
             </>
           ) : (
             <button className="lib-empty" onClick={p.onImport}>

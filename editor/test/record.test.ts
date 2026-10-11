@@ -33,3 +33,28 @@ test('records a local page with clicks, typing and marks', { skip: !R.findBrowse
   assert.ok(meta.events.filter((e: { type: string }) => e.type === 'key').length >= 3, 'typing logged');
   assert.ok(r.duration > 1 && r.duration < 10, `duration ${r.duration}`);
 });
+
+test('a recording keeps its steps, and rerecord makes it again after the page changes', { skip: !R.findBrowser() && 'no Chrome or Edge', timeout: 180_000 }, async () => {
+  const site = path.join(DATA, 'site2.html');
+  fs.writeFileSync(site, '<!doctype html><body style="font:20px sans-serif"><button id="go">Old label</button></body>');
+  const steps = [{ mark: 'open' }, { click: '#go' }, { mark: 'clicked' }, { wait: 300 }];
+  await R.recordPage({ slug: 'demo', name: 'again', url: pathToFileURL(site).href, steps, size: { width: 640, height: 360 } });
+  const recipe = JSON.parse(fs.readFileSync(path.join(DATA, 'demo', 'cap', 'again.recipe.json'), 'utf8'));
+  assert.deepEqual(recipe.steps, steps);
+  assert.deepEqual(R.readRecipes('demo').map((x) => x.name).sort(), ['again', 'unit-test']);
+  // The site changes; the same steps record it again with the same marks
+  fs.writeFileSync(site, '<!doctype html><body style="font:20px sans-serif;background:#eef"><button id="go">New label</button></body>');
+  const old = fs.statSync(path.join(DATA, 'demo', 'cap', 'again.mp4')).mtimeMs;
+  const r = await R.rerecord('demo', 'again', () => undefined);
+  assert.deepEqual(r.marks.map((m) => m.name), ['open', 'clicked']);
+  assert.deepEqual(r.lost, []);
+  assert.ok(fs.statSync(path.join(DATA, 'demo', 'cap', 'again.mp4')).mtimeMs > old);
+  // Steps that no longer work leave the old footage in place
+  fs.writeFileSync(site, '<!doctype html><body>no button now</body>');
+  const before = fs.readFileSync(path.join(DATA, 'demo', 'cap', 'again.mp4'));
+  const recipeFile = path.join(DATA, 'demo', 'cap', 'again.recipe.json');
+  fs.writeFileSync(recipeFile, JSON.stringify({ ...recipe, steps: [{ click: '#go' }] }));
+  await assert.rejects(() => R.rerecord('demo', 'again', () => undefined), /nothing matches #go/);
+  assert.ok(fs.readFileSync(path.join(DATA, 'demo', 'cap', 'again.mp4')).equals(before), 'old footage restored');
+  await assert.rejects(() => R.rerecord('demo', 'nope', () => undefined), /has no recipe/);
+});

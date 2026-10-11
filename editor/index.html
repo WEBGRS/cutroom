@@ -168,6 +168,10 @@ p.hint { margin: 8px 0 0; }
 .lt-poster, .lt-video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 .lt-img.pending { background: linear-gradient(90deg, #15161a, #1c1e23, #15161a); }
 .lt-sprite { height: 72px; background-repeat: no-repeat; }
+.lt-html { position: relative; overflow: hidden; margin: 0 auto; pointer-events: none; }
+.lt-html iframe { position: absolute; left: 0; top: 0; border: 0; transform-origin: 0 0; color-scheme: normal; }
+.html-meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 10px 0 6px; font-size: 11.5px; color: var(--ink2); }
+.html-reset { height: 22px; padding: 0 7px; margin-left: 6px; flex: none; }
 .lt-dur { position: absolute; left: 5px; bottom: 5px; padding: 0 5px; border-radius: 3px; background: rgba(0, 0, 0, .66); color: #fff; font-size: 10.5px; line-height: 16px; font-variant-numeric: tabular-nums; }
 .lt-look { position: absolute; inset: 0; display: grid; place-items: center; background: #0b0c0f; }
 .lt-card { position: absolute; inset: 0; display: flex; padding: 9px 10px; font-family: var(--content); }

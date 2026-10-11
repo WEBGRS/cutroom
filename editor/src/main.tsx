@@ -18,6 +18,7 @@ import { LANG, nm, tr } from './i18n';
 import { textSample } from '../../src/fx/demo';
 import { resolvePick, type AiRef } from './pick';
 import { soundDef } from '../../src/fx/sounds';
+import { fetchHtml, isHtml } from './HtmlParts';
 import { SettingsPage, type SettingsTab } from './SettingsPage';
 import { getPrefs, setPrefs, usePrefs } from './prefs';
 import type { Fx } from '../../src/lib/types';
@@ -352,7 +353,7 @@ function App() {
   useEffect(() => {
     if (!doc) return;
     let alive = true;
-    const props: Props = { slug: st.slug, format: st.format, mode: st.mode, lang: st.lang, variant: st.variant };
+    const props: Props = { slug: st.slug, format: st.format, mode: st.mode, lang: st.lang, variant: st.variant, rev: assetTick || undefined };
     loadProps(props, getJson, getDims, doc.board)
       .then((l) => {
         if (!alive) return;
@@ -385,7 +386,7 @@ function App() {
     const have = new Set(assets);
     for (const s of doc.board.scenes)
       for (const v of [st.format === 'tall' ? (s.tall ?? s.visual) : s.visual])
-        if (v && (v.kind === 'screen' || v.kind === 'clip' || v.kind === 'image') && v.src && !v.src.startsWith('../') && !have.has(v.src)) out.set(s.id, v.src);
+        if (v && (v.kind === 'screen' || v.kind === 'clip' || v.kind === 'image' || v.kind === 'html') && v.src && !v.src.startsWith('../') && !have.has(v.src)) out.set(s.id, v.src);
     return out;
   }, [doc, assets, assetsOf, st.slug, st.format]);
   const fps = loaded?.fps ?? 60;
@@ -689,7 +690,7 @@ function App() {
     return e && etl ? Math.max(0, Math.min(e.dur, f - e.start) / etl.fps) : 0;
   };
 
-  const addKind = (kind: string, src?: string) => {
+  const addKind = async (kind: string, src?: string) => {
     if (!docRef.current) return;
     const after = sel ?? sceneAtPlayhead()?.id ?? null;
     const id = uniqueId(docRef.current.board, `${kind}-1`);
@@ -706,6 +707,11 @@ function App() {
       }
     }
     if (sc.transition !== undefined) sc.transition = pf.newTransition || 'fade';
+    // An HTML scene lasts as long as its page says
+    if (kind === 'html' && src) {
+      const d = await fetchHtml(S.current.slug, src).catch(() => null);
+      if (d?.meta.dur) sc.minSec = Math.round(d.meta.dur * 100) / 100;
+    }
     commit((d) => addScene(d, sc, after));
     setSel(id);
   };
@@ -722,6 +728,7 @@ function App() {
         const want = pendingAdd.current;
         if (want === 'image' || (!want && isImg(j.path))) addKind('image', j.path);
         else if (want === 'clip' || (!want && isVid(j.path))) addKind('clip', j.path);
+        else if (isHtml(j.path)) addKind('html', j.path);
         else if (isAud(j.path)) commit((d) => setPath(d, null, 'music', { ...(d.board.music ?? {}), src: `${S.current.slug}/${j.path}` }));
       } catch (err) {
         flash(`${file.name}: ${(err as Error).message}`, 'error');
@@ -1054,7 +1061,7 @@ function App() {
         type="file"
         multiple
         hidden
-        accept="image/*,video/*,audio/*"
+        accept="image/*,video/*,audio/*,.html,.htm"
         onChange={(e) => {
           if (e.target.files?.length) upload([...e.target.files]);
           e.target.value = '';
@@ -1388,6 +1395,7 @@ function App() {
                         ['image', tr('Images', '图片'), isImg],
                         ['clip', tr('Videos', '视频'), (a: string) => isVid(a) && !a.startsWith('cap/')],
                         ['screen', tr('Recordings', '录屏'), (a: string) => a.startsWith('cap/') && isVid(a)],
+                        ['html', tr('HTML pages', 'HTML 页面'), isHtml],
                       ] as [string, string, (a: string) => boolean][]
                     ).map(([k, l, ok]) => {
                       const list = assets.filter(ok);

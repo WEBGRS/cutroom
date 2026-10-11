@@ -1,6 +1,6 @@
 # Cutroom
 
-A video editor where you and an AI assistant edit the same cut. Each video is one `storyboard.json` file: you work on it in a timeline, the assistant changes it from a chat panel, and [Remotion](https://www.remotion.dev) renders it. It can also record websites and voice the narration. Made for product demos, screen recordings and short promos.
+A video editor for demos of the software you build. Record your app, cut it with an AI that edits the same project you do, and when the UI changes, record it again: captions and cuts are tied to moments in the recording, so the edit carries over to the new footage. Exports MP4 in 16:9 and 9:16, with voice-over, captions and a beat-synced music cut.
 
 [![Download for Windows](https://img.shields.io/github/v/release/WEBGRS/cutroom?label=download&color=3b6ef5)](https://github.com/WEBGRS/cutroom/releases/latest)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
@@ -8,19 +8,52 @@ A video editor where you and an AI assistant edit the same cut. Each video is on
 
 ![Cutroom editor: transition library, preview, effect settings, and a timeline with overlay, effect, camera, video, caption, voice and sound lanes](docs/screenshot.png)
 
-## Why
+## What it does
 
-Most editors store a project as an opaque binary or database. Cutroom stores it as a small JSON document, which means:
+- **Records your app and remembers how.** The recorder drives a browser through your clicks and typing, logs every cursor move, and drops named marks where you'll talk. Zoom, a smooth cursor and click ripples are added afterwards, so you never re-record to fix the camera. Local dev servers work.
+- **Re-records after a release.** Each recording keeps its steps. `rerecord all` plays them against the new UI; captions, cuts and sound cues anchored to marks (`"at": "@submit"`) land on the same moments in the new footage, and `check` names any mark that disappeared.
+- **Edits with an AI next to you.** Hold Ctrl and click a spot in the preview, a scene or a caption, then say what you want changed there. The assistant edits through the editor's CLI; its changes appear in the preview within a second and can be undone like your own. It can record websites, write and voice narration, and look at rendered frames to check the text and circles it placed.
+  ![The AI panel: a spot Ctrl+clicked in the preview, the request, the command the AI ran, and the circle it drew there](docs/ai-chat.png)
+- **Plays HTML when the library runs out.** Any HTML page with seekable animation becomes a scene, frame-accurate in preview and export: a chart of your real numbers, a diagram, a branded title. [HyperFrames](https://github.com/heygen-com/hyperframes) compositions play unchanged, and the assistant can write these pages too.
+- **Shows what you'll export.** The preview is a Remotion Player running the same React composition as the renderer. A test renders frames both ways and compares them; most come out bit-identical.
 
-- **You and an AI can work on the same cut.** Hold Ctrl and click a spot in the preview, a scene or a caption, then say what you want changed there. The assistant edits through one tool, the editor's CLI; its changes appear in the preview within a second, and it sees the changes you make by hand. Both sides go through the same versioned save path, so neither overwrites the other. Ask it for footage and it records a website for you ("record searching for Remotion on wikipedia.org"); ask for narration and it writes the lines and voices them. It can also look at the video: frames rendered exactly as an export would be, so it checks the text, circles and crops it placed and fixes what it sees.
-![The AI panel: a spot Ctrl+clicked in the preview, the request, the command the AI ran, and the circle it drew there](docs/ai-chat.png)
+## Where it fits
 
-- **Timing stays tied to content.** Captions and cuts can be anchored to marks recorded with a screen capture (`"@add-0.3"`), so re-recording a demo doesn't break the edit.
-- **What you preview is what you export.** The preview is a Remotion Player running the same React composition the renderer uses. A test renders the same frames both ways and compares them; most come out bit-identical.
+Cutroom is built on [Remotion](https://www.remotion.dev) and plays HyperFrames compositions. If you want to write a video in code, use those directly. Cutroom is for editing demo videos with a timeline, a recorder and an assistant, and for keeping them current.
+
+| | Remotion | HyperFrames | Cutroom |
+|---|---|---|---|
+| You write | React components | HTML, CSS and seekable JavaScript | Nothing: a timeline and a chat. HTML pages when you want them |
+| Made for | Apps that generate video, personalized videos at scale, cloud rendering | Agents writing motion graphics from a prompt | Demo videos of your own software: recordings, captions, voice-over, re-recording |
+| In Cutroom | The renderer and the preview | A scene type: drop a composition in | |
+| License | [Remotion License](https://www.remotion.dev/license): free for individuals and companies of up to 3 people | Apache 2.0 | MIT. It renders with Remotion, so Remotion's license applies too |
+
+## Use it from your coding agent
+
+If you build your app with Claude Code, Codex or Cursor, the same agent can make its demo video. For Claude Code, install the plugin:
+
+```bash
+claude plugin marketplace add WEBGRS/cutroom
+claude plugin install cutroom@cutroom
+```
+
+Other agents can read [skills/cutroom/SKILL.md](skills/cutroom/SKILL.md) directly. The skill drives the command line, which is `cutroom.cmd` next to `Cutroom.exe` in the desktop app (`%LOCALAPPDATA%\Programs\Cutroom`), or `node editor/dist/cli.mjs` in a source checkout:
+
+```bash
+cutroom my-app new "My app"
+cutroom my-app inspect http://localhost:3000
+cutroom my-app record signup http://localhost:3000 '[{"mark":"open"},{"click":"text=\"Sign up\""},{"fill":["#email","ada@example.com"]},{"mark":"submit"},{"click":"button[type=submit]"},{"wait":1500}]'
+cutroom my-app add screen cap/signup.mp4 intro
+cutroom my-app voice
+cutroom my-app check
+cutroom my-app export --format tall
+```
+
+Open the project in the editor afterwards to adjust it by hand; the agent sees your edits with `log --unseen`.
 
 ## Features
 
-- **Timeline**: filmstrip thumbnails, waveforms, drag to reorder, drag edges to trim, split at the playhead, undo/redo, and a beat grid for music cuts. Lanes under the scenes show where every overlay, effect, camera move and sound effect sits, and each cut shows its transition. Drag an overlay or a sound to move it; click any bar to open its settings. Dragged edges, cues and the playhead snap to cuts, recording marks, caption starts, beats and each other (the magnet button or N; hold Alt to drag freely), and edits made by the AI can be undone with Ctrl+Z like your own.
+- **Timeline**: filmstrip thumbnails, waveforms, drag to reorder, drag edges to trim, split at the playhead, undo/redo, and a beat grid for music cuts. Lanes under the scenes show where every overlay, effect, camera move and sound effect sits, and each cut shows its transition. Drag an overlay or a sound to move it; click any bar to open its settings. Dragged edges, cues and the playhead snap to cuts, recording marks, caption starts, beats and each other (the magnet button or N; hold Alt to drag freely).
 - **Two cuts from one storyboard**: a narrated cut and a beat-synced music cut, each in 16:9 and 9:16.
 - **Library panel**: media, cards, text, overlays, transitions, effects, backdrops, voice-over, sound effects and music. Every effect has a rendered preview that plays on hover; one click applies it to the selected scene.
 - **182 effects**:
@@ -31,18 +64,42 @@ Most editors store a project as an opaque binary or database. Cutroom stores it 
   - 10 animated backdrops
   - 33 scene-effect presets (looks, duotone, RGB split, bloom, CRT, pixelate, handheld drift, focus pull, stop motion, …)
   - Many of the designs are adapted from [HyperFrames](https://github.com/heygen-com/hyperframes); see [CREDITS.md](CREDITS.md).
+- **HTML scenes**: see [below](#html-scenes).
 - **58 sound effects**: whooshes, risers, booms, hits, clicks, typing, notification dings and digital blips. Listen in the library, drag one onto the Sound FX lane, then drag it to the exact frame.
 - **Captions**: box, outline or plain styles, any position and size, and most text animations; a Screen Studio-style frame for recordings, frosted cards and a chapter bar.
-- **AI voice-over**: pick a voice in Library › Voiceover and press Voice. The built-in voices are free and run offline (100 Chinese, 3 English; a 147 MB model downloads once); OpenAI, Gemini and Qwen voices use your key from Settings › AI. Only lines without current audio are voiced, so editing a line re-voices just that line. Each scene's Narration tab plays its lines and can re-voice them.
-- **Screen recordings**: a deterministic browser recorder logs clicks and cursor moves; the editor adds smooth auto-zoom, a synthetic cursor and click ripples afterwards. Record any website from Library › Media › Record a website (a short scroll through the page), or ask the AI assistant to record clicks and typing on it.
+- **AI voice-over**: pick a voice in Library › Voiceover and press Voice. The built-in voices are free and run offline (100 Chinese, 3 English; a 147 MB model downloads once); OpenAI, Gemini and Qwen voices use your key from Settings › AI. Only lines without current audio are voiced, so editing a line re-voices just that line.
+- **Screen recordings**: Library › Media › Record a website takes a short scroll through any page; the AI assistant or the CLI records clicks and typing. Recordings keep their steps for `rerecord`.
 - **AI assistant**: works with a Claude subscription (through Claude Code), a ChatGPT plan (through the Codex CLI), a Google account (through the Gemini CLI or Antigravity), a Claude API key, or any OpenAI-compatible API: OpenAI, Gemini, DeepSeek, Qwen, Kimi, GLM, OpenRouter or a local Ollama. See [Connecting the AI](#connecting-the-ai).
-- **Export**: MP4, 2× resolution, GIF, ProRes, SRT subtitles and a chapter list. The export menu shows where files go (desktop app: `Documents\Cutroom\exports\editor`), and a finished export offers Play and Show in folder.
+- **Export**: MP4, 2× resolution, GIF, ProRes, SRT subtitles and a chapter list, from the export menu or `export` on the command line. The export menu shows where files go (desktop app: `Documents\Cutroom\exports\editor`).
 - **Settings** (gear icon or Ctrl+,): language, help hints, default lengths and transition for new scenes, which timeline lanes to show, preview loop and volume, hiding URLs for platforms that ban links, the export folder and preset, the AI connection, shortcuts and the thumbnail cache.
 - **English and Chinese** interface, chosen in the installer or in Settings.
 
 ![Voiceover library: engine, voices and progress; the scene's narration lines with their audio; the voice lane on the timeline](docs/voiceover.png)
 
 ![Sound FX library, the scene's Sound tab and the Sound FX lane on the timeline](docs/sound-fx.png)
+
+## HTML scenes
+
+A page in the project's `scenes/` folder plays as a scene. Cutroom loads it in a frame, takes over its clock and sets the time for every frame, so scrubbing, previewing and exporting all show the same picture.
+
+```html
+<div data-composition-id="growth" data-width="1920" data-height="1080" data-duration="5">
+  <h1 style="animation: rise .6s ease-out .2s both">Signups doubled</h1>
+</div>
+<style>@keyframes rise { from { opacity: 0; transform: translateY(40px) } }</style>
+```
+
+```bash
+node editor/dist/cli.mjs my-app html write growth '<the page>'   # or drop an .html file on the editor
+node editor/dist/cli.mjs my-app add html scenes/growth/index.html intro
+node editor/dist/cli.mjs my-app html check growth                # clocks, timers and other things that break seeking
+```
+
+- Animate with CSS keyframes, `element.animate()`, a paused GSAP timeline on `window.__timelines`, Anime.js, Lottie or Three.js (the HyperFrames adapter conventions). Elements with `data-start` and `data-duration` show only in that window.
+- A scene lasts as long as the page's `data-duration` unless its narration runs longer.
+- Variables declared in `data-composition-variables` show up as fields in the scene's settings and can be set per scene (`set growth visual.vars.title '"Q3"'`), so one page can serve several scenes.
+- A HyperFrames composition, including one that mounts sub-compositions, can be copied in as it is: `add html path/to/composition`.
+- The showcase's `loop` scene (`public/showcase/scenes/loop`) is a worked example with a separate 9:16 page.
 
 ## Install (Windows)
 
@@ -70,7 +127,7 @@ Or open it as a desktop app:
 npm run app
 ```
 
-The `showcase` project opens first. It uses every effect type, so it doubles as a reference.
+The `showcase` project opens first. It uses every kind of scene and effect, so it doubles as a reference.
 
 ## Connecting the AI
 
@@ -102,8 +159,8 @@ Open the **AI assistant** tab and click the connection pill at its top, or go to
   "scenes": [
     {
       "id": "intro",
-      "lines": [{ "zh": "这条视频是写出来的。", "en": "This video was written, not dragged." }],
-      "visual": { "kind": "title", "title": "Edit video as code" },
+      "lines": [{ "zh": "这是新版的搜索。", "en": "This is the new search." }],
+      "visual": { "kind": "title", "title": "New in v1.1" },
       "fx": { "vignette": 0.35, "grain": 0.2 },
       "sounds": [{ "id": "whoosh", "at": 0.2 }]
     },
@@ -113,6 +170,11 @@ Open the **AI assistant** tab and click the connection pill at its top, or go to
       "lines": [{ "zh": "点哪里，推近哪里。", "en": "It zooms in on every click.", "at": "@add-0.3" }],
       "visual": { "kind": "screen", "src": "cap/planner.mp4", "to": "@filter+1.2" },
       "overlays": [{ "kind": "arrow", "at": 3.6, "text": "auto zoom", "x": 0.62, "y": 0.36 }]
+    },
+    {
+      "id": "growth",
+      "lines": [{ "zh": "注册翻了一倍。", "en": "Signups doubled." }],
+      "visual": { "kind": "html", "src": "scenes/growth/index.html", "vars": { "title": "Q3" } }
     }
   ]
 }
@@ -120,7 +182,7 @@ Open the **AI assistant** tab and click the connection pill at its top, or go to
 
 `zh` holds the main caption line (any language) and `en` an optional second-language line under it. Run `node editor/dist/cli.mjs fx` for every effect field.
 
-Projects live in `public/<slug>/` together with their media. Create one from the project menu in the editor, or drop images, video and music onto the editor window to import them.
+Projects live in `public/<slug>/` together with their media. Create one from the project menu in the editor or with `new`, or drop images, video, music and HTML pages onto the editor window to import them.
 
 ## Editing from the command line
 
@@ -136,12 +198,16 @@ node editor/dist/cli.mjs showcase log --unseen                    # what changed
 node editor/dist/cli.mjs showcase check                           # problems to fix before export, each with its fix
 node editor/dist/cli.mjs showcase look record photo+2.5           # render frames as an export would, for the AI to look at
 node editor/dist/cli.mjs showcase show all                        # every scene's JSON
-node editor/dist/cli.mjs showcase media                           # recordings (with marks), images, videos, music
+node editor/dist/cli.mjs showcase media                           # recordings (with marks), images, videos, HTML pages, music
 node editor/dist/cli.mjs showcase beat use music/realizer.mp3     # beat-cut music; the tempo comes from its beat data
 node editor/dist/cli.mjs showcase voice                           # voice-over for lines without current audio
 node editor/dist/cli.mjs showcase voice --lang en --redo          # re-voice the English track
 node editor/dist/cli.mjs showcase inspect https://example.com     # a page's clickable elements and their selectors
 node editor/dist/cli.mjs showcase record demo https://example.com '[{"wait":800},{"mark":"more"},{"click":"text=\"Learn more\""},{"wait":1500}]'
+node editor/dist/cli.mjs showcase rerecord all                    # record the websites again from their saved steps
+node editor/dist/cli.mjs showcase html vars loop                  # an HTML scene's variables and their values
+node editor/dist/cli.mjs showcase export --format tall --mode beat
+node editor/dist/cli.mjs my-app new "My app"                      # a new project
 node editor/dist/cli.mjs fx                                       # every effect field and its range
 ```
 
@@ -170,24 +236,25 @@ node editor/dist/cli.mjs fx                                       # every effect
  timeline UI ──PUT──┐                         ┌── Remotion Player (preview)
                     ├──► storyboard.json ◄────┤
  AI chat ─► CLI ────┘    (versioned saves,    └── remotion render (export)
-                          log + snapshots)
+ coding agent ─► CLI      log + snapshots)
              file watcher ─► server-sent events ─► every open editor
 ```
 
-- `src/`: the Remotion composition: scenes, camera, captions, effects, transitions.
+- `src/`: the Remotion composition: scenes, camera, captions, effects, transitions. `src/lib/html.ts` is the HTML scene runtime that sets a page's clock frame by frame.
 - `src/fx/`: the effect library: text animations, transitions, overlays, cards, backdrops, scene effects, sounds, and `registry.ts`, the list that drives the UI and the previews.
-- `editor/src/`: UI (React), server, CLI, edit operations, the effects catalog behind the UI, the CLI's `fx` listing and the AI's instructions, plus the AI providers (`chat.ts`, `compat.ts`, `agents.ts`, `mcp.ts`), voice-over (`voice.ts`, `voices.ts`) and web recording (`record.ts`).
+- `editor/src/`: UI (React), server, CLI, edit operations, the effects catalog behind the UI, the CLI's `fx` listing and the AI's instructions, plus the AI providers (`chat.ts`, `compat.ts`, `agents.ts`, `mcp.ts`), voice-over (`voice.ts`, `voices.ts`), web recording and re-recording (`record.ts`), HTML scene files (`htmlfiles.ts`) and exports (`exporter.ts`).
 - `tools/capture.mjs`: deterministic screen recorder. `editor/demo/capture.mjs` shows how to script one.
 - `editor/fx/previews.ts`: renders the hover previews into `public/_fx/` (`npm run previews`; `--only transition/whip` for one).
-- `app/`: desktop shell; `electron-builder.yml` and `build/installer.nsh` make the installer.
+- `skills/cutroom/` and `.claude-plugin/`: the skill and plugin for coding agents.
+- `app/`: desktop shell; `electron-builder.yml` and `build/installer.nsh` make the installer, and `build/cutroom.cmd` becomes the command line next to `Cutroom.exe`.
 
 ## Tests
 
 ```bash
-npm test             # unit tests: edit operations, timeline model, effects catalog, AI providers, voice-over, recording, CLI
+npm test             # unit tests: edit operations, timeline model, effects catalog, AI providers, voice-over, recording and re-recording, HTML scenes, CLI
 npm run typecheck
 npm run test:e2e     # drives the editor in headless Chrome against a throwaway copy of the showcase
-npm run test:oracle  # preview frames vs. Remotion's renderer (PSNR ≥ 50 dB; most frames identical)
+npm run test:oracle  # preview frames vs. Remotion's renderer (PSNR ≥ 50 dB; most frames identical), HTML scenes included
 npm run test:app     # launches the desktop app hidden and checks it starts and cleans up
 npm run test:shots   # screenshots every panel, tab, menu, dialog and error state into .scratch/uishots
 ```
@@ -200,8 +267,10 @@ The e2e, oracle, app and screenshot scripts need the editor running (`npm run ed
 - Twelve of Remotion's shader transitions need an experimental Chrome flag, so they are not offered.
 - The built-in voices are clear but not studio quality, and Chinese voices now and then misread a rare word: listen back, or switch to a cloud voice. Your own recording can replace any line through `timings.json`.
 - Recording needs Google Chrome or Microsoft Edge. It opens a fresh browser, so pages behind a login can't be recorded.
+- HTML scenes: sound inside a page is not exported, and pages that load scripts or fonts from the internet need a connection to preview and export. Animation driven by timers or `requestAnimationFrame` can't be seeked; `html check` points it out.
+- Rendering is local. There is no cloud rendering like Remotion Lambda.
 - Windows only so far, and the installer is unsigned.
 
 ## Credits and license
 
-Cutroom is MIT-licensed. Remotion has its own license: free for individuals and companies with up to three employees, while larger companies need a [company license](https://www.remotion.dev/license). The built-in voices are [Kokoro-82M v1.1-zh](https://huggingface.co/hexgrad/Kokoro-82M-v1.1-zh) (Apache-2.0) run through [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) (Apache-2.0); the model is downloaded on first use, not bundled. Bundled music and sounds, and the HyperFrames designs the effect library adapts (Apache-2.0), are listed in [CREDITS.md](CREDITS.md).
+Cutroom is MIT-licensed. Remotion has its own license: free for individuals and companies with up to three employees, while larger companies need a [company license](https://www.remotion.dev/license). HTML scenes follow the HyperFrames composition conventions (timing attributes, `window.__timelines`, adapter registries, variables) so compositions play unchanged; the runtime that plays them is Cutroom's own. The built-in voices are [Kokoro-82M v1.1-zh](https://huggingface.co/hexgrad/Kokoro-82M-v1.1-zh) (Apache-2.0) run through [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) (Apache-2.0); the model is downloaded on first use, not bundled. Bundled music and sounds, and the HyperFrames designs the effect library adapts (Apache-2.0), are listed in [CREDITS.md](CREDITS.md).

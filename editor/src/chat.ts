@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import Anthropic from '@anthropic-ai/sdk';
 import { ROOT, STATE } from './store';
+import { killTree } from './proc';
 import { HELP } from './help';
 import { imagesIn, lookReadRule } from './look';
 import { catalogText } from './catalog';
@@ -318,7 +319,7 @@ export function systemPrompt(slug: string, via: 'bash' | 'tool' | 'files' = 'bas
       ? `- Use only the Bash tool, and only this command form (the working directory is already the project root; never cd, never edit files directly, never run other programs):
   ${CLI} ${slug} <command> ...`
       : `- Use only the \`editor\` tool. Give it the command and its arguments as an array of strings, without any program name or project id: ["ls","--format","wide"], ["show","intro"], ["set","intro","fx.look","\\"warm\\""]. JSON values for \`set\` are passed as one string.`;
-  return `You are the editing assistant inside Cutroom, a code-first video editor. You are talking to the user through a small chat panel next to a live preview of project "${slug}". Every change you make through the CLI appears in the preview within a second.
+  return `You are the editing assistant inside Cutroom, a video editor for software demos: product walkthroughs, launch videos and release clips built from screen recordings. You are talking to the user through a small chat panel next to a live preview of project "${slug}". Every change you make through the CLI appears in the preview within a second.
 
 How to edit:
 ${how}
@@ -333,6 +334,8 @@ ${how}
 - Voice-over (配音/旁白/narration audio): write or fix the narration lines first (\`set <id> lines.<k>.zh ...\`), then run \`voice\`; it only voices lines without current audio, so run it again after editing lines. Add \`--lang en\` for the second-language track. Change the engine or voice (\`voice list\`, \`voice use\`) only when the user asks for a different voice.
 - Screen recordings (录屏) of a website as footage: run \`inspect <url>\` to see its elements and selectors, then \`record <name> <url> '<steps json>'\` with the clicks and typing the user wants shown; put a \`mark\` before each beat you will caption. Then \`add screen cap/<name>.mp4 <after-id>\` and write lines with "at": "@mark" to sync. Keep recordings short (5–20 s of steps); recording takes about real time plus page loading. Only record public pages the user asked for.
 - To show Cutroom itself (a tutorial or demo clip), record this editor's own address, http://127.0.0.1:${process.env.PORT ?? 8814}/?slug=${slug}&format=wide&mode=voice&ui=zh (ui=en for English). The recorder notices it is the editor and records a copy of the project, so clicks in the steps never change the real one. Handy selectors: library tabs \`.lib-tabs button:has-text("Transitions")\` (the label follows ui), scenes \`.clip:has(.name:text-is("<scene-id>"))\`, library tiles \`.lt\`, inspector tabs \`.itabs button\`; \`{"press":"Space"}\` plays the preview.
+- When the site in a recording has changed, \`rerecord <name>\` (or \`rerecord all\`) records it again from its saved steps; captions and cuts anchored to marks follow the new footage. Then run \`check\` for anchors whose marks are gone.
+- HTML scenes: when nothing in the library shows what the user wants (a chart of their own numbers, a custom diagram, a branded title), write a page: \`html write <name> ${via === 'bash' ? "'<page>'" : '<page>'}\`, then \`add html scenes/<name>/index.html <after-id>\`, then \`look\` at it and fix what you see. Page rules: one root \`<div data-composition-id="<name>" data-width="1920" data-height="1080" data-duration="<seconds>">\` (1080×1920 for a 9:16-only scene); animate with CSS @keyframes or element.animate(…) with finite durations and fill both (time 0 is the scene start); elements with data-start/data-duration show only in that window; no Date.now, timers or requestAnimationFrame loops; no sound (add it with the editor); font-family "Noto Sans SC", system-ui. ${via === 'bash' ? 'Pass the whole page as one single-quoted argument: use double quotes inside it and write apostrophes as &#39;. ' : ''}\`html check <name>\` lists problems. Pages that declare variables (data-composition-variables) are filled per scene with \`set <id> visual.vars.<var> <json>\`; \`html vars <id>\` lists them. A HyperFrames composition or any page on disk can be copied in with \`add html <path>\`.
 - Do not export/render videos; the user has an export button.
 
 Video craft (use it when writing lines or restructuring; the user's own request wins):
@@ -459,10 +462,7 @@ function viaClaudeCode(slug: string, prompt: string, model: string | undefined, 
     // Voice-over and screen recordings can outlast Bash's default 2-minute limit
     const child: ChildProcess = spawn(findClaude()!, args, { cwd: ROOT, windowsHide: true, env: { ...process.env, BASH_DEFAULT_TIMEOUT_MS: '900000', BASH_MAX_TIMEOUT_MS: '900000' } });
     let done = false;
-    const kill = () => {
-      if (child.pid && process.platform === 'win32') spawn('taskkill', ['/pid', String(child.pid), '/t', '/f'], { windowsHide: true });
-      else child.kill();
-    };
+    const kill = () => killTree(child);
     running.set(slug, { kill });
     // A whole cut with voice-over and recordings takes a while
     const timer = setTimeout(kill, 30 * 60_000);

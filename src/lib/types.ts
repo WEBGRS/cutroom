@@ -242,7 +242,20 @@ export interface TerminalVisual {
   lines: { cmd: string; out?: string }[];
 }
 
-export type Visual = ScreenVisual | ScrollVisual | TitleVisual | StatsVisual | ClipVisual | OutroVisual | FlowVisual | ImageVisual | ChartVisual | CodeVisual | ChatVisual | QuoteVisual | ChecklistVisual | NotifsVisual | FlapVisual | CompareVisual | CounterVisual | TerminalVisual;
+// An HTML page with seekable animation (a HyperFrames composition, or CSS/WAAPI/GSAP motion), in project/<src>
+export interface HtmlVisual {
+  kind: 'html';
+  src: string;
+  // Seconds into the page's own timeline where the scene starts
+  from?: number;
+  fit?: 'contain' | 'cover';
+  frame?: Frame;
+  url?: string;
+  // Values for the page's declared variables (data-composition-variables)
+  vars?: Record<string, string | number | boolean>;
+}
+
+export type Visual = HtmlVisual | ScreenVisual | ScrollVisual | TitleVisual | StatsVisual | ClipVisual | OutroVisual | FlowVisual | ImageVisual | ChartVisual | CodeVisual | ChatVisual | QuoteVisual | ChecklistVisual | NotifsVisual | FlapVisual | CompareVisual | CounterVisual | TerminalVisual;
 
 export type Transition = 'fade' | 'slide' | 'wipe' | 'flip' | 'clock' | 'iris' | 'push' | 'zoom' | 'dip' | 'none' | (string & {});
 export type Dir = 'left' | 'right' | 'up' | 'down';
@@ -362,4 +375,6 @@ export type Props = {
   timings?: Timings;
   captures?: Record<string, CaptureMeta>;
   images?: Record<string, { w: number; h: number }>;
+  // Bumped by the editor when project files change, so HTML scenes reload
+  rev?: number;
 };

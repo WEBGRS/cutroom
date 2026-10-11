@@ -6,6 +6,7 @@ import { ClipScene, FlowScene, ImageScene, OutroScene, ScrollScene, StatsScene, 
 import { Captions, ChapterBar, Overlays, TallHeader } from './components/Captions';
 import { FxLayer, presentation } from './components/Fx';
 import { ScreenScene } from './components/ScreenScene';
+import { HtmlScene } from './components/HtmlScene';
 import { SceneSounds } from './components/Sounds';
 import { FxCard } from './fx/cards';
 import { screenPaths, type ScenePath } from './lib/paths';
@@ -18,7 +19,7 @@ import type { Props, Theme } from './lib/types';
 export const SceneView: React.FC<{ s: TScene; props: Props; layout: Layout; theme: Theme; bare?: boolean; paths?: Record<string, ScenePath> }> = ({ s, props, layout, theme, bare, paths }) => {
   const clean = props.variant === 'clean';
   const raw = s.visual;
-  const v = clean && (raw.kind === 'screen' || raw.kind === 'scroll' || raw.kind === 'clip' || raw.kind === 'image') ? { ...raw, url: undefined } : clean && raw.kind === 'outro' ? { ...raw, url: undefined, repo: undefined } : raw;
+  const v = clean && (raw.kind === 'screen' || raw.kind === 'scroll' || raw.kind === 'clip' || raw.kind === 'image' || raw.kind === 'html') ? { ...raw, url: undefined } : clean && raw.kind === 'outro' ? { ...raw, url: undefined, repo: undefined } : raw;
   const slug = props.slug;
   const board = props.board;
   const look = board?.frame ? { ...board.frame, accent: theme.accent } : undefined;
@@ -29,6 +30,7 @@ export const SceneView: React.FC<{ s: TScene; props: Props; layout: Layout; them
   else if (v.kind === 'outro') body = <OutroScene v={v} layout={layout} theme={theme} />;
   else if (v.kind === 'flow') body = <FlowScene v={v} layout={layout} theme={theme} glass={board?.glass} />;
   else if (v.kind === 'clip') body = <ClipScene v={v} slug={slug} layout={layout} look={look} />;
+  else if (v.kind === 'html') body = <HtmlScene v={v} slug={slug} layout={layout} look={look} rev={props.rev} />;
   else if (v.kind === 'image') {
     const d = props.images?.[v.src] ?? { w: 1920, h: 1080 };
     body = <ImageScene v={v} slug={slug} layout={layout} imgW={d.w} imgH={d.h} look={look} />;

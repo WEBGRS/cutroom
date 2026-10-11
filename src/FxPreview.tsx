@@ -29,7 +29,7 @@ const TitleB: React.FC = () => (
     <Backdrop theme={theme} />
     <AbsoluteFill style={{ justifyContent: 'center', alignItems: 'center' }}>
       <div style={{ fontSize: 170, fontWeight: 900, color: '#fff', letterSpacing: '-0.02em' }}>Cutroom</div>
-      <div style={{ fontSize: 54, fontWeight: 600, color: theme.accent, marginTop: 10 }}>edit video as code</div>
+      <div style={{ fontSize: 54, fontWeight: 600, color: theme.accent, marginTop: 10 }}>record · cut · re-record</div>
     </AbsoluteFill>
   </AbsoluteFill>
 );

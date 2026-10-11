@@ -28,6 +28,10 @@ files:
   - package.json
   - "!node_modules/.remotion/**"
   - "!node_modules/@remotion/google-fonts/**"
+# Command line for coding agents and scripts, next to Cutroom.exe
+extraFiles:
+  - from: build/cutroom.cmd
+    to: cutroom.cmd
 win:
   target: nsis
   icon: app/icon.ico

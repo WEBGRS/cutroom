@@ -4,7 +4,7 @@ import type { Theme, Visual } from '../lib/types';
 export const DEMO_THEME: Theme = { accent: '#5b8cff', accent2: '#ffb547', bg: ['#0b1020', '#1b2348'] };
 
 export const DEMO_CARDS: Record<string, Visual> = {
-  title: { kind: 'title', kicker: 'Cutroom', title: 'Edit video [[as code]]', sub: 'Timeline, effects and an AI that edits with you' },
+  title: { kind: 'title', kicker: 'Cutroom', title: 'Demos that [[keep up]]', sub: 'Record it, cut it with an AI, re-record when it changes' },
   stats: { kind: 'stats', items: [{ value: '39', label: 'transitions' }, { value: '33', label: 'text animations' }, { value: '45', label: 'overlays' }] },
   counter: { kind: 'counter', value: '12,800+', label: 'frames rendered today', sub: 'one storyboard, every format' },
   chart: { kind: 'chart', title: 'Effects per release', items: [{ label: 'v0.1', value: 12 }, { label: 'v0.2', value: 28 }, { label: 'v0.3', value: 61 }, { label: 'v1.0', value: 160 }] },
@@ -13,7 +13,7 @@ export const DEMO_CARDS: Record<string, Visual> = {
   quote: { kind: 'quote', text: 'It feels like editing with a [[co-pilot]] who never gets tired.', author: 'Early user', role: 'YouTube creator', rating: 5 },
   chat: { kind: 'chat', title: 'Ask the editor', messages: [{ me: true, text: 'Make the intro two seconds shorter' }, { text: 'Done. intro now ends at 3.2 s, the rest moved up.' }, { me: true, text: 'Add a light leak on the photo' }] },
   notifs: { kind: 'notifs', items: [{ app: 'Cutroom', title: 'Render finished', body: 'showcase-wide.mp4 · 38 s' }, { app: 'Cutroom', title: 'AI edited 3 scenes', body: 'Undo anytime with Ctrl+Z' }, { app: 'Cutroom', title: 'Captions synced', body: '24 lines matched to voice' }] },
-  code: { kind: 'code', title: 'storyboard.json', code: '{\n  "id": "intro",\n  "visual": { "kind": "title", "title": "Edit video as code" },\n  "transition": "whip",\n  "fx": { "look": "warm", "grain": 0.2 }\n}' },
+  code: { kind: 'code', title: 'storyboard.json', code: '{\n  "id": "intro",\n  "visual": { "kind": "title", "title": "New in v1.1" },\n  "transition": "whip",\n  "fx": { "look": "warm", "grain": 0.2 }\n}' },
   terminal: { kind: 'terminal', lines: [{ cmd: 'npx cutroom showcase set intro fx.look "warm"', out: '✓ intro.fx.look → warm' }, { cmd: 'npm run render', out: 'rendering 2,280 frames…\n✓ out/showcase-wide.mp4' }] },
   flap: { kind: 'flap', title: 'Now showing', rows: ['CUTROOM  1.0', 'GATE  B12'] },
   compare: { kind: 'compare', a: 'media/lake.jpg', b: 'media/lake-graded.jpg', labelA: 'Before', labelB: 'After' },
@@ -28,14 +28,14 @@ export const TEXT_SAMPLE: Record<string, string> = {
   roll: 'Edit|Cut|Ship',
   ticker: 'Edit|Cut|Ship|Share',
   flap: 'CUTROOM',
-  highlight: 'Edit [[video]] as code',
-  typewriter: 'Edit video as code',
-  scramble: 'EDIT AS CODE',
-  decode: 'EDIT AS CODE',
+  highlight: 'Demos that [[keep up]]',
+  typewriter: 'Record. Cut. Re-record.',
+  scramble: 'NEW IN V1.1',
+  decode: 'NEW IN V1.1',
   stream: 'Sure, the intro is now two seconds shorter.',
   lines: 'Write the story\nCut on the beat\nShip every format',
 };
-export const textSample = (id: string) => TEXT_SAMPLE[id] ?? 'Edit video [[as code]]';
+export const textSample = (id: string) => TEXT_SAMPLE[id] ?? 'Your app, [[in motion]]';
 
 // Representative values for scene effects in previews
 export const FX_DEMO: Record<string, Record<string, unknown>> = {

@@ -4,10 +4,10 @@
  "scenes": {
   "intro": [
    {
-    "file": "vo/9e0a44675c13.wav",
-    "dur": 2.33,
-    "text": "这条视频是写出来的，不是拖出来的。",
-    "spoken": "This video was written, not dragged together.",
+    "file": "vo/1753091fd930.wav",
+    "dur": 2.93,
+    "text": "录一遍产品，剩下的和 AI 一起剪。",
+    "spoken": "Film your product once, then cut it together with an AI.",
     "voice": "builtin:af_maple"
    }
   ],
@@ -47,10 +47,10 @@
   ],
   "numbers": [
    {
-    "file": "vo/908e53c0424f.wav",
-    "dur": 3.48,
-    "text": "十种转场，十几个特效参数，十种叠加元素。",
-    "spoken": "Ten transitions, a dozen effect controls, ten overlay types.",
+    "file": "vo/0a23fd6c1f61.wav",
+    "dur": 3.72,
+    "text": "三十九种转场，三十三种文字动画，四十一种叠加。",
+    "spoken": "39 transitions, 33 text animations, 41 overlays.",
     "voice": "builtin:af_maple"
    }
   ],
@@ -60,6 +60,15 @@
     "dur": 4.11,
     "text": "你在界面里拖，AI 用命令行改，改的是同一份文件。",
     "spoken": "You drag in the UI, the AI edits through the CLI, both on the same file.",
+    "voice": "builtin:af_maple"
+   }
+  ],
+  "loop": [
+   {
+    "file": "vo/49232029fa9e.wav",
+    "dur": 4.11,
+    "text": "界面改版了，重录一遍，字幕跟着标记走。",
+    "spoken": "When the app changes, run the recording again. The captions follow the marks.",
     "voice": "builtin:af_maple"
    }
   ],

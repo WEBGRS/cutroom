@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawn, execFile, type ChildProcess } from 'node:child_process';
 import { Conflict, DATA, OUT, PUBLIC, ROOT, STATE, appendLog, boardFile, checkSlug, currentVersion, readDoc, readLog, slugs, snapshot, writeDoc, hash } from './store';
+import { killTree } from './proc';
 import { engineStatus, installModel, lineStates, modelStatus, sample, voiceProject, voiceSettings, writeVoiceSettings, type Lang, type VoiceProgress } from './voice';
 import type { EngineId } from './voices';
 import { findBrowser, recordPage } from './record';
@@ -11,7 +12,8 @@ import { aiStatus, aiTest, chat, compatModels, history, isRunning, provider, res
 import { agentDef, installAgent, openSignIn, forgetAgents, type AgentId } from './agents';
 import { boardTemplate } from './templates';
 import { L, readSettings, uiLang, writeSettings } from './settings';
-import { slimPublic } from './slim';
+import { DEFAULT_EXPORTS, exportDir, exportPlan } from './exporter';
+import { isHtml, listHtml, safeName, writeHtml } from './htmlfiles';
 
 const PORT = Number(process.env.PORT ?? 8814);
 const EDITOR = path.join(ROOT, 'editor');
@@ -80,7 +82,7 @@ function watch(slug: string) {
   // Recursive, so footage the AI records or the user copies into cap/ or media/ reaches the page too
   const w = fs.watch(dir, { recursive: true }, (_ev, file) => {
     const name = String(file ?? '').replace(/\\/g, '/');
-    const kind = name === 'storyboard.json' ? 'board' : /^timings(-en)?\.json$/.test(name) ? 'timings' : /^(cap|media)\/[^/]+\.(mp4|webm|mov|png|jpe?g|webp|gif|mp3|wav|m4a)$/i.test(name) ? 'assets' : null;
+    const kind = name === 'storyboard.json' ? 'board' : /^timings(-en)?\.json$/.test(name) ? 'timings' : /^(cap|media)\/[^/]+\.(mp4|webm|mov|png|jpe?g|webp|gif|mp3|wav|m4a)$/i.test(name) || /^scenes\/.+\.\w+$/.test(name) ? 'assets' : null;
     if (!kind) return;
     const key = `${slug}:${kind}`;
     clearTimeout(timers.get(key));
@@ -188,14 +190,6 @@ let job: Job | null = null;
 // Absolute path too, so the page can show exactly where the file went
 const jobView = () => (job ? { ...job, child: undefined, out: path.relative(DATA, job.out), path: job.out, dir: path.dirname(job.out) } : null);
 
-const CODECS: Record<string, string> = { h264: 'mp4', h265: 'mp4', vp9: 'webm', prores: 'mov', gif: 'gif' };
-
-// Where exports go: the folder chosen in Settings, else out/editor (app: Documents\Cutroom\exports\editor)
-const DEFAULT_EXPORTS = path.join(OUT, 'editor');
-function exportDir(): string {
-  const d = readSettings().exportDir;
-  return typeof d === 'string' && path.isAbsolute(d) ? d : DEFAULT_EXPORTS;
-}
 const within = (dir: string, f: string) => {
   const r = path.relative(path.resolve(dir), path.resolve(f));
   return !!r && !r.startsWith('..') && !path.isAbsolute(r);
@@ -264,20 +258,7 @@ function startVoice(run: Parameters<typeof voiceProject>[0]) {
 
 function startRender(o: { slug: string; format: string; mode: string; variant: string; lang: string; voice: string; scale?: number; codec?: string }) {
   if (job?.state === 'running') throw new Error(L('A render is already running', '已有渲染在进行'));
-  checkSlug(o.slug);
-  const codec = o.codec && CODECS[o.codec] ? o.codec : 'h264';
-  const scale = [0.5, 1, 1.5, 2].includes(Number(o.scale)) ? Number(o.scale) : 1;
-  const name = [o.slug, o.format, o.mode === 'beat' ? 'beat' : null, o.variant === 'clean' ? 'clean' : null, o.lang === 'en' ? 'en' : null, o.voice === 'off' && o.mode !== 'beat' ? 'silent' : null, scale !== 1 ? `x${scale}` : null].filter(Boolean).join('-');
-  const out = path.join(exportDir(), `${name}.${CODECS[codec]}`);
-  fs.mkdirSync(path.dirname(out), { recursive: true });
-  fs.mkdirSync(STATE, { recursive: true });
-  const propsFile = path.join(STATE, `render-props.json`);
-  fs.writeFileSync(propsFile, JSON.stringify({ slug: o.slug, format: o.format, mode: o.mode, variant: o.variant, lang: o.lang, voice: o.voice }));
-  const cli = path.join(ROOT, 'node_modules', '@remotion', 'cli', 'remotion-cli.js');
-  // Only this project and the shared assets go into the render bundle (not every project and old export)
-  const slim = slimPublic(o.slug);
-  const args = [cli, 'render', 'src/index.ts', `studio-${o.format}`, out, `--props=${propsFile}`, `--codec=${codec}`, `--public-dir=${slim?.dir ?? PUBLIC}`];
-  if (scale !== 1) args.push(`--scale=${scale}`);
+  const { name, out, args, cleanup } = exportPlan(o);
   const child = spawn(process.execPath, args, { cwd: ROOT, windowsHide: true });
   const j: Job = { slug: o.slug, name, out, state: 'running', done: 0, total: 0, phase: L('Bundling', '打包'), tail: [], started: Date.now(), child };
   job = j;
@@ -302,7 +283,7 @@ function startRender(o: { slug: string; format: string; mode: string; variant: s
   child.stdout.on('data', onData);
   child.stderr.on('data', onData);
   child.on('close', (code) => {
-    slim?.cleanup();
+    cleanup();
     if (j.state === 'running') j.state = code === 0 ? 'done' : 'error';
     j.child = undefined;
     broadcast({ type: 'render', job: jobView() });
@@ -399,7 +380,13 @@ const server = http.createServer(async (req, res) => {
       checkSlug(slug);
       const raw = path.basename(url.searchParams.get('name') ?? '');
       const ext = path.extname(raw).toLowerCase();
-      if (!/^\.(png|jpe?g|webp|gif|mp4|webm|mov|mp3|wav|m4a)$/.test(ext)) return send(res, 400, { error: L(`Unsupported file type ${ext}`, `不支持的文件类型 ${ext}`) });
+      if (!/^\.(png|jpe?g|webp|gif|mp4|webm|mov|mp3|wav|m4a|html?)$/.test(ext)) return send(res, 400, { error: L(`Unsupported file type ${ext}`, `不支持的文件类型 ${ext}`) });
+      // A dropped page becomes scenes/<name>/index.html
+      if (isHtml(raw)) {
+        const chunks: Buffer[] = [];
+        for await (const c of req) chunks.push(c as Buffer);
+        return send(res, 200, { path: writeHtml(slug, `${safeName(raw)}-${Date.now().toString(36).slice(-4)}`, Buffer.concat(chunks).toString('utf8')) });
+      }
       const stem = raw.slice(0, -ext.length).replace(/[^\w一-龥-]+/g, '_').slice(0, 60) || 'file';
       const dir = path.join(PUBLIC, slug, 'media');
       fs.mkdirSync(dir, { recursive: true });
@@ -558,6 +545,7 @@ const server = http.createServer(async (req, res) => {
         const dir = path.join(PUBLIC, slug, sub);
         if (fs.existsSync(dir)) for (const f of fs.readdirSync(dir)) if (/\.(mp4|png|jpe?g|webp|gif|webm|mov|mp3|wav|m4a)$/i.test(f)) list.push(`${sub}/${f}`);
       }
+      list.push(...listHtml(slug));
       return send(res, 200, list);
     }
     if (p === '/api/thumbs' || p === '/api/peaks') {
@@ -583,7 +571,7 @@ const server = http.createServer(async (req, res) => {
       if (job?.state === 'running' && job.child?.pid) {
         job.state = 'cancelled';
         // Kill only our own render process tree
-        execFile('taskkill', ['/pid', String(job.child.pid), '/t', '/f'], () => undefined);
+        killTree(job.child);
       }
       return send(res, 200, jobView());
     }

@@ -77,6 +77,8 @@ async function step(name, fn) {
   } catch (e) {
     results.push(`FAIL ${name}: ${e.message}`);
   }
+  // Printed as it goes, so a hang while shutting down never loses the results
+  console.log(results[results.length - 1]);
   await page.screenshot({ path: path.join(SHOTS, `${String(results.length).padStart(2, '0')}-${name.replace(/\W+/g, '_')}.png`) });
 }
 
@@ -315,8 +317,9 @@ try {
     if (errors.length) throw new Error(errors.slice(0, 5).join(' | '));
   });
 } finally {
-  await browser.close();
   cleanup();
+  // Playwright closes Chrome with taskkill on Windows, which can hang when WMI does
+  await Promise.race([browser.close(), new Promise((r) => setTimeout(r, 15000))]);
 }
-console.log(results.join('\n'));
+console.log(`${results.filter((r) => r.startsWith('PASS')).length}/${results.length} passed`);
 process.exit(results.some((r) => r.startsWith('FAIL')) ? 1 : 0);

@@ -6,14 +6,17 @@ import { loadProps } from '../../src/lib/load';
 import type { Format, Props, Scene } from '../../src/lib/types';
 import { editTimeline, fmtTime, type ETimeline } from './model';
 import { addScene, duplicateScene, getPath, moveScene, removeScene, replaceScene, setBeatBars, setMinSec, setPath, splitPoint, splitScene, toggleTall, trimEdge, uniqueId, type Caps, type Op } from './ops';
-import { PUBLIC, STATE, readDoc, readLog, readSnapshot, writeDoc } from './store';
+import { PUBLIC, STATE, readDoc, readLog, readSnapshot, slugs, writeDoc } from './store';
 import { HELP as HELP_TEXT } from './help';
 import { catalogText } from './catalog';
-import { sceneTemplate } from './templates';
+import { boardTemplate, sceneTemplate } from './templates';
 import { installModel, lineStates, modelInstalled, voiceOf, voiceProject, voiceSettings, writeVoiceSettings } from './voice';
 import { ENGINES, engineDef, type EngineId } from './voices';
-import { inspectPage, parseSteps, recordPage } from './record';
+import { inspectPage, parseSteps, readRecipes, recordPage, rerecord } from './record';
+import { runExport } from './exporter';
 import { renderFrames } from './look';
+import { importHtml, isHtml, lintHtml, listHtml, pageName, readHtml, starterHtml, writeHtml } from './htmlfiles';
+import { varValues } from '../../src/lib/html';
 
 const HELP = `Cutroom CLI\n${HELP_TEXT}\n`;
 
@@ -44,6 +47,11 @@ const voiceArg = flag('voice');
 const mobile = has('mobile');
 const sizeArg = flag('size');
 const barArg = flag('bar');
+const outArg = flag('out');
+const codecArg = flag('codec');
+const scaleArg = flag('scale');
+const clean = has('clean');
+const silent = has('silent');
 const [slug, cmd, ...rest] = args;
 
 const getJson = async <T>(p: string): Promise<T | undefined> => {
@@ -90,6 +98,16 @@ function capTime(ref: string, caps: Caps, src: string): number {
 async function main() {
   if (!slug || slug === 'help') return console.log(HELP);
   if (slug === 'fx' || cmd === 'fx') return console.log(catalogText());
+  if (slug === 'projects') return console.log(slugs().filter((s) => !s.startsWith('_')).join('\n') || 'no projects yet: <name> new [title]');
+  if (cmd === 'new') {
+    const s = slug.toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '');
+    if (!s || s !== slug) throw new Error(`project names use lowercase letters, digits and dashes (${s || 'my-demo'})`);
+    const dir = path.join(PUBLIC, s);
+    if (fs.existsSync(path.join(dir, 'storyboard.json'))) throw new Error(`a project called ${s} already exists`);
+    fs.mkdirSync(path.join(dir, 'media'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'storyboard.json'), JSON.stringify(boardTemplate(s, rest.join(' ') || s, /[一-鿿]/.test(rest.join(' ')) ? 'zh' : 'en'), null, 2));
+    return console.log(`created ${s} (${path.join(dir, 'storyboard.json')}): an intro title and an outro\nnext: record <name> <url> [steps], then add screen cap/<name>.mp4 intro`);
+  }
   if (!cmd) return console.log(HELP);
   const { doc } = readDoc(slug);
   const sceneOf = (id: string): Scene => {
@@ -160,13 +178,32 @@ async function main() {
     }
     case 'add': {
       const [kind, ...more] = rest;
-      const needsSrc = ['image', 'clip', 'screen'].includes(kind);
-      const src = needsSrc ? more.shift() : undefined;
-      if (needsSrc && !src) throw new Error(`add ${kind} 需要素材路径，例如 add ${kind} media/a.${kind === 'image' ? 'png' : 'mp4'}`);
+      const needsSrc = ['image', 'clip', 'screen', 'html'].includes(kind);
+      let src = needsSrc ? more.shift() : undefined;
+      if (needsSrc && !src) throw new Error(kind === 'html' ? 'add html <scenes/name/index.html | path to a page or folder> [after-id]' : `add ${kind} 需要素材路径，例如 add ${kind} media/a.${kind === 'image' ? 'png' : 'mp4'}`);
       const after = more[0] ?? null;
       const id = uniqueId(doc.board, `${kind}-1`);
+      if (kind === 'html') {
+        // A page outside the project is copied into scenes/ first
+        if (!fs.existsSync(path.join(PUBLIC, slug, src!))) {
+          if (!fs.existsSync(src!)) throw new Error(`no ${src} in the project or on disk (html lists the project's pages)`);
+          src = importHtml(slug, src!);
+          console.log(`copied into ${src}`);
+        }
+        const { text, meta } = readHtml(slug, src!);
+        // Named after the page: scenes/loop/index.html → loop
+        const name = pageName(src!).replace(/[^\w-]+/g, '-').toLowerCase() || 'html';
+        const hid = doc.board.scenes.some((s) => s.id === name) ? uniqueId(doc.board, name) : name;
+        const sc = sceneTemplate('html', hid, src);
+        if (meta.dur) sc.minSec = Math.round(meta.dur * 100) / 100;
+        save(addScene(doc, sc, after));
+        for (const x of lintHtml(text, meta)) console.log(`${x.level}: ${x.msg}`);
+        return console.log(`${src}: ${meta.w}×${meta.h}${meta.dur ? `, ${meta.dur} s` : ''}${meta.vars.length ? `; variables: ${meta.vars.map((v) => v.id).join(', ')} (set ${hid} visual.vars.<id> <json>)` : ''}`);
+      }
       return save(addScene(doc, sceneTemplate(kind, id, src), after));
     }
+    case 'html':
+      return htmlCmd(rest);
     case 'fx':
       return console.log(catalogText());
     case 'rm':
@@ -260,6 +297,10 @@ async function main() {
       return beatCmd(rest);
     case 'look':
       return lookCmd(rest);
+    case 'export':
+      return exportCmd();
+    case 'rerecord':
+      return rerecordCmd(rest);
     case 'inspect': {
       if (!rest[0]) throw new Error('inspect <url> [--mobile]');
       return console.log(await inspectPage(rest[0], mobile));
@@ -288,6 +329,50 @@ async function main() {
       console.log(HELP);
   }
 }
+
+// Render the video to a file, like the editor's export button
+async function exportCmd() {
+  const variant = clean ? 'clean' : 'default';
+  console.log(`exporting ${slug} (${format === 'tall' ? '9:16' : '16:9'}, ${mode === 'beat' ? 'beat cut' : 'narrated'}, ${lang}${clean ? ', links hidden' : ''}${silent ? ', no voice' : ''}) …`);
+  const shown: Record<string, number> = {};
+  const t0 = Date.now();
+  const r = await runExport({ slug, format, mode, lang, variant, voice: silent ? 'off' : 'on', scale: scaleArg ? Number(scaleArg) : undefined, codec: codecArg, out: outArg }, (line) => {
+    const m = [...line.matchAll(/(\d+)\/(\d+)/g)].pop();
+    if (m) {
+      const phase = /encod/i.test(line) ? 'encoding' : 'rendering';
+      const pct = Math.floor((Number(m[1]) / Math.max(1, Number(m[2]))) * 4) * 25;
+      if (pct > (shown[phase] ?? -1)) console.log(`  ${phase} ${(shown[phase] = pct)}%`);
+    } else if (/error|failed/i.test(line)) console.log(`  ${line.slice(0, 300)}`);
+  });
+  if (r.code !== 0 || !fs.existsSync(r.out)) throw new Error(`export failed (exit ${r.code})`);
+  console.log(`saved ${r.out} (${(fs.statSync(r.out).size / 1048576).toFixed(1)} MB, ${((Date.now() - t0) / 1000).toFixed(0)} s)`);
+}
+
+// Record websites again from their saved steps; the edit follows the new footage through its marks
+async function rerecordCmd(rest: string[]) {
+  const all = readRecipes(slug);
+  if (!all.length) return console.log('no recordings with saved steps yet (record <name> <url> [steps] saves them)');
+  if (!rest.length) {
+    for (const x of all) console.log(`cap/${x.name}.mp4  ${x.recipe.url}  ${x.recipe.steps ? `${x.recipe.steps.length} steps` : 'scroll tour'}${(x.recipe as { recorded?: string }).recorded ? `  recorded ${(x.recipe as { recorded?: string }).recorded!.slice(0, 16).replace('T', ' ')}` : ''}`);
+    return console.log('rerecord <name …> | rerecord all');
+  }
+  const names = rest[0] === 'all' ? all.map((x) => x.name) : rest.map((n) => n.replace(/^cap\//, '').replace(/\.mp4$/, ''));
+  let lost = 0;
+  for (const n of names) {
+    const rec = all.find((x) => x.name === n);
+    if (!rec) throw new Error(`no saved steps for cap/${n}.mp4 (rerecord lists the ones that have them)`);
+    console.log(`re-recording cap/${n}.mp4 from ${rec.recipe.url} …`);
+    const r = await rerecord(slug, n, (s) => console.log(s));
+    console.log(`cap/${n}.mp4: ${r.before !== undefined ? `${r.before.toFixed(1)} s → ` : ''}${r.duration.toFixed(1)} s; marks: ${r.marks.map((m) => `@${m.name} ${m.t.toFixed(2)}s`).join(', ') || 'none'}`);
+    if (r.lost.length) {
+      lost += r.lost.length;
+      console.log(`  marks gone: ${r.lost.join(', ')}; whatever was anchored to them needs a new anchor (check lists it)`);
+    }
+  }
+  const users = doc0().board.scenes.filter((s) => [s.visual, s.tall].some((v) => v?.kind === 'screen' && names.some((n) => v.src === `cap/${n}.mp4`))).map((s) => s.id);
+  console.log(`next: check${users.length ? `, then look ${users.join(' ')}` : ''}${lost ? '' : ' (captions and cuts follow the marks, so the edit already fits the new footage)'}`);
+}
+const doc0 = () => readDoc(slug).doc;
 
 // Render frames for the AI to look at: seconds, m:ss, a scene id (its middle) or id+seconds; default a few scenes
 async function lookCmd(rest: string[]) {
@@ -365,10 +450,18 @@ async function checkCmd() {
   const len = (s?: string) => [...plain(s ?? '')].length;
   const FOOTAGE = new Set(['screen', 'image', 'clip']);
   const ON_TOP = new Set(['text', 'punch', 'cinema', 'bigword']);
-  const { tl } = await timeline(doc);
+  const { tl, caps } = await timeline(doc);
   const fps = tl.fps;
   for (const s of doc.board.scenes) {
     const e = tl.scenes.find((x) => x.id === s.id);
+    // Anchors to marks a re-recording no longer has
+    const sv = (format === 'tall' && s.tall ? s.tall : s.visual) as { kind: string; src?: string; from?: unknown; to?: unknown };
+    if (sv.kind === 'screen' && sv.src && caps[sv.src]) {
+      const gone = (ref: unknown) => typeof ref === 'string' && /^@/.test(ref) && (() => { try { capTime(ref, caps, sv.src!); return false; } catch { return true; } })();
+      s.lines.forEach((l, k) => gone(l.at) && add(`${s.id} line ${k + 1}`, `anchored to ${l.at}, which ${sv.src} no longer has`, `media lists its marks; set ${s.id} lines.${k}.at '"@<mark>"'`));
+      for (const key of ['from', 'to'] as const) if (gone(sv[key])) add(s.id, `${key} ${sv[key]} is not a mark of ${sv.src}`, `trim ${s.id} --${key} <seconds or @mark>`);
+      (s.sounds ?? []).forEach((c, i) => gone(c.at) && add(s.id, `sound ${c.id} is anchored to ${c.at}, which ${sv.src} no longer has`, `set ${s.id} sounds.${i}.at <seconds or "@mark">`));
+    }
     s.lines.forEach((l, k) => {
       if (!plain(l.zh).trim()) add(`${s.id} line ${k + 1}`, 'empty caption', `set ${s.id} lines.${k} undefined`);
       else if (len(l.zh) > 26) add(`${s.id} line ${k + 1}`, `${len(l.zh)} characters on one caption (keep it under 20 or so)`, `split it into two lines with set ${s.id} lines '[…]'`);
@@ -382,6 +475,13 @@ async function checkCmd() {
       const fv = (format === 'tall' && s.tall ? s.tall : s.visual) as { kind: string; zoom?: string };
       if (format === 'tall' && fv.kind === 'screen' && fv.zoom !== undefined && fv.zoom !== 'auto') add(s.id, 'the camera is off, so the whole desktop recording sits small in the 9:16 frame and its text is unreadable on a phone', `set ${s.id} ${s.tall ? 'tall' : 'visual'}.zoom undefined (the camera follows the cursor again), or give the 9:16 version a phone recording: tall ${s.id} on`);
       if (e.rate < 0.75) add(s.id, `the recording plays at ${e.rate}× speed, so the cursor and typing look like slow motion`, `keep visual.rate at 0.8 or above: show a longer stretch of the recording (trim ${s.id} --from/--to) or shorten the narration`);
+    }
+    const hv = (format === 'tall' && s.tall ? s.tall : s.visual) as { kind: string; src?: string; fit?: string };
+    if (hv.kind === 'html' && hv.src && fs.existsSync(path.join(PUBLIC, slug, hv.src))) {
+      const { text, meta } = readHtml(slug, hv.src);
+      for (const x of lintHtml(text, meta)) if (x.level !== 'note') add(s.id, `${hv.src}: ${x.msg}`, `html write ${hv.src.replace(/^scenes\//, '')} '<fixed page>'`);
+      const want = format === 'tall' ? 1080 / 1920 : 1920 / 1080;
+      if (Math.abs(meta.w / meta.h - want) > 0.02 && hv.fit !== 'cover') add(s.id, `${hv.src} is ${meta.w}×${meta.h}, so it shows letterboxed in the ${format === 'tall' ? '9:16' : '16:9'} frame`, `set ${s.id} ${hv === s.tall ? 'tall' : 'visual'}.fit '"cover"' (crops the edges), or make a ${format === 'tall' ? '1080×1920' : '1920×1080'} version`);
     }
     if (e && e.dur < fps) add(s.id, `only ${(e.dur / fps).toFixed(2)} s long`, `min ${s.id} 2`);
     const cues = (e?.sounds ?? []).filter((c) => !c.past).sort((a, b) => a.f - b.f);
@@ -439,8 +539,87 @@ function mediaCmd() {
   const mark = (f: string) => (used.has(f.split('  ')[0]) ? `${f}  (in use)` : f);
   console.log(`screen recordings (add screen <src>):\n${caps.map((f) => `  ${mark(f)}`).join('\n') || '  none'}`);
   console.log(`images and videos (add image|clip <src>):\n${media.map((f) => `  ${mark(f)}`).join('\n') || '  none'}`);
+  const pages = listHtml(slug).map((f) => {
+    const { meta } = readHtml(slug, f);
+    return `${f}  ${meta.w}×${meta.h}${meta.dur ? `, ${meta.dur} s` : ''}${meta.vars.length ? `, variables: ${meta.vars.map((v) => v.id).join(' ')}` : ''}`;
+  });
+  console.log(`HTML pages (add html <src>):\n${pages.map((f) => `  ${mark(f)}`).join('\n') || '  none'}`);
   console.log(`project audio:\n${audio.map((f) => `  ${f}`).join('\n') || '  none'}`);
   console.log(`music library (set - music.src '"music/…"'):\n${music.map((f) => `  ${f}`).join('\n') || '  none'}`);
+}
+
+// HTML scenes: pages with seekable animation in scenes/ (HyperFrames compositions included)
+async function htmlCmd(rest: string[]) {
+  const { doc } = readDoc(slug);
+  const [sub, ...more] = rest;
+  const users = (src: string) => doc.board.scenes.filter((s) => [s.visual, s.tall].some((v) => v?.kind === 'html' && v.src === src)).map((s) => s.id);
+  const resolve = (a?: string) => {
+    if (!a) return undefined;
+    const sc = doc.board.scenes.find((s) => s.id === a);
+    const v = sc && (format === 'tall' && sc.tall ? sc.tall : sc.visual);
+    if (v?.kind === 'html') return v.src;
+    if (isHtml(a)) return a.startsWith('scenes/') ? a : `scenes/${a}`;
+    return `scenes/${a}/index.html`;
+  };
+  const report = (rel: string) => {
+    const { text, meta } = readHtml(slug, rel);
+    console.log(`${rel}: ${meta.w}×${meta.h}${meta.dur ? `, ${meta.dur} s` : ', length unknown'}${meta.id ? `, composition "${meta.id}"` : ''}`);
+    const issues = lintHtml(text, meta);
+    for (const x of issues) console.log(`  ${x.level}: ${x.msg}`);
+    if (!issues.some((x) => x.level !== 'note')) console.log('  no problems found (look renders its frames)');
+    const u = users(rel);
+    console.log(u.length ? `used by ${u.join(', ')}; the preview reloads it` : `next: add html ${rel} [after-id]`);
+  };
+  switch (sub ?? 'list') {
+    case 'list': {
+      const all = listHtml(slug);
+      if (!all.length) return console.log('no HTML pages yet: html new <name>, html write <name> <html>, or html import <path>');
+      for (const f of all) {
+        const { meta } = readHtml(slug, f);
+        const u = users(f);
+        console.log(`${f}  ${meta.w}×${meta.h}${meta.dur ? `, ${meta.dur} s` : ''}${meta.vars.length ? `, variables: ${meta.vars.map((v) => v.id).join(' ')}` : ''}${u.length ? `  (in ${u.join(', ')})` : ''}`);
+      }
+      return;
+    }
+    case 'new': {
+      const [name, secArg] = more;
+      if (!name) throw new Error('html new <name> [seconds]');
+      const rel = `scenes/${name.replace(/[^\w-]+/g, '-')}/index.html`;
+      if (fs.existsSync(path.join(PUBLIC, slug, rel))) throw new Error(`${rel} already exists (html write replaces it)`);
+      const [w, h] = format === 'tall' ? [1080, 1920] : [1920, 1080];
+      writeHtml(slug, rel.slice(7), starterHtml({ id: name, w, h, sec: Number(secArg) > 0 ? Number(secArg) : 4, title: doc.board.title ?? name, theme: doc.board.theme }));
+      return report(rel);
+    }
+    case 'write': {
+      const [name, content] = more;
+      if (!name || content === undefined) throw new Error("html write <name> '<!doctype html>…'  (or a file path, or - to read stdin)");
+      const text = content === '-' ? fs.readFileSync(0, 'utf8') : !content.includes('<') && fs.existsSync(content) ? fs.readFileSync(content, 'utf8') : content;
+      return report(writeHtml(slug, name, text));
+    }
+    case 'import': {
+      if (!more[0]) throw new Error('html import <path to a page or a folder with index.html>');
+      return report(importHtml(slug, more[0]));
+    }
+    case 'check': {
+      const rel = resolve(more[0]);
+      if (rel) return report(rel);
+      const all = listHtml(slug);
+      if (!all.length) return console.log('no HTML pages');
+      return all.forEach(report);
+    }
+    case 'vars': {
+      const sc = doc.board.scenes.find((s) => s.id === more[0]);
+      const v = sc && (format === 'tall' && sc.tall ? sc.tall : sc.visual);
+      if (!sc || v?.kind !== 'html') throw new Error('html vars <scene-id of an HTML scene>');
+      const { meta } = readHtml(slug, v.src);
+      if (!meta.vars.length) return console.log(`${v.src} declares no variables (data-composition-variables on its root)`);
+      const cur = varValues(meta, v.vars);
+      for (const d of meta.vars) console.log(`${d.id}${d.type ? ` (${d.type})` : ''}${d.label ? ` ${d.label}` : ''}: ${JSON.stringify(cur[d.id])}${v.vars?.[d.id] === undefined ? ' (default)' : ''}`);
+      return console.log(`change one: set ${sc.id} ${v === sc.tall ? 'tall' : 'visual'}.vars.<id> <json>`);
+    }
+    default:
+      throw new Error('html [list] | new <name> [sec] | write <name> <html|file|-> | import <path> | check [name|scene-id] | vars <scene-id>');
+  }
 }
 
 // AI voice-over: list / use / generate

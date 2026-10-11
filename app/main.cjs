@@ -46,11 +46,11 @@ function prepareData() {
       }
       fs.cpSync(src, dst, { recursive: true, force: true });
     }
-    // An existing demo project gets the narration added in 0.3.0; files already there are left alone
+    // An existing demo project gets the narration added in 0.3.0 and the HTML pages added in 0.4.0; files already there are left alone
     const demoSrc = path.join(ROOT, 'public', 'showcase');
     const demoDst = path.join(data, 'showcase');
     if (fs.existsSync(demoDst))
-      for (const f of ['timings.json', 'timings-en.json', 'vo']) {
+      for (const f of ['timings.json', 'timings-en.json', 'vo', 'scenes']) {
         const s = path.join(demoSrc, f);
         const d = path.join(demoDst, f);
         if (fs.existsSync(s) && !fs.existsSync(d)) fs.cpSync(s, d, { recursive: true });
@@ -126,7 +126,10 @@ app.whenReady().then(createWindow);
 app.on('window-all-closed', () => app.quit());
 app.on('quit', () => {
   if (!server?.pid) return;
-  // Stop only the server this window started
-  if (process.platform === 'win32') spawn('taskkill', ['/pid', String(server.pid), '/t', '/f'], { windowsHide: true });
-  else server.kill();
+  // Stop only the server this window started; taskkill /t can fail silently (it needs WMI), so kill it directly too
+  if (process.platform === 'win32') {
+    const tk = spawn('taskkill', ['/pid', String(server.pid), '/t', '/f'], { windowsHide: true });
+    tk.on('exit', () => server.exitCode === null && server.kill());
+    tk.on('error', () => server.kill());
+  } else server.kill();
 });

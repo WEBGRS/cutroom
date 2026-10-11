@@ -8,6 +8,7 @@ import { Field, FieldControl, JsonEdit, Row, asRef, isNum, num, refOk } from './
 import { Icon } from './icons';
 import { nm, tr } from './i18n';
 import { getPrefs, usePrefs } from './prefs';
+import { HtmlVars, isHtml } from './HtmlParts';
 
 const BASE_KINDS: Record<string, { en: string; zh: string }> = {
   screen: { en: 'Recording', zh: '录屏' },
@@ -154,7 +155,7 @@ export function Inspector(p: Props) {
               {tr('Separate picture for 9:16', '竖屏用单独画面')}
             </label>
           ) : null}
-          <VisualFields v={v} k={key} set={set} assets={p.assets} marks={marks} />
+          <VisualFields v={v} k={key} set={set} assets={p.assets} marks={marks} slug={p.slug} setMin={(sec) => set('minSec', sec)} />
         </div>
         <div className="sec">
           <h3>{tr('Placement', '位置')}</h3>
@@ -571,7 +572,7 @@ function OverlayItem({ o, i, focus, set }: { o: Overlay; i: number; focus: boole
 
 const lines = (s: string) => s.split('\n').map((x) => x.trim()).filter(Boolean);
 
-function VisualFields({ v, k, set, assets, marks }: { v: Visual; k: string; set: (path: string, value: unknown) => void; assets: string[]; marks: string[] }) {
+function VisualFields({ v, k, set, assets, marks, slug, setMin }: { v: Visual; k: string; set: (path: string, value: unknown) => void; assets: string[]; marks: string[]; slug: string; setMin: (sec: number) => void }) {
   const f = (name: string) => `${k}.${name}`;
   const pick = (list: string[], cur?: string) => [...new Set([cur ?? '', ...list])].filter(Boolean);
   const frameSel = (value: string | undefined, allowNone: boolean) => (
@@ -659,6 +660,36 @@ function VisualFields({ v, k, set, assets, marks }: { v: Visual; k: string; set:
               {frameSel(v.frame, true)}
             </div>
           </div>
+        </>
+      );
+    case 'html':
+      return (
+        <>
+          <Row label={tr('Page', '页面')}>
+            <select value={v.src} onChange={(e) => set(f('src'), e.target.value)}>
+              {pick(assets.filter(isHtml), v.src).map((a) => (
+                <option key={a}>{a}</option>
+              ))}
+            </select>
+          </Row>
+          <div className="row3">
+            <div>
+              <label>{tr('From s', '从第几秒')}</label>
+              <Field value={v.from} placeholder="0" validate={isNum} onCommit={(s) => set(f('from'), num(s))} />
+            </div>
+            <div>
+              <label>{tr('Fit', '填充')}</label>
+              <select value={v.fit ?? 'contain'} onChange={(e) => set(f('fit'), e.target.value === 'contain' ? undefined : e.target.value)} style={{ width: '100%' }}>
+                <option value="contain">{tr('Fit whole', '完整显示')}</option>
+                <option value="cover">{tr('Fill', '裁满')}</option>
+              </select>
+            </div>
+            <div>
+              <label>{tr('Frame', '外框')}</label>
+              {frameSel(v.frame, true)}
+            </div>
+          </div>
+          <HtmlVars slug={slug} v={v} onSet={(id, value) => set(f(`vars.${id}`), value)} onLength={setMin} />
         </>
       );
     case 'clip':

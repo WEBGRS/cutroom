@@ -7,6 +7,7 @@ import { spawn } from 'node:child_process';
 // @ts-expect-error plain JS module
 import { record } from '../../tools/capture.mjs';
 import { PUBLIC, ROOT, STATE } from './store';
+import { killTree } from './proc';
 
 // ffmpeg from Remotion's compositor package when present, so no system install is needed
 export function ffmpegBin(): string {
@@ -131,9 +132,10 @@ async function editorSandbox(address: string, cliSlug: string, log: (s: string) 
     });
   });
   const child = spawn(process.execPath, [path.join(ROOT, 'editor', 'dist', 'server.mjs')], { env: { ...process.env, PORT: String(port), VS_DATA: data, VS_ROOT: ROOT }, stdio: 'ignore', windowsHide: true });
+  // The CLI must be able to exit even if the copy outlives it
+  child.unref();
   const stop = () => {
-    if (child.pid && process.platform === 'win32') spawn('taskkill', ['/pid', String(child.pid), '/t', '/f'], { windowsHide: true, stdio: 'ignore' });
-    else child.kill();
+    killTree(child);
     // Unlink the shared folders first so removing the copy can never reach their targets
     setTimeout(() => {
       try {
@@ -181,9 +183,52 @@ export async function recordPage(o: RecordOpts): Promise<{ file: string; duratio
   // Cutroom recording itself: a second editor over a copy of the project, so clicks never touch the real one
   const sandbox = await editorSandbox(o.url, o.slug, log);
   try {
-    return await recordUrl({ ...o, url: sandbox?.url ?? o.url, size: o.size ?? (sandbox ? { width: 1600, height: 900 } : undefined) }, name, browser, log, sandbox?.rewrite);
+    const r = await recordUrl({ ...o, url: sandbox?.url ?? o.url, size: o.size ?? (sandbox ? { width: 1600, height: 900 } : undefined) }, name, browser, log, sandbox?.rewrite);
+    writeRecipe(o.slug, name, { url: o.url, steps: o.steps?.length ? o.steps : undefined, mobile: o.mobile || undefined, size: o.size, dpr: o.dpr });
+    return r;
   } finally {
     sandbox?.stop();
+  }
+}
+
+// How a recording was made, so `rerecord` can make it again after the site changes
+export interface Recipe {
+  url: string;
+  steps?: Step[];
+  mobile?: boolean;
+  size?: { width: number; height: number };
+  dpr?: number;
+}
+const recipeFile = (slug: string, name: string) => path.join(PUBLIC, slug, 'cap', `${name}.recipe.json`);
+function writeRecipe(slug: string, name: string, r: Recipe) {
+  fs.writeFileSync(recipeFile(slug, name), JSON.stringify({ ...r, recorded: new Date().toISOString() }, null, 2));
+}
+export function readRecipes(slug: string): { name: string; recipe: Recipe }[] {
+  const dir = path.join(PUBLIC, slug, 'cap');
+  if (!fs.existsSync(dir)) return [];
+  return fs
+    .readdirSync(dir)
+    .filter((f) => f.endsWith('.recipe.json'))
+    .map((f) => ({ name: f.slice(0, -'.recipe.json'.length), recipe: JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')) as Recipe }));
+}
+
+// Record again from the saved recipe; the old files come back if it fails
+export async function rerecord(slug: string, name: string, log: (s: string) => void) {
+  const rec = readRecipes(slug).find((x) => x.name === name);
+  if (!rec) throw new Error(`cap/${name}.mp4 has no recipe (only recordings made by record or the editor have one)`);
+  const dir = path.join(PUBLIC, slug, 'cap');
+  const keep = path.join(STATE, 'rerecord-backup', slug);
+  fs.mkdirSync(keep, { recursive: true });
+  const files = [`${name}.mp4`, `${name}.json`].filter((f) => fs.existsSync(path.join(dir, f)));
+  for (const f of files) fs.copyFileSync(path.join(dir, f), path.join(keep, f));
+  const before = fs.existsSync(path.join(dir, `${name}.json`)) ? (JSON.parse(fs.readFileSync(path.join(dir, `${name}.json`), 'utf8')) as { duration: number; events: { type: string; name?: string }[] }) : null;
+  try {
+    const r = await recordPage({ slug, name, url: rec.recipe.url, steps: rec.recipe.steps, mobile: rec.recipe.mobile, size: rec.recipe.size, dpr: rec.recipe.dpr, log });
+    const lost = (before?.events ?? []).filter((e) => e.type === 'mark' && !r.marks.some((m) => m.name === e.name)).map((e) => `@${e.name}`);
+    return { ...r, before: before?.duration, lost };
+  } catch (e) {
+    for (const f of files) fs.copyFileSync(path.join(keep, f), path.join(dir, f));
+    throw e;
   }
 }
 

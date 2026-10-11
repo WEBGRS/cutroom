@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { ROOT } from './store';
+import { killTree } from './proc';
 import { lookDir } from './look';
 import { L } from './settings';
 
@@ -321,10 +322,7 @@ export function startAgent(id: AgentId, slug: string, model: string | undefined,
   child.stderr!.on('data', (d) => (err += d));
   child.on('close', (code) => onExit(code, err));
   child.stdin!.end(id === 'antigravity' ? `${JSON.stringify({ event: 'user', message: { role: 'user', content: prompt } })}\n` : prompt);
-  const kill = () => {
-    if (child.pid && process.platform === 'win32') spawn('taskkill', ['/pid', String(child.pid), '/t', '/f'], { windowsHide: true });
-    else child.kill();
-  };
+  const kill = () => killTree(child);
   return { child, kill };
 }
 

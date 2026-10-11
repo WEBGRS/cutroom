@@ -8,6 +8,7 @@ export const ADDABLE: [string, string, string, boolean][] = [
   ['image', 'Image', '图片', true],
   ['clip', 'Video', '视频', true],
   ['screen', 'Screen recording', '录屏', true],
+  ['html', 'HTML page', 'HTML 页面', true],
 ];
 
 const MIN_SEC: Record<string, number> = { counter: 3, chart: 4, checklist: 4.5, quote: 4.5, chat: 6, notifs: 3.5, code: 6, terminal: 6, flap: 4, compare: 4.5 };
@@ -35,6 +36,8 @@ export function sceneTemplate(kind: string, id: string, src?: string, lang: 'en'
       return { ...base, visual: { kind: 'clip', src: src ?? '', fit: 'cover', muted: true }, beat: [{ t: '', n: 4 }], minSec: 4, transition: 'fade' };
     case 'screen':
       return { ...base, visual: { kind: 'screen', src: src ?? '', to: '@end' }, beat: [{ t: '', n: 4 }], transition: 'fade' };
+    case 'html':
+      return { ...base, visual: { kind: 'html', src: src ?? '' }, beat: [{ t: '', n: 4 }], minSec: 5, transition: 'fade' };
     default: {
       const demo = DEMO_CARDS[kind];
       if (!demo) throw new Error(`Unknown kind ${kind} (available: ${ADDABLE.map(([k]) => k).join(' / ')})`);

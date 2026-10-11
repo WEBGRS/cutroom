@@ -34,15 +34,15 @@
       "chapter": "开场",
       "lines": [
         {
-          "zh": "这条视频是[[写出来]]的，不是拖出来的。",
-          "en": "This video was written, not dragged together."
+          "zh": "录一遍产品，剩下的[[和 AI 一起剪]]。",
+          "en": "Film your product once, then cut it together with an AI."
         }
       ],
       "visual": {
         "kind": "title",
         "kicker": "Cutroom",
-        "title": "用[[代码]]剪视频",
-        "sub": "你在界面里改，AI 在旁边一起改"
+        "title": "录下产品，[[和 AI]] 一起剪",
+        "sub": "改版了就重录，剪辑跟着素材走"
       },
       "fx": {
         "vignette": 0.35,
@@ -50,8 +50,8 @@
       },
       "beat": [
         {
-          "t": "用[[代码]]剪视频",
-          "en": "Edit video as code",
+          "t": "录产品 [[和 AI]] 一起剪",
+          "en": "Record it. Cut it with AI.",
           "n": 4
         }
       ]
@@ -207,34 +207,34 @@
       "transDir": "down",
       "lines": [
         {
-          "zh": "十种转场，十几个特效参数，十种叠加元素。",
-          "en": "Ten transitions, a dozen effect controls, ten overlay types."
+          "zh": "三十九种转场，三十三种文字动画，四十一种叠加。",
+          "en": "39 transitions, 33 text animations, 41 overlays."
         }
       ],
       "visual": {
         "kind": "stats",
         "items": [
           {
-            "value": "10",
+            "value": "39",
             "label": "种转场",
             "en": "transitions"
           },
           {
-            "value": "18",
-            "label": "个特效参数",
-            "en": "effect controls"
+            "value": "33",
+            "label": "种文字动画",
+            "en": "text animations"
           },
           {
-            "value": "10",
+            "value": "41",
             "label": "种叠加元素",
-            "en": "overlay types"
+            "en": "overlays"
           }
         ]
       },
       "beat": [
         {
-          "t": "10 转场 · 18 特效 · 10 叠加",
-          "en": "10 transitions · 18 effects · 10 overlays",
+          "t": "39 转场 · 33 文字 · 41 叠加",
+          "en": "39 transitions · 33 text · 41 overlays",
           "n": 4
         }
       ],
@@ -286,6 +286,51 @@
           "n": 4
         }
       ]
+    },
+    {
+      "id": "loop",
+      "chapter": "重录",
+      "transition": "fade",
+      "lines": [
+        {
+          "zh": "界面改版了，[[重录一遍]]，字幕跟着标记走。",
+          "en": "When the app changes, run the recording again. The captions follow the marks."
+        }
+      ],
+      "beat": [
+        {
+          "t": "改版了 [[重录]]就行",
+          "en": "App changed? Re-record",
+          "n": 4
+        }
+      ],
+      "visual": {
+        "kind": "html",
+        "src": "scenes/loop/index.html",
+        "vars": {
+          "title": "产品改版了？重录一遍就行",
+          "step1": "录屏",
+          "note1": "每次点击和标记都记下来",
+          "step2": "和 AI 一起剪",
+          "note2": "字幕挂在标记上",
+          "step3": "重新录制",
+          "note3": "剪辑跟着新素材走"
+        }
+      },
+      "tall": {
+        "kind": "html",
+        "src": "scenes/loop/tall.html",
+        "vars": {
+          "title": "产品改版了？重录一遍就行",
+          "step1": "录屏",
+          "note1": "每次点击和标记都记下来",
+          "step2": "和 AI 一起剪",
+          "note2": "字幕挂在标记上",
+          "step3": "重新录制",
+          "note3": "剪辑跟着新素材走"
+        }
+      },
+      "minSec": 4.5
     },
     {
       "id": "outro",

@@ -4,6 +4,7 @@ import type { CaptureMeta, Fx, Props, Scene, TimeRef, Visual } from '../../src/l
 import { zoomSegments } from '../../src/lib/camera';
 import { OVERLAY_LIST, SCENE_FX, TRANSITION_LIST } from './catalog';
 import { soundDef } from '../../src/fx/sounds';
+import { pageName } from './pagename';
 
 export type VisualKey = 'visual' | 'tall';
 
@@ -107,6 +108,8 @@ export function label(v: Visual): string {
     case 'scroll':
     case 'image':
       return v.src.replace(/^.*\//, '');
+    case 'html':
+      return pageName(v.src);
     case 'title':
       return plain(v.title);
     case 'stats':

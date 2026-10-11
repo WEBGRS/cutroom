@@ -1,0 +1,13 @@
+{
+  "name": "cutroom",
+  "description": "Demo videos of the software you build: record the app, cut it with captions and voice-over, re-record after UI changes, export MP4. Drives the Cutroom editor's command line.",
+  "version": "0.4.0",
+  "author": {
+    "name": "WEBGRS",
+    "url": "https://github.com/WEBGRS"
+  },
+  "homepage": "https://github.com/WEBGRS/cutroom",
+  "repository": "https://github.com/WEBGRS/cutroom",
+  "license": "MIT",
+  "keywords": ["video", "demo", "screen-recording", "remotion", "hyperframes"]
+}

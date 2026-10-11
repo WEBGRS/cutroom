@@ -83,11 +83,11 @@ export interface OverlayItem extends Named {
 const P = (en: string, zh: string) => ({ en, zh });
 
 export const OVERLAY_LIST: OverlayItem[] = [
-  { id: 'text', en: 'Animated text', zh: '动画文字', group: 'text', src: 'text-stagger', fields: ['text', 'sub', 'anim', 'x', 'y', 'size', 'color', 'plate'], init: { text: 'Edit video as code', anim: 'fadeup', x: 0.5, y: 0.45, dur: 2.4 } },
+  { id: 'text', en: 'Animated text', zh: '动画文字', group: 'text', src: 'text-stagger', fields: ['text', 'sub', 'anim', 'x', 'y', 'size', 'color', 'plate'], init: { text: 'New in v1.1', anim: 'fadeup', x: 0.5, y: 0.45, dur: 2.4 } },
   { id: 'punch', en: 'Punch word', zh: '大字冲击', group: 'text', fields: ['text', 'sub'], init: { text: 'Wow' } },
   { id: 'cinema', en: 'Cinematic title', zh: '电影感标题', group: 'text', fields: ['text', 'sub'], init: { text: 'CUTROOM', dur: 2.4 } },
   { id: 'lower', en: 'Lower third', zh: '下三分之一字幕条', group: 'text', src: 'lt-clean-bar', fields: ['text', 'sub', 'style', 'y', 'color'], init: { text: 'Jamie Chen', sub: 'Product designer', dur: 3 } },
-  { id: 'ticker', en: 'News ticker', zh: '滚动新闻条', group: 'text', src: 'news-ticker', fields: ['text', 'sub', 'y', 'color'], init: { text: 'Cutroom 1.0 is out · edit video as code · AI edits the same storyboard', sub: 'NEW', dur: 4 } },
+  { id: 'ticker', en: 'News ticker', zh: '滚动新闻条', group: 'text', src: 'news-ticker', fields: ['text', 'sub', 'y', 'color'], init: { text: 'v1.1 is out · faster search · dark mode · a new export menu', sub: 'NEW', dur: 4 } },
   { id: 'bigword', en: 'Background word', zh: '背景大字', group: 'text', src: 'mk-emphasis-type', fields: ['text', 'x', 'y'], init: { text: 'EDIT', x: 0.5, y: 0.5, dur: 3 } },
   { id: 'tag', en: 'Tag', zh: '标签', group: 'callout', fields: ['text', 'sub', 'x', 'y'], init: { text: 'Tag', x: 0.5, y: 0.2 } },
   { id: 'note', en: 'Note', zh: '注释', group: 'callout', fields: ['text', 'sub', 'x', 'y'], init: { text: 'Note', x: 0.06, y: 0.15 } },

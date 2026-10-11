@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="loop.css">
+<style>
+  .tag { left: 56px; top: 300px; }
+  h1 { top: 360px; font-size: 76px; padding: 0 70px; line-height: 1.15; }
+  .steps { left: 0; right: 0; top: 560px; flex-direction: column; }
+  .card { width: 780px; height: 200px; gap: 6px; }
+  .card b { font-size: 48px; }
+  .card span { font-size: 30px; }
+  .icon { position: absolute; left: 40px; top: 50px; width: 100px; height: 100px; }
+  .card b, .card span { margin-left: 120px; }
+  .link { width: 8px; height: 40px; margin: 14px 0; transform-origin: 50% 0; background: linear-gradient(180deg, #3b6ef5, #8fb0ff); }
+</style>
+</head>
+<body>
+<div id="root" data-composition-id="loop" data-width="1080" data-height="1920" data-duration="6"
+  data-composition-variables='[
+    {"id":"title","type":"string","label":"Title","default":"Your app changed? Record it again."},
+    {"id":"step1","type":"string","label":"Step 1","default":"Record"},
+    {"id":"note1","type":"string","label":"Step 1 note","default":"every click and mark is logged"},
+    {"id":"step2","type":"string","label":"Step 2","default":"Cut with AI"},
+    {"id":"note2","type":"string","label":"Step 2 note","default":"captions hang on the marks"},
+    {"id":"step3","type":"string","label":"Step 3","default":"Re-record"},
+    {"id":"note3","type":"string","label":"Step 3 note","default":"the edit follows the new footage"}
+  ]'>
+  <div class="tag">scenes/loop/tall.html</div>
+  <h1 data-var="title"></h1>
+  <div class="steps">
+    <div class="card"><div class="icon"><div class="dot"></div></div><b data-var="step1"></b><span data-var="note1"></span></div>
+    <div class="link"></div>
+    <div class="card"><div class="icon"><svg viewBox="0 0 24 24"><path d="M4 5h16v11H9l-5 4z"/><path d="M8 10h8M8 13h5"/></svg></div><b data-var="step2"></b><span data-var="note2"></span></div>
+    <div class="link"></div>
+    <div class="card again">
+      <div class="icon"><svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.3-5.7"/><path d="M20 4v5h-5"/></svg></div><b data-var="step3"></b><span data-var="note3"></span>
+      <div class="ring" data-start="2.6" data-duration="3.4"></div>
+      <div class="ver" data-start="2.9" data-duration="3.1">v1.1</div>
+    </div>
+  </div>
+</div>
+<script src="loop.js"></script>
+</body>
+</html>

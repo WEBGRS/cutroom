@@ -1,6 +1,6 @@
 {
   "name": "cutroom",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "description": "A video editor where you and an AI assistant edit the same storyboard file. Built on Remotion.",
   "license": "MIT",
@@ -13,7 +13,7 @@
     "build": "node editor/build.mjs",
     "studio": "remotion studio",
     "typecheck": "tsc --noEmit && tsc -p editor/tsconfig.json",
-    "test": "node editor/build.mjs && node --test editor/dist/test/ops.test.mjs editor/dist/test/compat.test.mjs editor/dist/test/agents.test.mjs editor/dist/test/voice.test.mjs editor/dist/test/record.test.mjs editor/dist/test/cli.test.mjs editor/dist/test/look.test.mjs",
+    "test": "node editor/build.mjs && node --test editor/dist/test/ops.test.mjs editor/dist/test/compat.test.mjs editor/dist/test/agents.test.mjs editor/dist/test/voice.test.mjs editor/dist/test/record.test.mjs editor/dist/test/cli.test.mjs editor/dist/test/look.test.mjs editor/dist/test/html.test.mjs",
     "test:e2e": "node editor/test/e2e.mjs showcase",
     "test:oracle": "node editor/test/oracle.mjs showcase",
     "test:app": "node editor/test/app.mjs",

@@ -2,7 +2,8 @@
 // The preview runs in Remotion's own headless shell, so any difference is the editor's data or timing,
 // not browser text rasterization (system Chrome draws glyph edges 1-2 px differently).
 // A positive control compares against a different frame, which must score clearly lower.
-// Needs the server running. Usage: node editor/test/oracle.mjs [--system-chrome]
+// Needs the server running. Usage: node editor/test/oracle.mjs [slug] [--system-chrome] [--frames 120,480 --format wide --mode voice]
+// With VS_DATA set (a server over another data folder), the renderer reads that folder too.
 import { bundle } from '@remotion/bundler';
 import { ensureBrowser, renderStill, selectComposition } from '@remotion/renderer';
 import { chromium } from 'playwright';
@@ -18,12 +19,18 @@ const MIN_PSNR = system ? 30 : 50;
 // Frames per project; the first frame of each case also gets a control (a different frame must fail)
 const SETS = {
   showcase: [
-    { format: 'wide', mode: 'voice', frames: [495, 140, 258, 870, 1010, 1250, 1680, 2250], control: 30 },
-    { format: 'tall', mode: 'beat', frames: [290, 60, 520, 650, 940], control: 120 },
+    // 2677 → 2467: the HTML scene "loop" played, then scrubbed back past its timed elements
+    { format: 'wide', mode: 'voice', frames: [495, 140, 258, 870, 1010, 1250, 1680, 2250, 2677, 2467], control: 30 },
+    { format: 'tall', mode: 'beat', frames: [290, 60, 520, 650, 940, 1134, 1050], control: 120 },
   ],
 };
-const slugArg = process.argv.slice(2).find((a) => !a.startsWith('--')) ?? 'showcase';
-const CASES = (SETS[slugArg] ?? []).map((c) => ({ slug: slugArg, ...c }));
+const argv = process.argv.slice(2);
+const argOf = (n) => (argv.includes(`--${n}`) ? argv[argv.indexOf(`--${n}`) + 1] : undefined);
+const slugArg = argv.find((a, i) => !a.startsWith('--') && !['--frames', '--format', '--mode'].includes(argv[i - 1])) ?? 'showcase';
+const only = argOf('frames')?.split(',').map(Number);
+const CASES = only
+  ? [{ slug: slugArg, format: argOf('format') ?? 'wide', mode: argOf('mode') ?? 'voice', frames: only, control: 30 }]
+  : (SETS[slugArg] ?? []).map((c) => ({ slug: slugArg, ...c }));
 if (!CASES.length) throw new Error(`no oracle frames for ${slugArg}`);
 fs.mkdirSync(OUT, { recursive: true });
 
@@ -37,7 +44,7 @@ function psnr(a, b) {
 const SHELL = path.resolve('node_modules/.remotion/chrome-headless-shell/win64/chrome-headless-shell-win64/chrome-headless-shell.exe');
 // A fresh install has no headless shell until the first render; fetch it now
 await ensureBrowser();
-const serveUrl = await bundle({ entryPoint: path.resolve('src/index.ts') });
+const serveUrl = await bundle({ entryPoint: path.resolve('src/index.ts'), ...(process.env.VS_DATA ? { publicDir: process.env.VS_DATA } : {}) });
 // Same text/colour flags Remotion's renderer launches with
 const FLAGS = ['--font-render-hinting=none', '--force-color-profile=srgb', '--hide-scrollbars'];
 const browser = await chromium.launch({ ...(system ? { channel: 'chrome' } : { executablePath: SHELL }), headless: true, args: ['--autoplay-policy=no-user-gesture-required', ...(system ? [] : FLAGS)] });
@@ -51,6 +58,8 @@ for (const c of CASES) {
   await page.waitForFunction(() => window.__player, null, { timeout: 30000 });
   const preview = async (f, file) => {
     await page.evaluate((f) => window.__player.seekTo(f), f);
+    // HTML scenes load their page first (fonts, scripts) and then set its clock
+    await page.waitForFunction(() => [...document.querySelectorAll('[data-html-scene]')].every((i) => i.dataset.ready), null, { timeout: 30000 });
     // Settle: two identical screenshots in a row
     let prev = null;
     for (let i = 0; i < 30; i++) {
