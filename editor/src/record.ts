@@ -1,9 +1,12 @@
 // Screen recordings of web pages for the CLI and the AI assistant: look at a page, then record scripted steps
 import fs from 'node:fs';
+import net from 'node:net';
+import os from 'node:os';
 import path from 'node:path';
+import { spawn } from 'node:child_process';
 // @ts-expect-error plain JS module
 import { record } from '../../tools/capture.mjs';
-import { PUBLIC, ROOT } from './store';
+import { PUBLIC, ROOT, STATE } from './store';
 
 // ffmpeg from Remotion's compositor package when present, so no system install is needed
 export function ffmpegBin(): string {
@@ -85,18 +88,112 @@ export interface RecordOpts {
   log?: (s: string) => void;
 }
 
+// A Cutroom editor at a local address: record a second editor over a copy of the project instead
+async function editorSandbox(address: string, cliSlug: string, log: (s: string) => void): Promise<{ url: string; rewrite: (u: string) => string; stop: () => void } | null> {
+  let url: URL;
+  try {
+    url = new URL(address);
+  } catch {
+    return null;
+  }
+  if (!['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname)) return null;
+  let info: { version?: string; projectsDir?: string } | null = null;
+  try {
+    info = await (await fetch(new URL('/api/app', url), { signal: AbortSignal.timeout(3000) })).json();
+  } catch {
+    return null;
+  }
+  if (!info?.version || !info.projectsDir) return null;
+  const slug = url.searchParams.get('slug') || cliSlug;
+  const from = path.join(info.projectsDir, slug);
+  if (!fs.existsSync(path.join(from, 'storyboard.json'))) return null;
+  const data = fs.mkdtempSync(path.join(os.tmpdir(), 'cutroom-rec-'));
+  const links: string[] = [];
+  // Shared assets are linked, the project is copied without its exports-in-progress
+  for (const d of ['fonts', 'music', 'sfx', '_fx']) {
+    const src = path.join(info.projectsDir, d);
+    if (!fs.existsSync(src)) continue;
+    fs.symlinkSync(src, path.join(data, d), process.platform === 'win32' ? 'junction' : 'dir');
+    links.push(path.join(data, d));
+  }
+  fs.cpSync(from, path.join(data, slug), { recursive: true, filter: (f) => !f.endsWith('.tmp') });
+  fs.mkdirSync(path.join(data, '.editor'), { recursive: true });
+  try {
+    const lang = JSON.parse(fs.readFileSync(path.join(STATE, 'settings.json'), 'utf8')).lang;
+    if (lang) fs.writeFileSync(path.join(data, '.editor', 'settings.json'), JSON.stringify({ lang }));
+  } catch {
+    // No saved language
+  }
+  const port = await new Promise<number>((ok) => {
+    const s = net.createServer().listen(0, '127.0.0.1', () => {
+      const p = (s.address() as net.AddressInfo).port;
+      s.close(() => ok(p));
+    });
+  });
+  const child = spawn(process.execPath, [path.join(ROOT, 'editor', 'dist', 'server.mjs')], { env: { ...process.env, PORT: String(port), VS_DATA: data, VS_ROOT: ROOT }, stdio: 'ignore', windowsHide: true });
+  const stop = () => {
+    if (child.pid && process.platform === 'win32') spawn('taskkill', ['/pid', String(child.pid), '/t', '/f'], { windowsHide: true, stdio: 'ignore' });
+    else child.kill();
+    // Unlink the shared folders first so removing the copy can never reach their targets
+    setTimeout(() => {
+      try {
+        for (const l of links) fs.rmSync(l, { force: true });
+        fs.rmSync(data, { recursive: true, force: true, maxRetries: 5 });
+      } catch {
+        // Left in the temp folder
+      }
+    }, 800);
+  };
+  const base = `http://127.0.0.1:${port}`;
+  for (let i = 0; ; i++) {
+    try {
+      if ((await fetch(`${base}/api/app`, { signal: AbortSignal.timeout(1000) })).ok) break;
+    } catch {
+      // Still starting
+    }
+    if (i > 60) {
+      stop();
+      throw new Error('could not start a copy of the editor to record');
+    }
+    await new Promise((r) => setTimeout(r, 250));
+  }
+  log(`  recording the editor on a copy of ${slug} (your project is not changed)`);
+  const rewrite = (u: string) => {
+    try {
+      const x = new URL(u, url);
+      if (x.origin !== url.origin) return u;
+      x.host = `127.0.0.1:${port}`;
+      if (!x.searchParams.get('slug')) x.searchParams.set('slug', slug);
+      return x.toString();
+    } catch {
+      return u;
+    }
+  };
+  return { url: rewrite(address), rewrite, stop };
+}
+
 export async function recordPage(o: RecordOpts): Promise<{ file: string; duration: number; marks: { name: string; t: number }[]; width: number; height: number }> {
   if (!/^https?:\/\/|^file:\/\//i.test(o.url)) throw new Error('the address must start with http://, https:// or file://');
   const name = o.name.toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '') || 'page';
   const browser = findBrowser();
   if (!browser) throw new Error('No browser found for recording: install Google Chrome or Microsoft Edge');
+  const log = o.log ?? (() => undefined);
+  // Cutroom recording itself: a second editor over a copy of the project, so clicks never touch the real one
+  const sandbox = await editorSandbox(o.url, o.slug, log);
+  try {
+    return await recordUrl({ ...o, url: sandbox?.url ?? o.url, size: o.size ?? (sandbox ? { width: 1600, height: 900 } : undefined) }, name, browser, log, sandbox?.rewrite);
+  } finally {
+    sandbox?.stop();
+  }
+}
+
+async function recordUrl(o: RecordOpts, name: string, browser: { executablePath: string }, log: (s: string) => void, rewrite?: (u: string) => string) {
   const viewport = o.size ?? (o.mobile ? { width: 410, height: 480 } : { width: 1280, height: 720 });
   const outDir = path.join(PUBLIC, o.slug, 'cap');
   // Remotion's Linux ffmpeg loads its libraries from its own folder
   const ff = ffmpegBin();
   if (process.platform === 'linux' && ff !== 'ffmpeg') process.env.LD_LIBRARY_PATH = [path.dirname(ff), process.env.LD_LIBRARY_PATH].filter(Boolean).join(':');
   const steps = o.steps?.length ? o.steps : TOUR(viewport.height);
-  const log = o.log ?? (() => undefined);
   const meta = await record(
     name,
     { url: o.url, outDir, viewport, dpr: o.dpr ?? (o.mobile ? 2.4 : 1.5), mobile: !!o.mobile, crf: 20, gpu: false, launch: browser, ffmpeg: ff },
@@ -124,7 +221,7 @@ export async function recordPage(o: RecordOpts): Promise<{ file: string; duratio
         if (k === 'wait') await r.wait(v);
         else if (k === 'idle') await r.idle(v);
         else if (k === 'goto') {
-          await page.goto(v, { waitUntil: 'domcontentloaded', timeout: 45000 });
+          await page.goto(rewrite ? rewrite(v) : v, { waitUntil: 'domcontentloaded', timeout: 45000 });
           await r.until('() => document.readyState === "complete"', { timeout: 30000 }).catch(() => undefined);
           await r.wait(600);
         } else if (k === 'until') await r.until(v, { timeout: 20000 });

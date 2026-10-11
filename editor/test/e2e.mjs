@@ -45,6 +45,7 @@ function cleanup() {
     fs.rmdirSync(media);
   }
   fs.rmSync(path.join(DIR, 'vo'), { recursive: true, force: true });
+  fs.rmSync(path.join(DIR, 'cap'), { recursive: true, force: true });
   for (const f of fs.existsSync(DIR) ? fs.readdirSync(DIR) : []) if (f.endsWith('.tmp')) fs.rmSync(path.join(DIR, f));
   if (fs.existsSync(DIR)) fs.rmdirSync(DIR);
   fs.rmSync(path.resolve('.editor', SLUG), { recursive: true, force: true });
@@ -162,6 +163,27 @@ try {
     await page.locator('.insp input[value="Edited from the CLI"]').waitFor({ timeout: 3000 });
   });
 
+  await step('Ctrl+Z takes back a CLI edit', async () => {
+    await page.locator('.tl-tools').click({ position: { x: 600, y: 10 } });
+    await page.keyboard.press('Control+z');
+    await until('CLI edit undone', () => board().scenes.find((s) => s.id === R.cli).lines[0].en !== 'Edited from the CLI');
+  });
+
+  await step('dragging a sound effect shows the snap guide', async () => {
+    const cue = page.locator('.lane-s .sfx').first();
+    if (!(await cue.count())) return;
+    const cb = await cue.boundingBox();
+    const cut = await block(R.moveB).boundingBox();
+    await page.mouse.move(cb.x + 4, cb.y + cb.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(cut.x + 3, cb.y + cb.height / 2, { steps: 8 });
+    const seen = await page.locator('.snap-guide').count();
+    await page.keyboard.press('Escape');
+    await page.mouse.up();
+    await page.keyboard.press('Control+z');
+    if (!seen) throw new Error('no snap guide near a cut');
+  });
+
   await step('stale save gets 409', async () => {
     const status = await page.evaluate(async (slug) => {
       const r = await fetch(`/api/board?slug=${slug}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ board: { scenes: [] }, base: 'stale', desc: [] }) });
@@ -258,9 +280,29 @@ try {
     await page.locator('.vop select').selectOption(was);
   });
 
+  await step('recording the editor leaves the project alone', async () => {
+    const before = fs.readFileSync(path.join(DIR, 'storyboard.json'), 'utf8');
+    const steps = JSON.stringify([{ until: '.clip' }, { click: '.lib-tabs button:has-text("转场")' }, { click: '.lt >> nth=2' }, { wait: 300 }]);
+    execFileSync(process.execPath, ['editor/dist/cli.mjs', SLUG, 'record', 'e2e-self', `${BASE}/?slug=${SLUG}&ui=zh`, steps], { stdio: 'pipe' });
+    if (!fs.existsSync(path.join(DIR, 'cap', 'e2e-self.mp4'))) throw new Error('no recording');
+    if (fs.readFileSync(path.join(DIR, 'storyboard.json'), 'utf8') !== before) throw new Error('the recording changed the real project');
+  });
+
   await step('chat tab', async () => {
     await page.getByRole('tab', { name: 'AI 助手' }).click();
     await page.locator('.chat-head').waitFor();
+    // Prompt library: a pick fills the input with its first blank selected
+    if (await page.locator('.prompt-btn:not([disabled])').count()) {
+      await page.locator('.prompt-btn').click();
+      await page.locator('.pm-tabs button', { hasText: '录屏' }).click();
+      await page.locator('.pm-item').first().click();
+      const picked = await page.evaluate(() => {
+        const t = document.querySelector('.chat-input textarea');
+        return t.value.slice(t.selectionStart, t.selectionEnd);
+      });
+      if (picked !== '【网址】') throw new Error(`prompt library selected "${picked}"`);
+      await page.locator('.chat-input textarea').fill('');
+    }
     if (process.env.E2E_AI) {
       await page.locator('.chat-input textarea').fill(`把 ${R.chat} 这一段的滤镜改成黑白`);
       await page.keyboard.press('Enter');

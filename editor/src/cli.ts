@@ -1,5 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { spawn } from 'node:child_process';
+import { plain } from '../../src/lib/timeline';
 import { loadProps } from '../../src/lib/load';
 import type { Format, Props, Scene } from '../../src/lib/types';
 import { editTimeline, fmtTime, type ETimeline } from './model';
@@ -40,6 +42,7 @@ const engineArg = flag('engine') as EngineId | undefined;
 const voiceArg = flag('voice');
 const mobile = has('mobile');
 const sizeArg = flag('size');
+const barArg = flag('bar');
 const [slug, cmd, ...rest] = args;
 
 const getJson = async <T>(p: string): Promise<T | undefined> => {
@@ -48,6 +51,8 @@ const getJson = async <T>(p: string): Promise<T | undefined> => {
 };
 // PNG header carries the size
 const getDims = async (p: string) => {
+  // A missing image is reported by check; it must not stop ls, trim or check from running
+  if (!fs.existsSync(path.join(PUBLIC, p))) return { w: 1920, h: 4000 };
   const b = fs.readFileSync(path.join(PUBLIC, p));
   return b.toString('ascii', 1, 4) === 'PNG' ? { w: b.readUInt32BE(16), h: b.readUInt32BE(20) } : { w: 1920, h: 4000 };
 };
@@ -104,8 +109,11 @@ async function main() {
       }
       return;
     }
-    case 'show':
-      return console.log(JSON.stringify(sceneOf(rest[0]), null, 2));
+    case 'show': {
+      // Several ids, or "all", in one call
+      const ids = rest[0] === 'all' || !rest.length ? doc.board.scenes.map((s) => s.id) : rest;
+      return console.log(ids.length === 1 ? JSON.stringify(sceneOf(ids[0]), null, 2) : ids.map((id) => `== ${id}\n${JSON.stringify(sceneOf(id), null, 2)}`).join('\n'));
+    }
     case 'mv':
       return save(moveScene(doc, rest[0], rest[1] === 'end' ? null : rest[1]));
     case 'trim': {
@@ -119,12 +127,23 @@ async function main() {
       for (const [edge, ref] of [['from', fromArg], ['to', toArg]] as const) {
         if (!ref) continue;
         const op = trimEdge(d, rest[0], key, edge, capTime(ref, caps, v.src), caps);
-        // Keep an explicit @mark the user typed
+        // Keep an explicit @mark the user typed, and say that is what was stored
         if (ref.startsWith('@')) (op.doc.board.scenes.find((x) => x.id === rest[0])![key] as any)[edge] = ref;
         d = op.doc;
-        descs.push(op.desc);
+        descs.push(ref.startsWith('@') ? op.desc.replace(/→ \S+$/, `→ ${ref}`) : op.desc);
       }
-      return save({ doc: d, desc: descs.join('；') });
+      save({ doc: d, desc: descs.join('；') });
+      // Narration can hold a scene longer than the trimmed clip: say so instead of leaving it to guesswork
+      if (toArg) {
+        const want = capTime(toArg, caps, v.src);
+        const { tl: t2 } = await timeline(readDoc(slug).doc);
+        const e2 = t2.scenes.find((x) => x.id === rest[0]);
+        if (e2 && e2.from !== undefined) {
+          const plays = e2.from + (e2.dur / t2.fps) * e2.rate;
+          if (plays > want + 0.1) console.log(`note: ${rest[0]}'s narration needs ${(e2.dur / t2.fps).toFixed(2)} s, so the recording keeps playing to ${plays.toFixed(2)} s (not ${want.toFixed(2)}). To cut more, shorten or move its lines.`);
+        }
+      }
+      return;
     }
     case 'min':
       return save(setMinSec(doc, rest[0], rest[1] === 'off' ? undefined : Number(rest[1])));
@@ -167,6 +186,22 @@ async function main() {
           value = raw;
         }
       if (id !== '-' && p === '.') return save(replaceScene(doc, id, value as Scene));
+      // The beat cut has four settings; its tempo is not one of them
+      const BEAT_KEYS = ['music', 'startBar', 'volume', 'overlays'];
+      if (id === '-' && /^beat(\.|$)/.test(p)) {
+        const keys = p === 'beat' ? (value && typeof value === 'object' ? Object.keys(value as object) : []) : [p.split('.')[1]];
+        const bad = keys.filter((k) => !BEAT_KEYS.includes(k));
+        const music = p === 'beat.music' ? String(value) : p === 'beat' ? (value as { music?: string } | undefined)?.music : doc.board.beat?.music;
+        const g = music ? gridOf(music) : null;
+        if (bad.length) throw new Error(`beat.${bad.join(', beat.')} is not a setting. The tempo comes from the track's beat data${g ? ` (${music} is ${Math.round(g.bpm)} BPM)` : ''}; to change it, pick another track: beat use music/<track>.mp3 (run beat to list them)`);
+        if (music && !g) throw new Error(`${music} has no beat data; pick a track that has: beat use music/<track>.mp3 (run beat to list them)`);
+        const op = setPath(doc, null, p, value);
+        // Drop settings that never existed (an earlier bpm guess)
+        if (op.doc.board.beat) for (const k of Object.keys(op.doc.board.beat)) if (!BEAT_KEYS.includes(k)) delete (op.doc.board.beat as Record<string, unknown>)[k];
+        save(op);
+        if (g && music) console.log(`beat cut music ${music}: ${Math.round(g.bpm)} BPM, from its beat data`);
+        return;
+      }
       return save(setPath(doc, id === '-' ? null : id, p, value));
     }
     case 'get':
@@ -215,6 +250,12 @@ async function main() {
     }
     case 'voice':
       return voiceCmd(rest);
+    case 'media':
+      return mediaCmd();
+    case 'check':
+      return checkCmd();
+    case 'beat':
+      return beatCmd(rest);
     case 'inspect': {
       if (!rest[0]) throw new Error('inspect <url> [--mobile]');
       return console.log(await inspectPage(rest[0], mobile));
@@ -244,8 +285,133 @@ async function main() {
   }
 }
 
+// Beat cut setup: the tempo comes from the track's own beat data, so there is no BPM to choose
+type GridInfo = { bpm: number; duration: number };
+const gridOf = (src: string): GridInfo | null => {
+  const f = path.join(PUBLIC, src.replace(/\.mp3$/, '.beats.json'));
+  return fs.existsSync(f) ? (JSON.parse(fs.readFileSync(f, 'utf8')) as GridInfo) : null;
+};
+const beatTracks = () => {
+  const dir = path.join(PUBLIC, 'music');
+  return (fs.existsSync(dir) ? fs.readdirSync(dir) : []).filter((f) => f.endsWith('.mp3')).map((f) => `music/${f}`);
+};
+const mmss = (s: number) => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}`;
+
+function beatCmd(rest: string[]) {
+  const { doc } = readDoc(slug);
+  const listing = () =>
+    beatTracks()
+      .map((t) => [t, gridOf(t)] as const)
+      .filter(([, g]) => g)
+      .map(([t, g]) => `  ${t}  ${Math.round(g!.bpm)} BPM, ${mmss(g!.duration)}`)
+      .join('\n') || '  none (run tools/beats.py on an mp3 in public/music first)';
+  if (rest[0] === 'use') {
+    const src = !rest[1] ? '' : rest[1].startsWith('music/') ? rest[1] : `music/${rest[1]}`;
+    const g = src ? gridOf(src) : null;
+    if (!g) throw new Error(`pick a track that has beat data:\n${listing()}`);
+    const board = structuredClone(doc.board);
+    const keep = board.beat ?? { music: src };
+    board.beat = { music: src, ...(keep.volume !== undefined ? { volume: keep.volume } : {}), ...(keep.overlays !== undefined ? { overlays: keep.overlays } : {}), ...(barArg !== undefined ? { startBar: Math.max(0, Math.round(Number(barArg))) } : keep.startBar !== undefined ? { startBar: keep.startBar } : {}) };
+    return save({ doc: { ...doc, board }, desc: `卡点版配乐 → ${src}（${Math.round(g.bpm)} BPM，取自节拍数据）` });
+  }
+  if (rest[0] === 'off') {
+    const board = structuredClone(doc.board);
+    delete board.beat;
+    return save({ doc: { ...doc, board }, desc: '去掉卡点版设置' });
+  }
+  const b = doc.board.beat;
+  const g = b?.music ? gridOf(b.music) : null;
+  console.log(b?.music ? `beat cut: ${b.music}${g ? `, ${Math.round(g.bpm)} BPM from its beat data` : ' (no beat data!)'}, starting at bar ${b.startBar ?? 0}` : 'no beat cut yet: beat use music/<track>.mp3');
+  console.log(`tracks with beat data:\n${listing()}`);
+}
+
+// Problems worth fixing before export, each with the command that fixes it
+async function checkCmd() {
+  const { doc } = readDoc(slug);
+  const out: string[] = [];
+  const add = (where: string, what: string, fix?: string) => out.push(`- ${where}: ${what}${fix ? `\n    fix: ${fix}` : ''}`);
+  const len = (s?: string) => [...plain(s ?? '')].length;
+  const FOOTAGE = new Set(['screen', 'image', 'clip']);
+  const ON_TOP = new Set(['text', 'punch', 'cinema', 'bigword']);
+  const { tl } = await timeline(doc);
+  const fps = tl.fps;
+  for (const s of doc.board.scenes) {
+    const e = tl.scenes.find((x) => x.id === s.id);
+    s.lines.forEach((l, k) => {
+      if (!plain(l.zh).trim()) add(`${s.id} line ${k + 1}`, 'empty caption', `set ${s.id} lines.${k} undefined`);
+      else if (len(l.zh) > 26) add(`${s.id} line ${k + 1}`, `${len(l.zh)} characters on one caption (keep it under 20 or so)`, `split it into two lines with set ${s.id} lines '[…]'`);
+      if (l.en && l.en.length > 80) add(`${s.id} line ${k + 1}`, `English line is ${l.en.length} characters`, 'shorten it or split the line');
+    });
+    const v = s.visual as { kind: string; src?: string };
+    if (v.src && !v.src.startsWith('../') && !fs.existsSync(path.join(PUBLIC, slug, v.src))) add(s.id, `media file ${v.src} is missing`, 'record or import it again, or point the scene at another file');
+    if (e && v.kind === 'screen' && e.capDur !== undefined && e.from !== undefined) {
+      const hold = e.dur / fps - (e.capDur - e.from) / e.rate;
+      if (hold > 0.5) add(s.id, `the recording runs out ${hold.toFixed(1)} s before the scene ends, so its last frame stands still`, `start it earlier (trim ${s.id} --from <earlier>), shorten its lines, or slow it down (set ${s.id} visual.rate 0.8)`);
+    }
+    if (e && e.dur < fps) add(s.id, `only ${(e.dur / fps).toFixed(2)} s long`, `min ${s.id} 2`);
+    const cues = (e?.sounds ?? []).filter((c) => !c.past).sort((a, b) => a.f - b.f);
+    for (let i = 1; i < cues.length; i++)
+      if (cues[i].f - cues[i - 1].f < fps * 0.25) add(s.id, `sounds ${cues[i - 1].label} and ${cues[i].label} start ${((cues[i].f - cues[i - 1].f) / fps).toFixed(2)} s apart`, `move one: set ${s.id} sounds.${cues[i].i}.at <seconds>`);
+    for (const c of e?.sounds ?? []) if (c.past) add(s.id, `sound ${c.label} starts after the scene ends, so it never plays`, `set ${s.id} sounds.${c.i}.at <seconds>`);
+    (s.overlays ?? []).forEach((o, i) => {
+      if (e && o.at * fps >= e.dur) add(s.id, `overlay ${o.kind} at ${o.at} s starts after the scene ends`, `set ${s.id} overlays.${i}.at <seconds>`);
+      if (ON_TOP.has(o.kind) && FOOTAGE.has(v.kind) && !o.plate) add(s.id, `${o.kind === 'text' ? 'text' : `${o.kind} text`} "${plain(o.text).slice(0, 20)}" sits on ${v.kind === 'screen' ? 'a screen recording' : 'footage'} and may not read on bright frames`, `set ${s.id} overlays.${i}.plate true`);
+    });
+    for (const [k, b] of (Array.isArray(s.beat) ? s.beat : []).entries()) if (len(b.t) > 12) add(`${s.id} beat ${k + 1}`, `beat-cut text is ${len(b.t)} characters; it should be a short label`, `set ${s.id} beat.${k}.t '"…"'`);
+  }
+  for (const lng of ['zh', 'en'] as const) {
+    const st = lineStates(slug, lng);
+    const voiced = st.some((x) => x.state === 'voiced');
+    const todo = st.filter((x) => x.state === 'missing' || x.state === 'stale');
+    if ((lng === 'zh' || voiced) && todo.length) add(`${lng === 'zh' ? 'narration' : 'English narration'}`, `${todo.length} line(s) without current audio (${todo.map((x) => `${x.scene}:${x.k + 1}`).join(', ')})`, `voice${lng === 'en' ? ' --lang en' : ''}`);
+  }
+  console.log(`${slug}: ${(tl.total / fps).toFixed(1)} s, ${tl.scenes.length} scenes`);
+  console.log(out.length ? `${out.length} problem(s):\n${out.join('\n')}` : 'no problems found');
+}
+
+// Footage and sound the project can use, for building scenes from it
+function mediaCmd() {
+  const dir = path.join(PUBLIC, slug);
+  const list = (sub: string, re: RegExp) => (fs.existsSync(path.join(dir, sub)) ? fs.readdirSync(path.join(dir, sub)).filter((f) => re.test(f)).map((f) => `${sub}/${f}`) : []);
+  const caps = list('cap', /\.mp4$/i).map((f) => {
+    const j = path.join(dir, f.replace(/\.mp4$/i, '.json'));
+    if (!fs.existsSync(j)) return f;
+    const m = JSON.parse(fs.readFileSync(j, 'utf8')) as { duration: number; events: { type: string; name?: string; t: number }[] };
+    const marks = m.events.filter((e) => e.type === 'mark').map((e) => `@${e.name} ${e.t.toFixed(1)}s`);
+    return `${f}  ${m.duration.toFixed(1)} s${marks.length ? `  marks: ${marks.join(', ')}` : ''}`;
+  });
+  const media = list('media', /\.(png|jpe?g|webp|gif|mp4|webm|mov)$/i);
+  const audio = list('media', /\.(mp3|wav|m4a)$/i);
+  const music = beatTracks().map((t) => {
+    const g = gridOf(t);
+    return g ? `${t}  (beat data, ${Math.round(g.bpm)} BPM)` : t;
+  });
+  const used = new Set(readDoc(slug).doc.board.scenes.flatMap((s) => [s.visual, s.tall].map((v) => (v && 'src' in v ? String(v.src) : ''))));
+  const mark = (f: string) => (used.has(f.split('  ')[0]) ? `${f}  (in use)` : f);
+  console.log(`screen recordings (add screen <src>):\n${caps.map((f) => `  ${mark(f)}`).join('\n') || '  none'}`);
+  console.log(`images and videos (add image|clip <src>):\n${media.map((f) => `  ${mark(f)}`).join('\n') || '  none'}`);
+  console.log(`project audio:\n${audio.map((f) => `  ${f}`).join('\n') || '  none'}`);
+  console.log(`music library (set - music.src '"music/…"'):\n${music.map((f) => `  ${f}`).join('\n') || '  none'}`);
+}
+
 // AI voice-over: list / use / generate
 async function voiceCmd(rest: string[]) {
+  // The native voice library prints dictionary warnings straight to stderr; run in a child and drop them
+  if (!process.env.CUTROOM_VOICE_CHILD && !['list', 'use', 'speed'].includes(rest[0])) {
+    const code = await new Promise<number>((res) => {
+      const c = spawn(process.execPath, process.argv.slice(1), { env: { ...process.env, CUTROOM_VOICE_CHILD: '1' }, stdio: ['ignore', 'inherit', 'pipe'], windowsHide: true });
+      let buf = '';
+      c.stderr.on('data', (d) => {
+        buf += d;
+        const lines = buf.split(/\r?\n/);
+        buf = lines.pop() ?? '';
+        for (const l of lines) if (l.trim() && !/sherpa-onnx[\\/]|Skip unknown phonemes|Unknown token|WASM does not support/.test(l)) process.stderr.write(`${l}\n`);
+      });
+      c.on('close', (n) => res(n ?? 1));
+    });
+    process.exitCode = code;
+    return;
+  }
   const s = voiceSettings();
   if (rest[0] === 'list') {
     for (const e of ENGINES) {
@@ -256,6 +422,12 @@ async function voiceCmd(rest: string[]) {
     }
     console.log(`speed ${s.speed}`);
     return;
+  }
+  if (rest[0] === 'speed') {
+    const v = Number(rest[1]);
+    if (!(v >= 0.5 && v <= 2)) throw new Error('voice speed <0.5–2>, e.g. voice speed 1.1');
+    writeVoiceSettings({ speed: v });
+    return console.log(`voice-over speed ${voiceSettings().speed}× (run voice --redo to re-voice existing lines)`);
   }
   if (rest[0] === 'use') {
     const [, engine, voice] = rest;

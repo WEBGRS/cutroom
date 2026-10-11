@@ -557,6 +557,12 @@ function OverlayItem({ o, i, focus, set }: { o: Overlay; i: number; focus: boole
             <input type="color" value={o.color ?? '#5b8cff'} onChange={(e) => set(f('color'), e.target.value)} />
           </div>
         ) : null}
+        {fields.includes('plate') ? (
+          <div>
+            <label title={tr('A dark backing so the text reads on bright footage', '深色底板，让文字压在亮画面上也看得清')}>{tr('Backing', '底板')}</label>
+            <input type="checkbox" checked={!!o.plate} onChange={(e) => set(f('plate'), e.target.checked || undefined)} />
+          </div>
+        ) : null}
       </div>
       {def?.hint ? <div className="hint">{nm(def.hint)}</div> : null}
     </div>

@@ -1,4 +1,4 @@
-import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { PlayerRef } from '@remotion/player';
 import { plain } from '../../src/lib/timeline';
 import type { Theme } from '../../src/lib/types';
@@ -7,6 +7,7 @@ import { peaksUrl, thumbsUrl, useAsset, type Peaks, type Thumbs } from './assets
 import { Icon } from './icons';
 import { nm, tr } from './i18n';
 import { soundDef, soundSrc } from '../../src/fx/sounds';
+import { setPrefs, usePrefs } from './prefs';
 
 export const SOUND_MIME = 'application/x-cutroom-sound';
 
@@ -50,7 +51,7 @@ type Drag =
   | { kind: 'trim'; e: EScene; edge: Edge; x0: number }
   | { kind: 'scrub' }
   | { kind: 'sound'; scene: string; i: number; f: number; x0: number; px: number; moved: boolean }
-  | { kind: 'ov'; scene: string; i: number; edge: 'move' | 'r'; f: number; d: number; max: number; x0: number; px: number; moved: boolean };
+  | { kind: 'ov'; scene: string; i: number; edge: 'move' | 'r'; f: number; d: number; max: number; base: number; x0: number; px: number; moved: boolean };
 
 // Rows for overlapping blocks: each gets the first row where it fits (overlaps up to tol frames share a row)
 function stack<T extends { a: number; b: number }>(items: T[], tol = 0): { rows: number; at: Map<T, number> } {
@@ -65,6 +66,8 @@ function stack<T extends { a: number; b: number }>(items: T[], tol = 0): { rows:
   return { rows: Math.max(1, ends.length), at };
 }
 const ROW = 20;
+// How close (in screen pixels) a dragged point must come to a target to snap onto it
+const SNAP_PX = 8;
 const laneH = (rows: number) => rows * ROW + 8;
 
 const clamp = (x: number, a: number, b: number) => Math.min(b, Math.max(a, x));
@@ -190,6 +193,56 @@ export function Timeline(p: Props) {
     const x = clientX - el.getBoundingClientRect().left + el.scrollLeft - LAB;
     return clamp(Math.round((x / pps) * fps), 0, etl.total - 1);
   };
+  // Snapping: cuts, recording marks, caption starts, overlay edges, sound cues, beats, both ends, the playhead
+  const { snap: snapOn } = usePrefs();
+  const [guide, setGuide] = useState<number | null>(null);
+  const targets = useMemo(() => {
+    const t = new Set<number>([0, etl.total]);
+    for (const s of etl.scenes) {
+      t.add(s.start);
+      t.add(s.start + s.dur);
+      for (const m of s.marks) t.add(s.start + m.f);
+      for (const l of s.lines) t.add(s.start + l.start);
+      for (const o of s.overlays) {
+        t.add(s.start + o.f);
+        t.add(s.start + o.f + o.dur);
+      }
+      for (const x of s.sounds) if (!x.past) t.add(s.start + x.f);
+    }
+    for (const b of etl.beats ?? []) t.add(b.f);
+    return [...t];
+  }, [etl]);
+  // Closest target within reach of frame f; own = positions of the thing being dragged
+  const nearest = (f: number, list: number[], own: number[] = [], playhead = true) => {
+    const tol = (SNAP_PX / pps) * fps;
+    const ph = playhead ? p.player?.getCurrentFrame() : undefined;
+    let best: number | null = null;
+    let bd = tol;
+    for (const t of ph === undefined ? list : [...list, ph]) {
+      if (own.some((o) => Math.abs(o - t) < 0.5)) continue;
+      const d = Math.abs(t - f);
+      if (d <= bd) {
+        bd = d;
+        best = t;
+      }
+    }
+    return best === null ? null : { t: best, d: bd };
+  };
+  // Snap one point; Alt (or snapping turned off) drags freely
+  const snapF = (f: number, free: boolean, own: number[] = [], playhead = true, list = targets) => {
+    const hit = snapOn && !free ? nearest(f, list, own, playhead) : null;
+    setGuide(hit ? hit.t : null);
+    return hit ? hit.t : f;
+  };
+  // Trimming ripples everything after the scene, so only its own content, beats and the playhead stay put
+  const trimTargets = (e: EScene) => [
+    ...e.marks.map((m) => e.start + m.f),
+    ...e.lines.map((l) => e.start + l.start),
+    ...e.overlays.flatMap((o) => [e.start + o.f, e.start + o.f + o.dur]),
+    ...e.sounds.map((x) => e.start + x.f),
+    ...(etl.beats ?? []).map((b) => b.f),
+  ];
+
   const slotAt = (frame: number, id: string) => {
     let k = 0;
     for (const s of etl.scenes) if (s.id !== id && frame > s.start + s.dur / 2) k++;
@@ -216,17 +269,43 @@ export function Timeline(p: Props) {
   const onMoveEv = (ev: React.PointerEvent) => {
     const d = dragRef.current;
     if (!d) return;
-    if (d.kind === 'scrub') return p.onSeek(frameAt(ev.clientX));
-    if (d.kind === 'trim') return p.onTrim(d.e, d.edge, (ev.clientX - d.x0) / pps, false);
-    if (d.kind === 'sound' || d.kind === 'ov') return setDrag({ ...d, px: ev.clientX - d.x0, moved: d.moved || Math.abs(ev.clientX - d.x0) > 3 });
+    if (d.kind === 'scrub') return p.onSeek(snapF(frameAt(ev.clientX), ev.altKey, [], false));
+    if (d.kind === 'trim') return p.onTrim(d.e, d.edge, trimSec(d, ev), false);
+    if (d.kind === 'sound') {
+      const sf = snapF(d.f + ((ev.clientX - d.x0) / pps) * fps, ev.altKey, [d.f]);
+      return setDrag({ ...d, px: ((sf - d.f) / fps) * pps, moved: d.moved || Math.abs(ev.clientX - d.x0) > 3 });
+    }
+    if (d.kind === 'ov') {
+      const df = ((ev.clientX - d.x0) / pps) * fps;
+      const a0 = d.base + d.f;
+      const own = [a0, a0 + d.d];
+      let shift = df;
+      if (snapOn && !ev.altKey) {
+        // Moving: whichever edge is closer snaps; resizing: the end
+        const end = nearest(a0 + d.d + df, targets, own);
+        const start = d.edge === 'move' ? nearest(a0 + df, targets, own) : null;
+        const hit = start && (!end || start.d <= end.d) ? { t: start.t, at: start.t - a0 } : end ? { t: end.t, at: end.t - a0 - d.d } : null;
+        setGuide(hit ? hit.t : null);
+        if (hit) shift = hit.at;
+      } else setGuide(null);
+      return setDrag({ ...d, px: (shift / fps) * pps, moved: d.moved || Math.abs(ev.clientX - d.x0) > 3 });
+    }
     const moved = d.moved || Math.abs(ev.clientX - d.x0) > 5;
     if (moved) setDrag({ ...d, moved, slot: slotAt(frameAt(ev.clientX), d.id), px: ev.clientX - d.x0 });
+  };
+  // Trim offset in seconds with the moving edge snapped (the beat cut already trims in whole bars)
+  const trimSec = (d: Extract<Drag, { kind: 'trim' }>, ev: React.PointerEvent) => {
+    const raw = ((ev.clientX - d.x0) / pps) * fps;
+    if (etl.beats) return raw / fps;
+    const edge0 = d.edge === 'l' ? d.e.start : d.e.start + d.e.dur;
+    return (snapF(edge0 + raw, ev.altKey, [d.e.start, d.e.start + d.e.dur], true, trimTargets(d.e)) - edge0) / fps;
   };
   const onUp = (ev: React.PointerEvent) => {
     const d = dragRef.current;
     setDrag(null);
+    setGuide(null);
     if (!d) return;
-    if (d.kind === 'trim') return p.onTrim(d.e, d.edge, (ev.clientX - d.x0) / pps, true);
+    if (d.kind === 'trim') return p.onTrim(d.e, d.edge, trimSec(d, ev), true);
     if (d.kind === 'sound') {
       if (d.moved) p.onSoundMove(d.scene, d.i, clamp(Math.round(d.f + (d.px / pps) * fps), 0, etl.total - 1));
       return;
@@ -293,6 +372,9 @@ export function Timeline(p: Props) {
       <div className="tl-tools">
         {p.tools}
         <span className="grow" />
+        <button className={`icon sm snap-btn${snapOn ? ' on' : ''}`} onClick={() => setPrefs({ snap: !snapOn })} aria-pressed={snapOn} title={snapOn ? tr('Snapping is on: dragged items land on cuts, marks, captions and the playhead (N; hold Alt to drag freely)', '吸附已开：拖动时吸到切点、打点、字幕和播放头（N 开关；按住 Alt 临时不吸）') : tr('Snapping is off (N)', '吸附已关（N）')}>
+          <Icon name="magnet" size={15} />
+        </button>
         <div className="zoom">
           <button className="icon sm" title={tr('Zoom out', '缩小')} onClick={() => p.setZoom(Math.max(2, pps / 1.5))}>
             <Icon name="minus" size={14} />
@@ -318,14 +400,24 @@ export function Timeline(p: Props) {
           </button>
         </div>
       </div>
-      <div className="tl-scroll" ref={scroller} onPointerMove={onMoveEv} onPointerUp={onUp} onPointerCancel={() => setDrag(null)}>
+      <div
+        className="tl-scroll"
+        ref={scroller}
+        onPointerMove={onMoveEv}
+        onPointerUp={onUp}
+        onPointerCancel={() => {
+          setDrag(null);
+          setGuide(null);
+        }}
+      >
         <div className="tl-content" style={{ width: contentW }}>
+          {guide !== null ? <div className="snap-guide" style={{ left: LAB + X(guide) }} /> : null}
           <div
             className="row ruler"
             onPointerDown={(ev) => {
               (ev.currentTarget as HTMLElement).setPointerCapture(ev.pointerId);
               setDrag({ kind: 'scrub' });
-              p.onSeek(frameAt(ev.clientX));
+              p.onSeek(snapF(frameAt(ev.clientX), ev.altKey, [], false));
             }}
           >
             <div className="lab" />
@@ -357,7 +449,7 @@ export function Timeline(p: Props) {
                       (ev.currentTarget as HTMLElement).setPointerCapture(ev.pointerId);
                       p.onCuePick('overlay', s.id, o.i);
                       const edge = (ev.target as HTMLElement).classList.contains('rh') ? 'r' : 'move';
-                      setDrag({ kind: 'ov', scene: s.id, i: o.i, edge, f: o.f, d: o.dur, max: s.dur, x0: ev.clientX, px: 0, moved: false });
+                      setDrag({ kind: 'ov', scene: s.id, i: o.i, edge, f: o.f, d: o.dur, max: s.dur, base: s.start, x0: ev.clientX, px: 0, moved: false });
                     }}
                   >
                     <span>{nm(o)}</span>
@@ -536,14 +628,18 @@ export function Timeline(p: Props) {
               if (!isSound(e)) return;
               e.preventDefault();
               e.dataTransfer.dropEffect = 'copy';
-              setDropAt(frameAt(e.clientX));
+              setDropAt(snapF(frameAt(e.clientX), e.altKey));
             }}
-            onDragLeave={() => setDropAt(null)}
+            onDragLeave={() => {
+              setDropAt(null);
+              setGuide(null);
+            }}
             onDrop={(e) => {
               if (!isSound(e)) return;
               e.preventDefault();
               setDropAt(null);
-              p.onSoundDrop(e.dataTransfer.getData(SOUND_MIME), frameAt(e.clientX));
+              setGuide(null);
+              p.onSoundDrop(e.dataTransfer.getData(SOUND_MIME), snapF(frameAt(e.clientX), e.altKey));
             }}
           >
             <div className="lab">

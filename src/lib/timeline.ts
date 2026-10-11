@@ -118,8 +118,9 @@ export function resolveTime(ref: TimeRef | undefined, cap: CaptureMeta | undefin
   const m = /^@([\w-]+)([+-][\d.]+)?$/.exec(ref);
   if (!m) return Number(ref) || dflt;
   const ev = cap?.events.find((e) => e.type === 'mark' && e.name === m[1]);
-  // "@end" is the end of the recording unless the capture has its own mark of that name
-  if (!ev && m[1] === 'end' && cap) return cap.duration + (m[2] ? Number(m[2]) : 0);
+  // "@end" is the end of the recording unless the capture has its own mark of that name; before the
+  // recording's data has loaded it falls back like a missing value
+  if (!ev && m[1] === 'end') return cap ? cap.duration + (m[2] ? Number(m[2]) : 0) : dflt;
   if (!ev) throw new Error(`capture mark not found: ${ref}`);
   return ev.t + (m[2] ? Number(m[2]) : 0);
 }

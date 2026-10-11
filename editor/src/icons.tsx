@@ -119,6 +119,18 @@ const P: Record<string, React.ReactNode> = {
       <path d="M3.5 7.5a4.5 4.5 0 0 0 9 0M8 12v2" />
     </>
   ),
+  magnet: (
+    <>
+      <path d="M3.5 2.5h2.9v5.6a1.6 1.6 0 0 0 3.2 0V2.5h2.9v5.6a4.5 4.5 0 0 1-9 0z" strokeLinejoin="round" />
+      <path d="M3.5 5.3h2.9M9.6 5.3h2.9" />
+    </>
+  ),
+  bulb: (
+    <>
+      <path d="M5.6 10.4C4.4 9.5 3.7 8.2 3.7 6.8a4.3 4.3 0 0 1 8.6 0c0 1.4-.7 2.7-1.9 3.6-.4.3-.6.7-.6 1.1v.6H6.2v-.6c0-.4-.2-.8-.6-1.1z" strokeLinejoin="round" />
+      <path d="M6.3 14.2h3.4" strokeLinecap="round" />
+    </>
+  ),
   download: <path d="M8 2v8M4.5 6.8 8 10.3l3.5-3.5M2.5 11.5v2h11v-2" />,
   wait: <path className="spin" d="M8 2.5a5.5 5.5 0 1 1-5.5 5.5" strokeLinecap="round" />,
   beat: <path d="M1.5 8h2l1.5-4 2.5 9 2-7 1.5 2h3.5" />,

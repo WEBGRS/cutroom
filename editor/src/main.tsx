@@ -19,7 +19,7 @@ import { textSample } from '../../src/fx/demo';
 import { resolvePick, type AiRef } from './pick';
 import { soundDef } from '../../src/fx/sounds';
 import { SettingsPage, type SettingsTab } from './SettingsPage';
-import { getPrefs, usePrefs } from './prefs';
+import { getPrefs, setPrefs, usePrefs } from './prefs';
 import type { Fx } from '../../src/lib/types';
 
 const isImg = (a: string) => /\.(png|jpe?g|webp|gif)$/i.test(a);
@@ -204,6 +204,8 @@ function App() {
   const version = useRef('');
   const [draft, setDraft] = useState<Doc | null>(null);
   const [loaded, setLoaded] = useState<Loaded | null>(null);
+  // Bumped when footage appears in the project folder, so recording data is read again
+  const [assetTick, setAssetTick] = useState(0);
   const [err, setErr] = useState('');
   const [sel, setSel] = useState<string | null>(null);
   const [focusLine, setFocusLine] = useState<number | null>(null);
@@ -333,6 +335,9 @@ function App() {
         .then((r) => (r.ok ? r.json() : undefined))
         .catch(() => undefined);
       cache.current.set(p, pr);
+      // A file that is not there yet (a recording still being made) is asked for again next time
+      const mine = pr;
+      void pr.then((v) => v === undefined && cache.current.get(p) === mine && cache.current.delete(p));
     }
     return pr as Promise<T | undefined>;
   };
@@ -358,7 +363,7 @@ function App() {
     return () => {
       alive = false;
     };
-  }, [doc, st.slug, st.format, st.mode, st.lang, st.variant]);
+  }, [doc, st.slug, st.format, st.mode, st.lang, st.variant, assetTick]);
 
   const view = draft ?? doc;
   const ready = !!loaded && loaded.props.slug === st.slug && loaded.props.format === st.format && loaded.props.mode === st.mode;
@@ -493,8 +498,15 @@ function App() {
     const r = await getBoard(S.current.slug);
     if (r.version === version.current || saving.current || pending.current.length) return;
     version.current = r.version;
+    // An edit from the AI or the CLI is one more step in the history, so Ctrl+Z takes it back
+    const prev = docRef.current;
+    if (prev) {
+      const desc = e?.desc.length ? `${e.src === 'cli' ? 'AI' : tr('Outside', '外部')}: ${e.desc.join('; ')}` : tr('Outside edit', '外部修改');
+      hist.current.past.push({ doc: prev, desc, t: 0 });
+      if (hist.current.past.length > 200) hist.current.past.shift();
+      hist.current.future = [];
+    }
     applyDoc({ board: r.board, timings: r.timings });
-    hist.current = { past: [], future: [] };
     bump((x) => x + 1);
     if (e) flash(tr(`${e.src === 'cli' ? 'Claude' : 'Outside'} edit: ${e.desc.join('; ')}`, `${e.src === 'cli' ? 'Claude' : '外部'}改了：${e.desc.join('；')}`));
   };
@@ -517,7 +529,10 @@ function App() {
       if (e.type === 'hello') handlers.current.syncRemote(null).catch(() => undefined);
       if (e.type === 'board' && e.slug === S.current.slug && e.version !== version.current) handlers.current.syncRemote(e).catch(() => undefined);
       if (e.type === 'timings' && e.slug === S.current.slug) handlers.current.syncTimings().catch(() => undefined);
-      if (e.type === 'record' && e.job.state === 'done' && e.job.slug === S.current.slug) getAssets(S.current.slug).then(setAssets).catch(() => undefined);
+      if (((e.type === 'record' && e.job.state === 'done') || e.type === 'assets') && (e.job?.slug === S.current.slug || e.slug === S.current.slug)) {
+        getAssets(S.current.slug).then(setAssets).catch(() => undefined);
+        setAssetTick((x) => x + 1);
+      }
     };
     return () => es.close();
   }, []);
@@ -866,12 +881,14 @@ function App() {
       }
       // The settings window handles its own keys
       if (settingsOpen.current) return;
-      if (t.closest('input, textarea, select')) {
+      const ctrl = ev.ctrlKey || ev.metaKey;
+      const k = ev.key.toLowerCase();
+      // An empty AI input has no text of its own to undo: Ctrl+Z / Ctrl+Y go to the project
+      const emptyChat = t.matches('.chat-input textarea') && !(t as HTMLTextAreaElement).value;
+      if (t.closest('input, textarea, select') && !(emptyChat && ctrl && (k === 'z' || k === 'y'))) {
         if (ev.key === 'Escape') t.blur();
         return;
       }
-      const ctrl = ev.ctrlKey || ev.metaKey;
-      const k = ev.key.toLowerCase();
       if (ctrl && k === 'z') {
         ev.preventDefault();
         return ev.shiftKey ? redo() : undo();
@@ -915,7 +932,11 @@ function App() {
       else if (ev.key === 'End') seek((loaded?.durationInFrames ?? 1) - 1);
       else if (ev.key === 'Delete' || ev.key === 'Backspace') doDel();
       else if (k === 's') doSplit();
-      else if (ev.key === 'Escape') select(null);
+      else if (k === 'n' && !ctrl) {
+        const on = !getPrefs().snap;
+        setPrefs({ snap: on });
+        flash(on ? tr('Snapping on', '吸附：开') : tr('Snapping off', '吸附：关'));
+      } else if (ev.key === 'Escape') select(null);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);

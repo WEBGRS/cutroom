@@ -79,6 +79,7 @@ const KEYS: [string, string, string][] = [
   ['Ctrl + Alt + C / V', 'Copy / paste a scene’s effects', '复制 / 粘贴一段的特效'],
   ['Ctrl + Z', 'Undo', '撤销'],
   ['Ctrl + Shift + Z, Ctrl + Y', 'Redo', '重做'],
+  ['N', 'Snapping on / off (hold Alt while dragging to skip it)', '吸附开关（拖动时按住 Alt 临时不吸）'],
   ['Esc', 'Deselect; close this window', '取消选中；关闭本窗口'],
   ['Ctrl + click', 'Point the AI at what you click', '把点到的东西指给 AI'],
   ['Enter / Shift + Enter', 'Send a chat message / new line', '发送消息 / 换行'],
@@ -166,6 +167,9 @@ export function SettingsPage({ tab, setTab, onClose, variant, setVariant }: { ta
           <Num value={prefs.overlaySec} min={0.3} max={20} step={0.1} unit={tr('s', '秒')} onChange={(v) => set({ overlaySec: v })} />
         </Row>
         <h4>{tr('Timeline', '时间线')}</h4>
+        <Row label={tr('Snapping', '吸附')} desc={tr('The playhead, trimmed edges, sound effects and overlays snap to cuts, recording marks, captions, beats and each other while you drag. N toggles it; hold Alt to drag freely.', '拖动播放头、裁剪边缘、音效和叠加元素时，自动吸到切点、录屏打点、字幕起点、节拍和彼此上。按 N 开关；按住 Alt 拖动可临时不吸。')}>
+          <Switch on={prefs.snap} onChange={(v) => set({ snap: v })} label={tr('Snapping', '吸附')} />
+        </Row>
         <Row label={tr('Follow the playhead', '播放时跟随播放头')} desc={tr('Scroll the timeline while playing so the playhead stays in view', '播放时时间线自动滚动，播放头一直在视野内')}>
           <Switch on={prefs.followPlayhead} onChange={(v) => set({ followPlayhead: v })} label={tr('Follow the playhead', '播放时跟随播放头')} />
         </Row>

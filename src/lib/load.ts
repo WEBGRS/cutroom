@@ -31,7 +31,7 @@ export async function loadProps(props: Props, getJson: GetJson, getDims: GetDims
   const fps = board.fps ?? 60;
   const L = LAYOUT[props.format];
   if (props.mode === 'beat') {
-    if (!board.beat) throw new Error(`${props.slug}: storyboard has no beat section`);
+    if (!board.beat?.music) throw new Error(`${props.slug}: no beat cut set up yet. Pick a track with beat data: beat use music/<track>.mp3 (or Library › Music in the beat cut)`);
     const grid = await getJson<BeatGrid>(board.beat.music.replace(/\.mp3$/, '.beats.json'));
     if (!grid) throw new Error(`missing beats for ${board.beat.music}; run tools/beats.py`);
     const bt = buildBeatTimeline(board, grid, props.format, fps, captures, props.lang ?? 'zh');

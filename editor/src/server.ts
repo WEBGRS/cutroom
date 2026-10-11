@@ -76,15 +76,16 @@ function watch(slug: string) {
   if (cur && cur.id === id) return;
   cur?.w.close();
   known.set(slug, currentVersion(slug));
-  const w = fs.watch(dir, (_ev, file) => {
-    const name = String(file ?? '');
-    const kind = name === 'storyboard.json' ? 'board' : /^timings(-en)?\.json$/.test(name) ? 'timings' : null;
+  // Recursive, so footage the AI records or the user copies into cap/ or media/ reaches the page too
+  const w = fs.watch(dir, { recursive: true }, (_ev, file) => {
+    const name = String(file ?? '').replace(/\\/g, '/');
+    const kind = name === 'storyboard.json' ? 'board' : /^timings(-en)?\.json$/.test(name) ? 'timings' : /^(cap|media)\/[^/]+\.(mp4|webm|mov|png|jpe?g|webp|gif|mp3|wav|m4a)$/i.test(name) ? 'assets' : null;
     if (!kind) return;
     const key = `${slug}:${kind}`;
     clearTimeout(timers.get(key));
     timers.set(
       key,
-      setTimeout(() => (kind === 'board' ? onBoardChange(slug) : broadcast({ type: 'timings', slug })), 150),
+      setTimeout(() => (kind === 'board' ? onBoardChange(slug) : broadcast({ type: kind, slug })), kind === 'assets' ? 600 : 150),
     );
   });
   w.on('error', () => {

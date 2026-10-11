@@ -3,6 +3,7 @@ import { Icon } from './icons';
 import { nm, tr } from './i18n';
 import type { AiRef } from './pick';
 import { getPrefs, usePrefs } from './prefs';
+import { FEATURED, PROMPTS, SLOT, type PromptItem } from './prompts';
 
 export interface ChatContext {
   format: string;
@@ -66,7 +67,6 @@ export interface AiStatus {
   presets: Preset[];
 }
 
-const SUGGEST = [tr('Make the selected scene a bit shorter', '把选中这段缩短一点'), tr('Add a slow push-in to every image', '给所有图片加慢推效果'), tr('Use outlined captions, a little bigger', '字幕改成描边样式，放大一点'), tr('Add a title card at the start', '在最前面加一个标题卡')];
 
 const PREFS: [AiStatus['pref'], string, string][] = [
   ['auto', tr('Automatic', '自动'), tr('Your Claude Code login if there is one, else the Claude API key, else another model you set up', '优先用 Claude Code 登录，其次 Claude API Key，最后用你配置的其他模型')],
@@ -524,6 +524,14 @@ export function ChatPanel({ slug, context, where, refs, onRemoveRef, onClearRefs
     list.current?.scrollTo({ top: list.current.scrollHeight });
   }, [items]);
 
+  // The input grows with what is in it, up to about seven lines
+  useEffect(() => {
+    const el = ta.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(el.scrollHeight + 2, 168)}px`;
+  }, [input]);
+
   // A new pointed-at reference puts the cursor in the input
   useEffect(() => {
     if (focusKey) ta.current?.focus();
@@ -568,6 +576,32 @@ export function ChatPanel({ slug, context, where, refs, onRemoveRef, onClearRefs
   };
 
   const stop = () => post('/api/chat/stop', { slug });
+  const [menu, setMenu] = useState(false);
+  // A prompt from the library goes into the input with its first 【…】 selected, ready to type over
+  const insertPrompt = (p: PromptItem) => {
+    const text = tr(p.en, p.zh);
+    setInput((cur) => (cur.trim() ? `${cur.trimEnd()}
+${text}` : text));
+    setMenu(false);
+    requestAnimationFrame(() => {
+      const el = ta.current;
+      if (!el) return;
+      el.focus();
+      const from = el.value.length - text.length;
+      const m = SLOT.exec(el.value.slice(from));
+      if (m) el.setSelectionRange(from + m.index, from + m.index + m[0].length);
+      else el.setSelectionRange(el.value.length, el.value.length);
+    });
+  };
+  // Tab jumps to the next 【…】 still in the text
+  const nextSlot = (el: HTMLTextAreaElement) => {
+    const re = new RegExp(SLOT.source, 'g');
+    const all = [...el.value.matchAll(re)];
+    if (!all.length) return false;
+    const m = all.find((x) => x.index! >= el.selectionEnd) ?? all[0];
+    el.setSelectionRange(m.index!, m.index! + m[0].length);
+    return true;
+  };
   const fresh = async () => {
     await post('/api/chat/reset', { slug });
     setItems([]);
@@ -604,20 +638,25 @@ export function ChatPanel({ slug, context, where, refs, onRemoveRef, onClearRefs
               <p>{tr('Say what to change. Edits show up in the preview right away, and you can undo them.', '直接说要怎么改。改动马上出现在预览里，也能撤销。')}</p>
             </div>
             {hints ? (
-              <>
-                <div className="chat-tip">
-                  <kbd>Ctrl</kbd>
-                  <span>{tr('+ click anything (a scene, a caption, a spot in the preview, an effect, a setting) to point the AI at it, then say what you think.', '+ 点任何东西（段落、字幕、画面上某一点、特效、某个设置），就把它指给 AI，再说你的意见。')}</span>
-                </div>
-                <div className="sugg">
-                  {SUGGEST.map((s) => (
-                    <button key={s} className="sugg-btn" onClick={() => send(s)} disabled={!provider}>
-                      {s}
-                    </button>
-                  ))}
-                </div>
-              </>
+              <div className="chat-tip">
+                <kbd>Ctrl</kbd>
+                <span>{tr('+ click anything (a scene, a caption, a spot in the preview, an effect, a setting) to point the AI at it, then say what you think.', '+ 点任何东西（段落、字幕、画面上某一点、特效、某个设置），就把它指给 AI，再说你的意见。')}</span>
+              </div>
             ) : null}
+            <div className="sugg">
+              {FEATURED.map(([g, i]) => {
+                const p = PROMPTS.find((x) => x.id === g)!.items[i];
+                return (
+                  <button key={`${g}${i}`} className="sugg-btn" onClick={() => insertPrompt(p)} disabled={!provider}>
+                    <PromptText text={tr(p.en, p.zh)} />
+                  </button>
+                );
+              })}
+              <button className="sugg-more" onClick={() => setMenu(true)} disabled={!provider}>
+                <Icon name="bulb" size={13} />
+                {tr('More prompts', '更多提示词')}
+              </button>
+            </div>
           </div>
         ) : (
           items.map((it, i) =>
@@ -676,6 +715,7 @@ export function ChatPanel({ slug, context, where, refs, onRemoveRef, onClearRefs
             </div>
           ) : null}
           <div className="box">
+            {menu ? <PromptMenu onPick={insertPrompt} onClose={() => setMenu(false)} /> : null}
             <textarea
               ref={ta}
               value={input}
@@ -688,8 +728,12 @@ export function ChatPanel({ slug, context, where, refs, onRemoveRef, onClearRefs
                   e.preventDefault();
                   send();
                 }
+                if (e.key === 'Tab' && !e.shiftKey && nextSlot(e.currentTarget)) e.preventDefault();
               }}
             />
+            <button className={`prompt-btn${menu ? ' on' : ''}`} onClick={() => setMenu(!menu)} disabled={!provider} title={tr('Prompt library', '常用提示词')} aria-expanded={menu}>
+              <Icon name="bulb" size={15} />
+            </button>
             <button className={`pick-btn${armed ? ' on' : ''}`} onClick={onArm} title={tr('Point at something (or hold Ctrl and click)', '指向某个东西（或按住 Ctrl 点击）')} aria-pressed={armed}>
               <Icon name="target" size={15} />
             </button>
@@ -705,6 +749,66 @@ export function ChatPanel({ slug, context, where, refs, onRemoveRef, onClearRefs
           </div>
         </div>
       ) : null}
+    </div>
+  );
+}
+
+// The parts to fill in are highlighted instead of showing their brackets
+const PromptText = ({ text }: { text: string }) => (
+  <>
+    {text.split(/(【[^】]*】)/).map((part, k) => (part.startsWith('【') ? <mark key={k}>{part.slice(1, -1)}</mark> : part))}
+  </>
+);
+
+// Prompts by task; picking one fills the input
+function PromptMenu({ onPick, onClose }: { onPick: (p: PromptItem) => void; onClose: () => void }) {
+  const [group, setGroup] = useState(() => {
+    try {
+      return localStorage.getItem('cutroom-prompt-group') || PROMPTS[0].id;
+    } catch {
+      return PROMPTS[0].id;
+    }
+  });
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const down = (e: PointerEvent) => {
+      const t = e.target as HTMLElement;
+      if (!box.current?.contains(t) && !t.closest('.prompt-btn')) onClose();
+    };
+    const key = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
+    window.addEventListener('pointerdown', down);
+    window.addEventListener('keydown', key);
+    return () => {
+      window.removeEventListener('pointerdown', down);
+      window.removeEventListener('keydown', key);
+    };
+  }, [onClose]);
+  const pick = (id: string) => {
+    setGroup(id);
+    try {
+      localStorage.setItem('cutroom-prompt-group', id);
+    } catch {
+      // Not remembered
+    }
+  };
+  const g = PROMPTS.find((x) => x.id === group) ?? PROMPTS[0];
+  return (
+    <div className="prompt-menu" ref={box} role="dialog" aria-label={tr('Prompt library', '常用提示词')}>
+      <div className="pm-tabs" role="tablist">
+        {PROMPTS.map((x) => (
+          <button key={x.id} role="tab" aria-selected={x.id === g.id} className={x.id === g.id ? 'on' : undefined} onClick={() => pick(x.id)}>
+            {nm(x)}
+          </button>
+        ))}
+      </div>
+      <div className="pm-list">
+        {g.items.map((p, i) => (
+          <button key={i} className="pm-item" onClick={() => onPick(p)}>
+            <PromptText text={tr(p.en, p.zh)} />
+          </button>
+        ))}
+      </div>
+      <div className="pm-foot">{tr('Click to put it in the box; Tab jumps between the 【】 parts to fill in.', '点一下放进输入框；按 Tab 在要填的【】之间跳。')}</div>
     </div>
   );
 }

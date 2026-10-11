@@ -2,7 +2,7 @@
 export const HELP = `node editor/dist/cli.mjs <slug> <command> [args] [--format wide|tall] [--mode voice|beat] [--lang zh|en]
 
   ls                       timeline as rendered (start/dur/visual/text, capture marks)
-  show <id>                scene JSON
+  show <id> [id …] | all   scene JSON (several at once)
   get <id|-> <path>        one field (- = whole board)
   add <kind> [after-id]    new scene: title | stats | counter | chart | checklist | quote | chat | notifs | code | terminal | flap | outro | flow
                            | compare <img> | image <src> | clip <src> | screen <src>
@@ -20,8 +20,13 @@ export const HELP = `node editor/dist/cli.mjs <slug> <command> [args] [--format 
   voice [scene-id ...] [--redo] [--lang zh|en]
                            AI voice-over for narration lines without current audio (--redo: re-voice them all);
                            --lang en voices the second-language lines
-  voice list | voice use <engine> [voice]
-                           voice-over engines and voices; pick one (builtin needs no key)
+  voice list | voice use <engine> [voice] | voice speed <0.5–2>
+                           voice-over engines and voices; pick one (builtin needs no key); speaking rate
+  media                    the project's recordings (with marks), images, videos, audio and the music library
+  beat [use <music/track.mp3> [--bar N] | off]
+                           beat cut music: the tempo comes from the track's beat data (no BPM to set); lists tracks
+  check                    problems to fix before export (long captions, missing voice-over, overlapping or silent sounds,
+                           unreadable text on footage, missing media, too-short scenes), each with the command that fixes it
   inspect <url> [--mobile] a web page's headings and clickable elements, with selectors for record steps
   record <name> <url> [steps] [--mobile] [--size WxH]
                            screen-record a web page into cap/<name>.mp4 (cursor, clicks and marks are logged

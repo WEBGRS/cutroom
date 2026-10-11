@@ -10,6 +10,8 @@ export interface Prefs {
   newTransition: string;
   overlaySec: number;
   followPlayhead: boolean;
+  // Dragged edges, cues and the playhead snap to cuts, marks, captions and each other
+  snap: boolean;
   lanes: { overlays: boolean; effects: boolean; camera: boolean; sfx: boolean };
   // Preview
   loop: boolean;
@@ -27,6 +29,7 @@ export const DEFAULT_PREFS: Prefs = {
   newTransition: 'fade',
   overlaySec: 1.6,
   followPlayhead: true,
+  snap: true,
   lanes: { overlays: true, effects: true, camera: true, sfx: true },
   loop: false,
   volume: 1,

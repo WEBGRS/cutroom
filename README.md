@@ -20,7 +20,7 @@ Most editors store a project as an opaque binary or database. Cutroom stores it 
 
 ## Features
 
-- **Timeline**: filmstrip thumbnails, waveforms, drag to reorder, drag edges to trim, split at the playhead, undo/redo, and a beat grid for music cuts. Lanes under the scenes show where every overlay, effect, camera move and sound effect sits, and each cut shows its transition. Drag an overlay or a sound to move it; click any bar to open its settings.
+- **Timeline**: filmstrip thumbnails, waveforms, drag to reorder, drag edges to trim, split at the playhead, undo/redo, and a beat grid for music cuts. Lanes under the scenes show where every overlay, effect, camera move and sound effect sits, and each cut shows its transition. Drag an overlay or a sound to move it; click any bar to open its settings. Dragged edges, cues and the playhead snap to cuts, recording marks, caption starts, beats and each other (the magnet button or N; hold Alt to drag freely), and edits made by the AI can be undone with Ctrl+Z like your own.
 - **Two cuts from one storyboard**: a narrated cut and a beat-synced music cut, each in 16:9 and 9:16.
 - **Library panel**: media, cards, text, overlays, transitions, effects, backdrops, voice-over, sound effects and music. Every effect has a rendered preview that plays on hover; one click applies it to the selected scene.
 - **182 effects**:
@@ -131,6 +131,10 @@ node editor/dist/cli.mjs showcase split record 4.2
 node editor/dist/cli.mjs showcase set photo fx.look '"warm"'
 node editor/dist/cli.mjs showcase add title intro                 # new title card after "intro"
 node editor/dist/cli.mjs showcase log --unseen                    # what changed in the UI since you last looked
+node editor/dist/cli.mjs showcase check                           # problems to fix before export, each with its fix
+node editor/dist/cli.mjs showcase show all                        # every scene's JSON
+node editor/dist/cli.mjs showcase media                           # recordings (with marks), images, videos, music
+node editor/dist/cli.mjs showcase beat use music/realizer.mp3     # beat-cut music; the tempo comes from its beat data
 node editor/dist/cli.mjs showcase voice                           # voice-over for lines without current audio
 node editor/dist/cli.mjs showcase voice --lang en --redo          # re-voice the English track
 node editor/dist/cli.mjs showcase inspect https://example.com     # a page's clickable elements and their selectors
@@ -152,6 +156,7 @@ node editor/dist/cli.mjs fx                                       # every effect
 | Ctrl+Alt+C / Ctrl+Alt+V | Copy / paste a scene's effects |
 | Ctrl+Z | Undo |
 | Ctrl+Shift+Z or Ctrl+Y | Redo |
+| N | Snapping on / off (hold Alt while dragging to skip it) |
 | Esc | Deselect |
 | Ctrl+click | Point the AI at what you click |
 | Ctrl+, | Settings |
@@ -176,7 +181,7 @@ node editor/dist/cli.mjs fx                                       # every effect
 ## Tests
 
 ```bash
-npm test             # unit tests: edit operations, timeline model, effects catalog, AI providers, voice-over, recording
+npm test             # unit tests: edit operations, timeline model, effects catalog, AI providers, voice-over, recording, CLI
 npm run typecheck
 npm run test:e2e     # drives the editor in headless Chrome against a throwaway copy of the showcase
 npm run test:oracle  # preview frames vs. Remotion's renderer (PSNR ≥ 50 dB; most frames identical)

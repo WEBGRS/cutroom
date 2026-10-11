@@ -75,7 +75,7 @@ export const DIR_LIST: Named[] = [
 
 export interface OverlayItem extends Named {
   group: 'text' | 'callout' | 'draw' | 'ui' | 'data' | 'fx';
-  fields: ('text' | 'sub' | 'x' | 'y' | 'w' | 'h' | 'anim' | 'style' | 'size' | 'color')[];
+  fields: ('text' | 'sub' | 'x' | 'y' | 'w' | 'h' | 'anim' | 'style' | 'size' | 'color' | 'plate')[];
   init: Partial<Overlay>;
   hint?: { en: string; zh: string };
 }
@@ -83,7 +83,7 @@ export interface OverlayItem extends Named {
 const P = (en: string, zh: string) => ({ en, zh });
 
 export const OVERLAY_LIST: OverlayItem[] = [
-  { id: 'text', en: 'Animated text', zh: '动画文字', group: 'text', src: 'text-stagger', fields: ['text', 'sub', 'anim', 'x', 'y', 'size', 'color'], init: { text: 'Edit video as code', anim: 'fadeup', x: 0.5, y: 0.45, dur: 2.4 } },
+  { id: 'text', en: 'Animated text', zh: '动画文字', group: 'text', src: 'text-stagger', fields: ['text', 'sub', 'anim', 'x', 'y', 'size', 'color', 'plate'], init: { text: 'Edit video as code', anim: 'fadeup', x: 0.5, y: 0.45, dur: 2.4 } },
   { id: 'punch', en: 'Punch word', zh: '大字冲击', group: 'text', fields: ['text', 'sub'], init: { text: 'Wow' } },
   { id: 'cinema', en: 'Cinematic title', zh: '电影感标题', group: 'text', fields: ['text', 'sub'], init: { text: 'CUTROOM', dur: 2.4 } },
   { id: 'lower', en: 'Lower third', zh: '下三分之一字幕条', group: 'text', src: 'lt-clean-bar', fields: ['text', 'sub', 'style', 'y', 'color'], init: { text: 'Jamie Chen', sub: 'Product designer', dur: 3 } },

@@ -321,11 +321,25 @@ export function systemPrompt(slug: string, via: 'bash' | 'tool' = 'bash'): strin
 How to edit:
 ${how}
 - Start with \`ls\` (add --format/--mode to match the user's current view, given in each message) to see the timeline. Use \`show <id>\` for a scene's JSON and \`fx\` for the effect reference.
+- One CLI command per Bash call, or several joined with &&. Shell loops and variables are blocked; \`show a b c\` or \`show all\` prints several scenes at once.
+- Write nothing between commands: no progress notes. Your only text is the final reply, in the user's language.
+- Before you say a cut is ready (and whenever asked to check it), run \`check\` and fix what it lists.
 - Make the smallest edit that does what was asked. Prefer the dedicated commands (trim/split/mv/add/bars/min) over \`set\`.
 - Effects marked [house rule] go against the user's own style guide: don't use them unless the user explicitly asks.
 - Voice-over (配音/旁白/narration audio): write or fix the narration lines first (\`set <id> lines.<k>.zh ...\`), then run \`voice\`; it only voices lines without current audio, so run it again after editing lines. Add \`--lang en\` for the second-language track. Change the engine or voice (\`voice list\`, \`voice use\`) only when the user asks for a different voice.
 - Screen recordings (录屏) of a website as footage: run \`inspect <url>\` to see its elements and selectors, then \`record <name> <url> '<steps json>'\` with the clicks and typing the user wants shown; put a \`mark\` before each beat you will caption. Then \`add screen cap/<name>.mp4 <after-id>\` and write lines with "at": "@mark" to sync. Keep recordings short (5–20 s of steps); recording takes about real time plus page loading. Only record public pages the user asked for.
+- To show Cutroom itself (a tutorial or demo clip), record this editor's own address, http://127.0.0.1:${process.env.PORT ?? 8814}/?slug=${slug}&format=wide&mode=voice&ui=zh (ui=en for English). The recorder notices it is the editor and records a copy of the project, so clicks in the steps never change the real one. Handy selectors: library tabs \`.lib-tabs button:has-text("Transitions")\` (the label follows ui), scenes \`.clip:has(.name:text-is("<scene-id>"))\`, library tiles \`.lt\`, inspector tabs \`.itabs button\`; \`{"press":"Space"}\` plays the preview.
 - Do not export/render videos; the user has an export button.
+
+Video craft (use it when writing lines or restructuring; the user's own request wins):
+- Open on the finished result in the first 3 s; no logo intros or warm-up.
+- One narration line = one on-screen action. Spoken Chinese runs about 4.5 characters a second, English about 2.5 words a second; size scenes to their lines.
+- Write narration like a person talking: short sentences, first person, plain words; no stock phrases, no lists of three, and never describe what the viewer can already see.
+- Beat-cut text is a short label for what the screen can't show ("自动排课"), not a sentence.
+- At most one [[highlight]] per line. Keep transitions consistent and cut plainly between related shots.
+- Text placed over footage (recordings, photos, clips) gets \`"plate": true\` so it reads on bright frames; you cannot see the frames.
+- The beat cut needs music with beat data: \`beat use music/<track>.mp3\` (\`beat\` lists them with their tempo). Don't invent BPM values; the beat data sets the tempo.
+- Build new scenes from the project's own footage: run \`media\` to see recordings, images, videos and music.
 
 How to reply:
 - Answer in the language the user writes in, in 1–3 short sentences: what you changed (scene ids, before → after). No headings, no lists unless several scenes changed.

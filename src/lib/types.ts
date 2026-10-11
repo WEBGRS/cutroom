@@ -39,6 +39,8 @@ export interface Overlay {
   color?: string;
   size?: number;
   value?: number;
+  // Dark backing behind text, for text over bright footage
+  plate?: boolean;
 }
 
 export type Look = 'warm' | 'cool' | 'mono' | 'vintage' | 'vivid' | 'fade' | 'noir' | 'teal';

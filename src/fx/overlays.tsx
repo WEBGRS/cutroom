@@ -243,10 +243,20 @@ export function fxOverlay(c: Ctx, key: number): React.ReactNode {
   switch (o.kind) {
     case 'text': {
       const size = zh * 1.5 * (o.size ?? 1);
-      return (
-        <div key={key} style={{ position: 'absolute', left: cx, top: cy, transform: 'translate(-50%, -50%)', opacity: c.out, textAlign: 'center', width: W * 0.9, fontFamily: SANS }}>
+      const body = (
+        <>
           <AnimText text={o.text} anim={o.anim ?? 'fadeup'} t={t} hi={hiOf(c)} color={o.color ?? '#fff'} style={{ fontSize: size, fontWeight: 900, lineHeight: 1.15, textShadow: '0 4px 30px rgba(0,0,0,.45)' }} />
           {o.sub ? <div style={{ fontSize: size * 0.32, fontWeight: 600, color: 'rgba(255,255,255,.85)', marginTop: size * 0.15, opacity: tween(t, 0.35, 0.4), textShadow: '0 2px 12px rgba(0,0,0,.5)' }}>{o.sub}</div> : null}
+        </>
+      );
+      return (
+        <div key={key} style={{ position: 'absolute', left: cx, top: cy, transform: 'translate(-50%, -50%)', opacity: c.out, textAlign: 'center', width: W * 0.9, fontFamily: SANS }}>
+          {o.plate ? (
+            // Fades in with the text so the backing never shows on its own
+            <div style={{ display: 'inline-block', padding: `${size * 0.22}px ${size * 0.5}px ${size * 0.26}px`, borderRadius: size * 0.28, background: `rgba(10,14,24,${0.72 * tween(t, 0, 0.3)})`, boxShadow: `0 ${size * 0.12}px ${size * 0.5}px rgba(0,0,0,${0.35 * tween(t, 0, 0.3)})` }}>{body}</div>
+          ) : (
+            body
+          )}
         </div>
       );
     }
