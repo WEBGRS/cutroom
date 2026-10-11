@@ -8,6 +8,9 @@ import { PUBLIC, STATE, readDoc, readLog, readSnapshot, writeDoc } from './store
 import { HELP as HELP_TEXT } from './help';
 import { catalogText } from './catalog';
 import { sceneTemplate } from './templates';
+import { installModel, lineStates, modelInstalled, voiceOf, voiceProject, voiceSettings, writeVoiceSettings } from './voice';
+import { ENGINES, engineDef, type EngineId } from './voices';
+import { inspectPage, parseSteps, recordPage } from './record';
 
 const HELP = `Cutroom CLI\n${HELP_TEXT}\n`;
 
@@ -32,6 +35,11 @@ const tallFlag = has('tall');
 const unseen = has('unseen');
 const fromArg = flag('from');
 const toArg = flag('to');
+const redo = has('redo');
+const engineArg = flag('engine') as EngineId | undefined;
+const voiceArg = flag('voice');
+const mobile = has('mobile');
+const sizeArg = flag('size');
 const [slug, cmd, ...rest] = args;
 
 const getJson = async <T>(p: string): Promise<T | undefined> => {
@@ -68,6 +76,7 @@ function capTime(ref: string, caps: Caps, src: string): number {
   if (/^-?[\d.]+$/.test(ref)) return Number(ref);
   const m = /^@([\w-]+)([+-][\d.]+)?$/.exec(ref);
   const ev = m && caps[src]?.events.find((e) => e.type === 'mark' && e.name === m[1]);
+  if (m && !ev && m[1] === 'end' && caps[src]) return caps[src].duration + (m[2] ? Number(m[2]) : 0);
   if (!m || !ev) throw new Error(`找不到标记 ${ref}（${src}）`);
   return ev.t + (m[2] ? Number(m[2]) : 0);
 }
@@ -204,9 +213,73 @@ async function main() {
       console.log(out.length ? out.join('\n') : '没有差别');
       return;
     }
+    case 'voice':
+      return voiceCmd(rest);
+    case 'inspect': {
+      if (!rest[0]) throw new Error('inspect <url> [--mobile]');
+      return console.log(await inspectPage(rest[0], mobile));
+    }
+    case 'record': {
+      const [name, url, stepsArg] = rest;
+      if (!name || !url) throw new Error('record <name> <url> [steps-json | steps-file] [--mobile] [--size 1280x720]');
+      let steps;
+      if (stepsArg) {
+        const text = fs.existsSync(stepsArg) ? fs.readFileSync(stepsArg, 'utf8') : stepsArg;
+        try {
+          steps = parseSteps(JSON.parse(text));
+        } catch (e) {
+          throw new Error(`steps: ${(e as Error).message}`);
+        }
+      }
+      const m = sizeArg ? /^(\d{3,4})x(\d{3,4})$/.exec(sizeArg) : null;
+      if (sizeArg && !m) throw new Error('--size is WIDTHxHEIGHT, e.g. 1280x720');
+      console.log(`recording ${url} …`);
+      const r = await recordPage({ slug, name, url, steps, mobile, size: m ? { width: Number(m[1]), height: Number(m[2]) } : undefined, log: (s) => console.log(s) });
+      const marks = r.marks.length ? r.marks.map((x) => `@${x.name} ${x.t.toFixed(2)}s`).join(', ') : 'none';
+      console.log(`saved ${r.file}: ${r.duration.toFixed(1)} s, ${r.width}×${r.height}; marks: ${marks}`);
+      return console.log(`next: add screen ${r.file} [after-id]  (captions can align to the marks with "at": "@name")`);
+    }
     default:
       console.log(HELP);
   }
+}
+
+// AI voice-over: list / use / generate
+async function voiceCmd(rest: string[]) {
+  const s = voiceSettings();
+  if (rest[0] === 'list') {
+    for (const e of ENGINES) {
+      const cur = e.id === s.engine ? ' (current)' : '';
+      const voices = e.voices.filter((v) => v.lang === 'any' || v.lang === lang);
+      console.log(`${e.id}${cur}: ${e.en}. ${e.noteEn}
+  voice for ${lang}: ${voiceOf(s, e.id, lang)}; ${voices.length} voices: ${voices.map((v) => v.id).join(' ')}`);
+    }
+    console.log(`speed ${s.speed}`);
+    return;
+  }
+  if (rest[0] === 'use') {
+    const [, engine, voice] = rest;
+    if (!engineDef(engine)) throw new Error(`engines: ${ENGINES.map((e) => e.id).join(', ')}`);
+    writeVoiceSettings({ engine });
+    if (voice) writeVoiceSettings({ voice, lang });
+    const n = voiceSettings();
+    return console.log(`voice-over: ${n.engine} · ${voiceOf(n, n.engine, lang)} (${lang})`);
+  }
+  const engine = engineArg ?? s.engine;
+  if (engine === 'builtin' && !modelInstalled()) {
+    console.log('Downloading the built-in voice model (147 MB, once)…');
+    let shown = 0;
+    await installModel((j) => {
+      const pct = Math.floor((j.got / j.total) * 10) * 10;
+      if (pct > shown) console.log(`  ${(shown = pct)}%`);
+    });
+  }
+  const t0 = Date.now();
+  const r = await voiceProject({ slug, lang, scenes: rest.length ? rest : undefined, redo, engine, voice: voiceArg }, (p) => p.line && console.log(`  ${p.done}/${p.total} ${p.line.slice(0, 50)}`));
+  const left = lineStates(slug, lang).filter((l) => l.state === 'missing' || l.state === 'stale').length;
+  console.log(`voiced ${r.voiced} line(s), kept ${r.kept}; ${r.seconds} s of ${lang} narration in total; ${left} line(s) still without current audio (${((Date.now() - t0) / 1000).toFixed(1)} s)`);
+  for (const f of r.failed) console.log(`  failed ${f.line}: ${f.error}`);
+  if (r.failed.length && !r.voiced) process.exitCode = 1;
 }
 
 main().catch((e) => {

@@ -1,12 +1,13 @@
 // Deterministic browser capture: virtual clock + per-frame screenshots piped to ffmpeg, with an event log
-import { chromium } from 'playwright';
+import { chromium } from 'playwright-core';
 import { spawn } from 'node:child_process';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+// Next to this file in tools/, or in tools/ a few folders up when bundled into editor/dist
 const HERE = dirname(fileURLToPath(import.meta.url));
-const VCLOCK = readFileSync(join(HERE, 'vclock.js'), 'utf8');
+const VCLOCK = readFileSync(['.', 'tools', '../tools', '../../tools', '../../../tools'].map((d) => join(HERE, d, 'vclock.js')).find((f) => existsSync(f)), 'utf8');
 
 // Seeded RNG for human-like jitter
 function rng(seed) {
@@ -34,11 +35,14 @@ export async function record(name, opts, script) {
     settle,
     settleMs = 4000,
     clip,
+    // Browser launch options (default: installed Chrome) and the ffmpeg binary
+    launch = { channel: 'chrome' },
+    ffmpeg = 'ffmpeg',
   } = opts;
   mkdirSync(outDir, { recursive: true });
   const args = ['--hide-scrollbars', '--disable-renderer-backgrounding', '--disable-background-timer-throttling'];
   if (gpu) args.push('--use-angle=d3d11', '--enable-gpu', '--ignore-gpu-blocklist');
-  const browser = await chromium.launch({ channel: 'chrome', headless, args });
+  const browser = await chromium.launch({ ...launch, headless, args });
   const ctx = await browser.newContext({
     viewport,
     deviceScaleFactor: dpr,
@@ -62,7 +66,7 @@ export async function record(name, opts, script) {
   const openFF = () => {
     const args = ['-y', '-loglevel', 'error', '-f', 'image2pipe', '-framerate', String(fps), '-c:v', 'png', '-i', '-', '-vf', `scale=${W}:${H}:flags=lanczos`];
     args.push('-c:v', 'libx264', '-preset', 'slow', '-crf', String(crf), '-pix_fmt', 'yuv420p', '-g', String(fps), '-movflags', '+faststart', out);
-    ff = spawn('ffmpeg', args, { stdio: ['pipe', 'inherit', 'inherit'] });
+    ff = spawn(ffmpeg, args, { stdio: ['pipe', 'ignore', 'inherit'], windowsHide: true });
     ffDone = new Promise((res, rej) => ff.on('close', (c) => (c === 0 ? res() : rej(new Error(`ffmpeg exit ${c}`)))));
   };
 
@@ -75,6 +79,19 @@ export async function record(name, opts, script) {
   const t = () => +(frame / fps).toFixed(4);
   const log = (e) => events.push({ t: t(), ...e });
   const px = (p) => ({ x: Math.round(p.x * dpr), y: Math.round(p.y * dpr) });
+
+  // page.evaluate that survives a navigation (a link click, Enter in a search box): wait for the new page, retry
+  async function ev(fn, arg) {
+    for (let i = 0; ; i++) {
+      try {
+        return await page.evaluate(fn, arg);
+      } catch (e) {
+        if (i >= 40 || !/context was destroyed|navigat|Cannot find context|frame was detached/i.test(e.message)) throw e;
+        await page.waitForLoadState('domcontentloaded').catch(() => undefined);
+        await new Promise((res) => setTimeout(res, 50));
+      }
+    }
+  }
 
   // Wait in real time until the page reports ready, repainting without moving the clock
   async function settleFrame() {
@@ -90,10 +107,10 @@ export async function record(name, opts, script) {
   }
 
   async function snap() {
-    await page.evaluate((ms) => window.__vt && window.__vt.advance(ms), dt);
+    await ev((ms) => window.__vt && window.__vt.advance(ms), dt);
     if (!recording) return;
     await settleFrame();
-    await page.evaluate(() => window.__vt && window.__vt.mediaReady && window.__vt.mediaReady());
+    await ev(() => window.__vt && window.__vt.mediaReady && window.__vt.mediaReady());
     const shot = { format: 'png', optimizeForSpeed: true, captureBeyondViewport: false };
     if (region) shot.clip = { ...region, scale: 1 };
     const { data } = await cdp.send('Page.captureScreenshot', shot);
@@ -141,6 +158,14 @@ export async function record(name, opts, script) {
     async wait(ms) {
       const n = Math.round(ms / dt);
       for (let i = 0; i < n; i++) await snap();
+    },
+    // Let the page run in real time (network, timers) without recording frames
+    async idle(ms) {
+      const end = Date.now() + ms;
+      while (Date.now() < end) {
+        await ev((x) => window.__vt && window.__vt.advance(x), dt);
+        await new Promise((res) => setTimeout(res, 50));
+      }
     },
     // Real-time wait with virtual clock ticking, no frames
     async until(pred, { timeout = 20000, arg } = {}) {

@@ -44,6 +44,7 @@ function cleanup() {
     for (const f of fs.readdirSync(media)) fs.rmSync(path.join(media, f));
     fs.rmdirSync(media);
   }
+  fs.rmSync(path.join(DIR, 'vo'), { recursive: true, force: true });
   for (const f of fs.existsSync(DIR) ? fs.readdirSync(DIR) : []) if (f.endsWith('.tmp')) fs.rmSync(path.join(DIR, f));
   if (fs.existsSync(DIR)) fs.rmdirSync(DIR);
   fs.rmSync(path.resolve('.editor', SLUG), { recursive: true, force: true });
@@ -240,6 +241,21 @@ try {
     const [dl] = await Promise.all([page.waitForEvent('download'), page.locator('.menu-pop button', { hasText: '字幕文件 SRT' }).click()]);
     const text = fs.readFileSync(await dl.path(), 'utf8');
     if (!/\d\d:\d\d:\d\d,\d{3} --> /.test(text)) throw new Error(text.slice(0, 120));
+  });
+
+  await step('voice-over panel', async () => {
+    await page.locator('.lib-tabs button', { hasText: '配音' }).click();
+    await page.locator('.vop .vo-count').waitFor();
+    // With CUTROOM_VOICE_TEST=1 on the server, voice every line with the test tone and check the voice lane
+    const st = await (await fetch(`${BASE}/api/voice?slug=${SLUG}&lang=zh`)).json();
+    if (!st.engines.some((e) => e.id === 'test')) return;
+    const was = st.settings.engine;
+    await page.locator('.vop select').selectOption('test');
+    await page.locator('.vop .primary', { hasText: '配音' }).click();
+    await page.locator('.vo-done').waitFor({ timeout: 60000 });
+    await until('timings written', () => Object.values(timings().scenes).flat().every((c) => !c.text || c.file), 10000);
+    await page.locator('.lane-a .vo').first().waitFor({ timeout: 10000 });
+    await page.locator('.vop select').selectOption(was);
   });
 
   await step('chat tab', async () => {

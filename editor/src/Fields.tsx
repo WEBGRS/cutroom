@@ -65,7 +65,7 @@ export const refOk = (marks: string[]) => (s: string) => {
   const t = s.trim();
   if (!t || /^-?[\d.]+$/.test(t)) return true;
   const m = /^@([\w-]+)([+-][\d.]+)?$/.exec(t);
-  return !!m && marks.includes(m[1]);
+  return !!m && (marks.includes(m[1]) || m[1] === 'end');
 };
 
 export function JsonEdit({ value, onApply }: { value: unknown; onApply: (v: any) => void }) {

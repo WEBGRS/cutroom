@@ -78,6 +78,12 @@ const boardText = (b: Storyboard) => JSON.stringify(b, null, 2);
 // timings files are written by tts.py with indent=1
 const timingsText = (t: Timings) => JSON.stringify(t, null, 1);
 
+// Voice timings written by the voice-over job
+export function writeTimings(slug: string, lang: 'zh' | 'en', t: Timings) {
+  checkSlug(slug);
+  atomic(timingsFile(slug, lang), timingsText(t));
+}
+
 export function snapshot(slug: string, version: string, text: string) {
   const dir = path.join(stateDir(slug), 'snap');
   fs.mkdirSync(dir, { recursive: true });

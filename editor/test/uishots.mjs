@@ -118,6 +118,11 @@ try {
   await lib(p, 'Sound FX');
   await p.waitForTimeout(800);
   await shot(p, '10b-scene-sound-libsfx');
+  await itab(p, 'Narration');
+  await lib(p, 'Voiceover');
+  await p.locator('.vop .vo-count').waitFor();
+  await p.waitForTimeout(400);
+  await shot(p, '10c-scene-lines-libvoice');
 
   // menus, dialog, toasts
   await p.locator('.tl-tools .menu > button', { hasText: 'Add' }).click();

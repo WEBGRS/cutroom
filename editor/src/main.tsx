@@ -517,6 +517,7 @@ function App() {
       if (e.type === 'hello') handlers.current.syncRemote(null).catch(() => undefined);
       if (e.type === 'board' && e.slug === S.current.slug && e.version !== version.current) handlers.current.syncRemote(e).catch(() => undefined);
       if (e.type === 'timings' && e.slug === S.current.slug) handlers.current.syncTimings().catch(() => undefined);
+      if (e.type === 'record' && e.job.state === 'done' && e.job.slug === S.current.slug) getAssets(S.current.slug).then(setAssets).catch(() => undefined);
     };
     return () => es.close();
   }, []);
@@ -1144,6 +1145,7 @@ function App() {
             music={music}
             theme={doc.board.theme}
             mode={st.mode}
+            lang={st.lang}
             target={target}
             preview={preview}
             musicSrc={st.mode === 'beat' ? doc.board.beat?.music : doc.board.music?.src}
@@ -1159,6 +1161,7 @@ function App() {
             onLook={libLook}
             onMusic={libMusic}
             onSound={libSound}
+            onSettings={() => setSettingsTab('ai')}
           />
         ) : (
           <aside className="lib panel" />
@@ -1267,6 +1270,7 @@ function App() {
               slug={st.slug}
               format={st.format}
               mode={st.mode}
+              lang={st.lang}
               etl={etl}
               caps={caps}
               assets={assets}

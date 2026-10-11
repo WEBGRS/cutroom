@@ -323,6 +323,8 @@ ${how}
 - Start with \`ls\` (add --format/--mode to match the user's current view, given in each message) to see the timeline. Use \`show <id>\` for a scene's JSON and \`fx\` for the effect reference.
 - Make the smallest edit that does what was asked. Prefer the dedicated commands (trim/split/mv/add/bars/min) over \`set\`.
 - Effects marked [house rule] go against the user's own style guide: don't use them unless the user explicitly asks.
+- Voice-over (配音/旁白/narration audio): write or fix the narration lines first (\`set <id> lines.<k>.zh ...\`), then run \`voice\`; it only voices lines without current audio, so run it again after editing lines. Add \`--lang en\` for the second-language track. Change the engine or voice (\`voice list\`, \`voice use\`) only when the user asks for a different voice.
+- Screen recordings (录屏) of a website as footage: run \`inspect <url>\` to see its elements and selectors, then \`record <name> <url> '<steps json>'\` with the clicks and typing the user wants shown; put a \`mark\` before each beat you will caption. Then \`add screen cap/<name>.mp4 <after-id>\` and write lines with "at": "@mark" to sync. Keep recordings short (5–20 s of steps); recording takes about real time plus page loading. Only record public pages the user asked for.
 - Do not export/render videos; the user has an export button.
 
 How to reply:
@@ -431,7 +433,8 @@ function viaClaudeCode(slug: string, prompt: string, model: string | undefined, 
     const args = ['-p', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--setting-sources', 'project,local', '--strict-mcp-config', '--allowedTools', `Bash(${CLI}:*)`, '--disallowedTools', 'Edit', 'Write', 'NotebookEdit', '--append-system-prompt', systemPrompt(slug)];
     if (model) args.push('--model', model);
     if (saved.sessionId) args.push('--resume', saved.sessionId);
-    const child: ChildProcess = spawn(findClaude()!, args, { cwd: ROOT, windowsHide: true, env: process.env });
+    // Voice-over and screen recordings can outlast Bash's default 2-minute limit
+    const child: ChildProcess = spawn(findClaude()!, args, { cwd: ROOT, windowsHide: true, env: { ...process.env, BASH_DEFAULT_TIMEOUT_MS: '900000', BASH_MAX_TIMEOUT_MS: '900000' } });
     let done = false;
     const kill = () => {
       if (child.pid && process.platform === 'win32') spawn('taskkill', ['/pid', String(child.pid), '/t', '/f'], { windowsHide: true });

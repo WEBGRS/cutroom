@@ -14,6 +14,7 @@ export interface ELine {
   text: string;
   file?: string;
   stale?: boolean;
+  voiced?: boolean;
 }
 
 // A placed sound: frames from scene start; past = beyond the scene end, so silent
@@ -200,7 +201,7 @@ export function editTimeline(p: Props, fps: number): ETimeline {
     const why = s.only && s.only !== p.format ? (s.only === 'wide' ? '只在横屏' : '只在竖屏') : p.mode === 'beat' && !Array.isArray(s.beat) ? '卡点版未用' : '未用';
     hidden.push({ id: s.id, index, why });
   });
-  const clipsOf = (id: string) => (lang === 'zh' && p.voice !== 'off' && p.mode !== 'beat' ? p.timings?.scenes[id] : undefined);
+  const clipsOf = (id: string) => (p.voice !== 'off' && p.mode !== 'beat' ? p.timings?.scenes[id] : undefined);
   const out = scenes.map((s): EScene => {
     const v = s.visual;
     const index = board.scenes.indexOf(s.scene);
@@ -257,7 +258,7 @@ export function editTimeline(p: Props, fps: number): ETimeline {
     const clips = clipsOf(s.scene.id);
     e.lines = s.lines.map((l, k) => {
       const c = clips?.[k];
-      return { k, start: l.start, dur: l.dur, text: plain(l.main), file: l.file, stale: !!c && !!c.text && c.text !== plain(l.zh) };
+      return { k, start: l.start, dur: l.dur, text: plain(l.main), file: l.file, stale: !!c?.file && !l.file, voiced: !!l.file };
     });
     if (p.mode !== 'beat' && e.lines.length) {
       const last = e.lines[e.lines.length - 1];

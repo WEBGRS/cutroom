@@ -1,0 +1,76 @@
+{
+ "voice": "builtin:af_maple",
+ "lang": "en",
+ "scenes": {
+  "intro": [
+   {
+    "file": "vo/9e0a44675c13.wav",
+    "dur": 2.33,
+    "text": "这条视频是写出来的，不是拖出来的。",
+    "spoken": "This video was written, not dragged together.",
+    "voice": "builtin:af_maple"
+   }
+  ],
+  "record": [
+   {
+    "file": "vo/dde49c54c2c3.wav",
+    "dur": 2.26,
+    "text": "录屏会跟着点击自动推近。",
+    "spoken": "Screen recordings zoom in on every click.",
+    "voice": "builtin:af_maple"
+   },
+   {
+    "file": "vo/3c7b9e7dc526.wav",
+    "dur": 2.44,
+    "text": "光标、点击涟漪，都是后期加上去的。",
+    "spoken": "The cursor and click ripples are added afterwards.",
+    "voice": "builtin:af_maple"
+   }
+  ],
+  "photo": [
+   {
+    "file": "vo/ef83b4402dd5.wav",
+    "dur": 2.68,
+    "text": "一张图，加上慢推、暖色和漏光，就动起来了。",
+    "spoken": "A still gets a slow push, a warm look and a light leak.",
+    "voice": "builtin:af_maple"
+   }
+  ],
+  "clip": [
+   {
+    "file": "vo/7fc3b31dd46f.wav",
+    "dur": 2.89,
+    "text": "视频片段加上黑边和胶片颗粒，马上有电影感。",
+    "spoken": "Letterbox and film grain make any clip feel cinematic.",
+    "voice": "builtin:af_maple"
+   }
+  ],
+  "numbers": [
+   {
+    "file": "vo/908e53c0424f.wav",
+    "dur": 3.48,
+    "text": "十种转场，十几个特效参数，十种叠加元素。",
+    "spoken": "Ten transitions, a dozen effect controls, ten overlay types.",
+    "voice": "builtin:af_maple"
+   }
+  ],
+  "how": [
+   {
+    "file": "vo/a75d42b53e20.wav",
+    "dur": 4.11,
+    "text": "你在界面里拖，AI 用命令行改，改的是同一份文件。",
+    "spoken": "You drag in the UI, the AI edits through the CLI, both on the same file.",
+    "voice": "builtin:af_maple"
+   }
+  ],
+  "outro": [
+   {
+    "file": "vo/b6bec650ec10.wav",
+    "dur": 2.12,
+    "text": "开源，欢迎试用。",
+    "spoken": "It's open source. Give it a try.",
+    "voice": "builtin:af_maple"
+   }
+  ]
+ }
+}

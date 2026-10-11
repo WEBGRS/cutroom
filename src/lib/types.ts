@@ -4,7 +4,9 @@ export type Format = 'wide' | 'tall';
 export interface Line {
   zh: string;
   en?: string;
+  // Spoken form when it differs from the caption (zh / en)
   say?: string;
+  sayEn?: string;
   at?: TimeRef;
 }
 
@@ -315,11 +317,15 @@ export interface Storyboard {
 export interface VoiceClip {
   file: string;
   dur: number;
+  // Caption (zh) the clip was made for; spoken = the exact text read, when it differs by language
   text?: string;
+  spoken?: string;
+  voice?: string;
 }
 
 export interface Timings {
   voice?: string;
+  lang?: string;
   scenes: Record<string, VoiceClip[]>;
 }
 

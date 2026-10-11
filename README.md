@@ -1,18 +1,18 @@
 # Cutroom
 
-A video editor where you and an AI assistant edit the same cut. Each video is one `storyboard.json` file: you work on it in a timeline, the assistant changes it from a chat panel, and [Remotion](https://www.remotion.dev) renders it. Made for product demos, screen recordings and short promos.
+A video editor where you and an AI assistant edit the same cut. Each video is one `storyboard.json` file: you work on it in a timeline, the assistant changes it from a chat panel, and [Remotion](https://www.remotion.dev) renders it. It can also record websites and voice the narration. Made for product demos, screen recordings and short promos.
 
 [![Download for Windows](https://img.shields.io/github/v/release/WEBGRS/cutroom?label=download&color=3b6ef5)](https://github.com/WEBGRS/cutroom/releases/latest)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![CI](https://github.com/WEBGRS/cutroom/actions/workflows/ci.yml/badge.svg)](https://github.com/WEBGRS/cutroom/actions/workflows/ci.yml)
 
-![Cutroom editor: transition library, preview, effect settings, and a timeline with overlay, effect, camera, video, caption, sound and music lanes](docs/screenshot.png)
+![Cutroom editor: transition library, preview, effect settings, and a timeline with overlay, effect, camera, video, caption, voice and sound lanes](docs/screenshot.png)
 
 ## Why
 
 Most editors store a project as an opaque binary or database. Cutroom stores it as a small JSON document, which means:
 
-- **You and an AI can work on the same cut.** Hold Ctrl and click a spot in the preview, a scene or a caption, then say what you want changed there. The assistant edits through one tool, the editor's CLI; its changes appear in the preview within a second, and it sees the changes you make by hand. Both sides go through the same versioned save path, so neither overwrites the other.
+- **You and an AI can work on the same cut.** Hold Ctrl and click a spot in the preview, a scene or a caption, then say what you want changed there. The assistant edits through one tool, the editor's CLI; its changes appear in the preview within a second, and it sees the changes you make by hand. Both sides go through the same versioned save path, so neither overwrites the other. Ask it for footage and it records a website for you ("record searching for Remotion on wikipedia.org"); ask for narration and it writes the lines and voices them.
 ![The AI panel: a spot Ctrl+clicked in the preview, the request, the command the AI ran, and the circle it drew there](docs/ai-chat.png)
 
 - **Timing stays tied to content.** Captions and cuts can be anchored to marks recorded with a screen capture (`"@add-0.3"`), so re-recording a demo doesn't break the edit.
@@ -22,7 +22,7 @@ Most editors store a project as an opaque binary or database. Cutroom stores it 
 
 - **Timeline**: filmstrip thumbnails, waveforms, drag to reorder, drag edges to trim, split at the playhead, undo/redo, and a beat grid for music cuts. Lanes under the scenes show where every overlay, effect, camera move and sound effect sits, and each cut shows its transition. Drag an overlay or a sound to move it; click any bar to open its settings.
 - **Two cuts from one storyboard**: a narrated cut and a beat-synced music cut, each in 16:9 and 9:16.
-- **Library panel**: media, cards, text, overlays, transitions, effects, backdrops, sound effects and music. Every effect has a rendered preview that plays on hover; one click applies it to the selected scene.
+- **Library panel**: media, cards, text, overlays, transitions, effects, backdrops, voice-over, sound effects and music. Every effect has a rendered preview that plays on hover; one click applies it to the selected scene.
 - **182 effects**:
   - 39 transitions (whip pan, glitch, film burn, 3D cube, light leak, tile grid, …)
   - 33 text animations (decode, scramble, typewriter, split-flap, count-up, marker highlight, …), usable on titles, overlays and captions
@@ -33,11 +33,14 @@ Most editors store a project as an opaque binary or database. Cutroom stores it 
   - Many of the designs are adapted from [HyperFrames](https://github.com/heygen-com/hyperframes); see [CREDITS.md](CREDITS.md).
 - **58 sound effects**: whooshes, risers, booms, hits, clicks, typing, notification dings and digital blips. Listen in the library, drag one onto the Sound FX lane, then drag it to the exact frame.
 - **Captions**: box, outline or plain styles, any position and size, and most text animations; a Screen Studio-style frame for recordings, frosted cards and a chapter bar.
-- **Screen recordings**: a deterministic browser recorder logs clicks and cursor moves; the editor adds smooth auto-zoom, a synthetic cursor and click ripples afterwards.
+- **AI voice-over**: pick a voice in Library › Voiceover and press Voice. The built-in voices are free and run offline (100 Chinese, 3 English; a 147 MB model downloads once); OpenAI, Gemini and Qwen voices use your key from Settings › AI. Only lines without current audio are voiced, so editing a line re-voices just that line. Each scene's Narration tab plays its lines and can re-voice them.
+- **Screen recordings**: a deterministic browser recorder logs clicks and cursor moves; the editor adds smooth auto-zoom, a synthetic cursor and click ripples afterwards. Record any website from Library › Media › Record a website (a short scroll through the page), or ask the AI assistant to record clicks and typing on it.
 - **AI assistant**: works with a Claude subscription (through Claude Code), a ChatGPT plan (through the Codex CLI), a Google account (through the Gemini CLI), a Claude API key, or any OpenAI-compatible API: OpenAI, Gemini, DeepSeek, Qwen, Kimi, GLM, OpenRouter or a local Ollama. See [Connecting the AI](#connecting-the-ai).
 - **Export**: MP4, 2× resolution, GIF, ProRes, SRT subtitles and a chapter list. The export menu shows where files go (desktop app: `Documents\Cutroom\exports\editor`), and a finished export offers Play and Show in folder.
 - **Settings** (gear icon or Ctrl+,): language, help hints, default lengths and transition for new scenes, which timeline lanes to show, preview loop and volume, hiding URLs for platforms that ban links, the export folder and preset, the AI connection, shortcuts and the thumbnail cache.
 - **English and Chinese** interface, chosen in the installer or in Settings.
+
+![Voiceover library: engine, voices and progress; the scene's narration lines with their audio; the voice lane on the timeline](docs/voiceover.png)
 
 ![Sound FX library, the scene's Sound tab and the Sound FX lane on the timeline](docs/sound-fx.png)
 
@@ -128,6 +131,10 @@ node editor/dist/cli.mjs showcase split record 4.2
 node editor/dist/cli.mjs showcase set photo fx.look '"warm"'
 node editor/dist/cli.mjs showcase add title intro                 # new title card after "intro"
 node editor/dist/cli.mjs showcase log --unseen                    # what changed in the UI since you last looked
+node editor/dist/cli.mjs showcase voice                           # voice-over for lines without current audio
+node editor/dist/cli.mjs showcase voice --lang en --redo          # re-voice the English track
+node editor/dist/cli.mjs showcase inspect https://example.com     # a page's clickable elements and their selectors
+node editor/dist/cli.mjs showcase record demo https://example.com '[{"wait":800},{"mark":"more"},{"click":"text=\"Learn more\""},{"wait":1500}]'
 node editor/dist/cli.mjs fx                                       # every effect field and its range
 ```
 
@@ -161,7 +168,7 @@ node editor/dist/cli.mjs fx                                       # every effect
 
 - `src/`: the Remotion composition: scenes, camera, captions, effects, transitions.
 - `src/fx/`: the effect library: text animations, transitions, overlays, cards, backdrops, scene effects, sounds, and `registry.ts`, the list that drives the UI and the previews.
-- `editor/src/`: UI (React), server, CLI, edit operations, the effects catalog behind the UI, the CLI's `fx` listing and the AI's instructions, plus the AI providers (`chat.ts`, `compat.ts`, `agents.ts`, `mcp.ts`).
+- `editor/src/`: UI (React), server, CLI, edit operations, the effects catalog behind the UI, the CLI's `fx` listing and the AI's instructions, plus the AI providers (`chat.ts`, `compat.ts`, `agents.ts`, `mcp.ts`), voice-over (`voice.ts`, `voices.ts`) and web recording (`record.ts`).
 - `tools/capture.mjs`: deterministic screen recorder. `editor/demo/capture.mjs` shows how to script one.
 - `editor/fx/previews.ts`: renders the hover previews into `public/_fx/` (`npm run previews`; `--only transition/whip` for one).
 - `app/`: desktop shell; `electron-builder.yml` and `build/installer.nsh` make the installer.
@@ -169,7 +176,7 @@ node editor/dist/cli.mjs fx                                       # every effect
 ## Tests
 
 ```bash
-npm test             # unit tests: edit operations, timeline model, effects catalog, AI provider adapters
+npm test             # unit tests: edit operations, timeline model, effects catalog, AI providers, voice-over, recording
 npm run typecheck
 npm run test:e2e     # drives the editor in headless Chrome against a throwaway copy of the showcase
 npm run test:oracle  # preview frames vs. Remotion's renderer (PSNR ≥ 50 dB; most frames identical)
@@ -183,9 +190,10 @@ The e2e, oracle, app and screenshot scripts need the editor running (`npm run ed
 
 - The timeline is scene-based and always closed up (ripple). There is no free placement on multiple tracks; overlays and sounds attach to scenes instead.
 - Twelve of Remotion's shader transitions need an experimental Chrome flag, so they are not offered.
-- Narration audio has to be produced outside the editor (any TTS or your own recording, listed in `timings.json`).
+- The built-in voices are clear but not studio quality, and Chinese voices now and then misread a rare word: listen back, or switch to a cloud voice. Your own recording can replace any line through `timings.json`.
+- Recording needs Google Chrome or Microsoft Edge. It opens a fresh browser, so pages behind a login can't be recorded.
 - Windows only so far, and the installer is unsigned.
 
 ## Credits and license
 
-Cutroom is MIT-licensed. Remotion has its own license: free for individuals and companies with up to three employees, while larger companies need a [company license](https://www.remotion.dev/license). Bundled music and sounds, and the HyperFrames designs the effect library adapts (Apache-2.0), are listed in [CREDITS.md](CREDITS.md).
+Cutroom is MIT-licensed. Remotion has its own license: free for individuals and companies with up to three employees, while larger companies need a [company license](https://www.remotion.dev/license). The built-in voices are [Kokoro-82M v1.1-zh](https://huggingface.co/hexgrad/Kokoro-82M-v1.1-zh) (Apache-2.0) run through [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) (Apache-2.0); the model is downloaded on first use, not bundled. Bundled music and sounds, and the HyperFrames designs the effect library adapts (Apache-2.0), are listed in [CREDITS.md](CREDITS.md).

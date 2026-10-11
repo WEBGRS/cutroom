@@ -10,8 +10,9 @@ import { nm, tr } from './i18n';
 import { SOUNDS, SOUND_CATS, soundSrc } from '../../src/fx/sounds';
 import { SOUND_MIME } from './Timeline';
 import { usePrefs } from './prefs';
+import { VoicePanel } from './VoicePanel';
 
-export type LibTab = 'media' | 'cards' | 'text' | 'overlay' | 'trans' | 'fx' | 'bg' | 'sfx' | 'audio';
+export type LibTab = 'media' | 'cards' | 'text' | 'overlay' | 'trans' | 'fx' | 'bg' | 'voice' | 'sfx' | 'audio';
 
 const TABS: [LibTab, string, string, string][] = [
   ['media', 'Media', '素材', 'media'],
@@ -21,6 +22,7 @@ const TABS: [LibTab, string, string, string][] = [
   ['trans', 'Transitions', '转场', 'trans'],
   ['fx', 'Effects', '特效', 'filter'],
   ['bg', 'Backdrop', '背景', 'board'],
+  ['voice', 'Voiceover', '配音', 'mic'],
   ['sfx', 'Sound FX', '音效', 'sfx'],
   ['audio', 'Music', '音乐', 'music'],
 ];
@@ -84,6 +86,7 @@ interface Props {
   music: { src: string; beats: boolean }[];
   theme: Theme;
   mode: 'voice' | 'beat';
+  lang: 'zh' | 'en';
   target: Scene | null;
   preview: Scene | null;
   musicSrc: string | undefined;
@@ -96,6 +99,7 @@ interface Props {
   onBg: (id: string) => void;
   onMusic: (src: string) => void;
   onSound: (id: string) => void;
+  onSettings: () => void;
 }
 
 const TH = 72;
@@ -232,6 +236,67 @@ function SoundList({ onAdd }: { onAdd: (id: string) => void }) {
   );
 }
 
+// Record a web page into cap/: a short scroll-through; the AI assistant can script clicks and typing
+function RecordWeb({ slug }: { slug: string }) {
+  const [open, setOpen] = useState(false);
+  const [url, setUrl] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  useEffect(() => {
+    if (!busy) return;
+    const es = new EventSource('/api/events');
+    es.onmessage = (m) => {
+      const e = JSON.parse(m.data);
+      if (e.type !== 'record' || e.job.slug !== slug || e.job.state === 'running') return;
+      setBusy(false);
+      setMsg(e.job.state === 'done' ? { ok: true, text: tr(`Saved ${e.job.file} (${e.job.duration.toFixed(1)} s): click it below to add it`, `已保存 ${e.job.file}（${e.job.duration.toFixed(1)} 秒），在下面点它加到时间线`) } : { ok: false, text: e.job.error });
+    };
+    return () => es.close();
+  }, [busy, slug]);
+  const go = async () => {
+    setMsg(null);
+    const r = await fetch('/api/record', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ slug, url }) });
+    if (!r.ok) return setMsg({ ok: false, text: (await r.json()).error });
+    setBusy(true);
+  };
+  if (!open)
+    return (
+      <button className="btn" onClick={() => setOpen(true)} title={tr('Record a web page as a screen recording', '把一个网页录成录屏素材')}>
+        <Icon name="globe" />
+        {tr('Record a website', '录制网页')}
+      </button>
+    );
+  return (
+    <div className="recweb">
+      <div className="recweb-row">
+        <input
+          autoFocus
+          value={url}
+          disabled={busy}
+          placeholder={tr('example.com', '网址，例如 example.com')}
+          onChange={(e) => setUrl(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && url.trim()) void go();
+            if (e.key === 'Escape' && !busy) setOpen(false);
+          }}
+        />
+        <button className="primary" disabled={busy || !url.trim()} onClick={() => void go()}>
+          <Icon name={busy ? 'wait' : 'cam'} size={14} />
+          {busy ? tr('Recording…', '录制中…') : tr('Record', '录制')}
+        </button>
+        {!busy ? (
+          <button className="icon sm" onClick={() => setOpen(false)} title={tr('Close', '关闭')}>
+            <Icon name="close" size={14} />
+          </button>
+        ) : null}
+      </div>
+      <span className={msg ? (msg.ok ? 'lib-note' : 'vo-err') : 'lib-note'}>
+        {msg ? msg.text : tr('Scrolls through the page for about 8 s. To click and type on it, ask the AI assistant, e.g. "record searching for X on example.com".', '自动滚动浏览约 8 秒。要点击、输入，跟 AI 助手说，比如"录一段在 example.com 搜索 X"。')}
+      </span>
+    </div>
+  );
+}
+
 function AudioRow({ src, label, sub, on, disabled, why, onUse }: { src: string; label: string; sub: string; on: boolean; disabled?: boolean; why?: string; onUse: () => void }) {
   const [playing, setPlaying] = useState(false);
   const el = useRef<HTMLAudioElement | null>(null);
@@ -332,7 +397,7 @@ export function Library(p: Props & { tab: LibTab; setTab: (t: LibTab) => void })
               <Icon name="import" />
               {tr('Import', '导入素材')}
             </button>
-            {hints ? <span className="lib-note">{tr('or drop files on the window', '或直接拖进窗口')}</span> : null}
+            <RecordWeb slug={slug} />
           </div>
           {caps.length + vids.length + imgs.length ? (
             <>
@@ -457,6 +522,9 @@ export function Library(p: Props & { tab: LibTab; setTab: (t: LibTab) => void })
           </Section>
         </>
       );
+      break;
+    case 'voice':
+      body = <VoicePanel slug={slug} lang={p.lang} mode={p.mode} onSettings={p.onSettings} />;
       break;
     case 'sfx':
       body = <SoundList onAdd={p.onSound} />;

@@ -3,6 +3,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawn, execFile, type ChildProcess } from 'node:child_process';
 import { Conflict, DATA, OUT, PUBLIC, ROOT, STATE, appendLog, boardFile, checkSlug, currentVersion, readDoc, readLog, slugs, snapshot, writeDoc, hash } from './store';
+import { engineStatus, installModel, lineStates, modelStatus, sample, voiceProject, voiceSettings, writeVoiceSettings, type Lang, type VoiceProgress } from './voice';
+import type { EngineId } from './voices';
+import { findBrowser, recordPage } from './record';
 import type { Doc } from './ops';
 import { aiStatus, aiTest, chat, compatModels, history, isRunning, provider, reset, stop, writeAi } from './chat';
 import { agentDef, installAgent, openSignIn, forgetAgents, type AgentId } from './agents';
@@ -215,6 +218,48 @@ function cacheBytes(): number {
 }
 const appInfo = () => ({ version: VERSION, exportDir: exportDir(), exportDefault: DEFAULT_EXPORTS, projectsDir: PUBLIC, cache: { dir: CACHE, bytes: cacheBytes() } });
 
+interface RecordJob {
+  slug: string;
+  url: string;
+  state: 'running' | 'done' | 'error';
+  file?: string;
+  duration?: number;
+  error?: string;
+}
+let recordJob: RecordJob | null = null;
+
+// One voice-over job at a time; progress goes out as server-sent events
+interface VoiceJob extends VoiceProgress {
+  slug: string;
+  lang: Lang;
+  state: 'running' | 'done' | 'error' | 'cancelled';
+  error?: string;
+  result?: Awaited<ReturnType<typeof voiceProject>>;
+}
+let voiceJob: VoiceJob | null = null;
+let voiceAbort: AbortController | null = null;
+function startVoice(run: Parameters<typeof voiceProject>[0]) {
+  voiceAbort = new AbortController();
+  const job: VoiceJob = { slug: run.slug, lang: run.lang, state: 'running', done: 0, total: 0 };
+  voiceJob = job;
+  const tell = () => broadcast({ type: 'voice', job });
+  tell();
+  voiceProject(run, (pr) => {
+    Object.assign(job, pr);
+    tell();
+  }, voiceAbort.signal)
+    .then((r) => {
+      job.result = r;
+      job.state = voiceAbort?.signal.aborted ? 'cancelled' : r.failed.length && !r.voiced ? 'error' : 'done';
+      if (job.state === 'error') job.error = r.failed[0].error;
+    })
+    .catch((e) => {
+      job.state = 'error';
+      job.error = (e as Error).message;
+    })
+    .finally(tell);
+}
+
 function startRender(o: { slug: string; format: string; mode: string; variant: string; lang: string; voice: string; scale?: number; codec?: string }) {
   if (job?.state === 'running') throw new Error(L('A render is already running', '已有渲染在进行'));
   checkSlug(o.slug);
@@ -399,6 +444,66 @@ const server = http.createServer(async (req, res) => {
         return send(res, 200, await aiStatus());
       }
       return send(res, 400, { error: 'unknown action' });
+    }
+    // ---- screen recording of a web page (a short scroll-through; the AI scripts longer ones with the CLI) ----
+    if (p === '/api/record' && req.method === 'POST') {
+      const b = await body(req);
+      checkSlug(b.slug);
+      if (recordJob?.state === 'running') return send(res, 409, { error: L('A recording is already running', '已经在录了') });
+      let url = String(b.url ?? '').trim();
+      if (url && !/^[a-z]+:\/\//i.test(url)) url = `https://${url}`;
+      if (!/^https?:\/\/[^\s/]+\.[^\s]+/i.test(url)) return send(res, 400, { error: L('Enter a web address, e.g. example.com', '填一个网址，例如 example.com') });
+      if (!findBrowser()) return send(res, 400, { error: L('Recording needs Google Chrome or Microsoft Edge', '录屏需要 Google Chrome 或 Microsoft Edge') });
+      const stem = new URL(url).hostname.replace(/^www\./, '').replace(/[^a-z0-9]+/gi, '-').toLowerCase().slice(0, 40) || 'page';
+      let name = stem;
+      for (let n = 2; fs.existsSync(path.join(PUBLIC, b.slug, 'cap', `${name}.mp4`)); n++) name = `${stem}-${n}`;
+      const job: RecordJob = { slug: b.slug, url, state: 'running' };
+      recordJob = job;
+      broadcast({ type: 'record', job });
+      recordPage({ slug: b.slug, name, url, mobile: !!b.mobile })
+        .then((r) => Object.assign(job, { state: 'done', file: r.file, duration: r.duration }))
+        .catch((e) => Object.assign(job, { state: 'error', error: (e as Error).message.split(/\r?\n/)[0].slice(0, 300) }))
+        .finally(() => broadcast({ type: 'record', job }));
+      return send(res, 200, { job });
+    }
+    if (p === '/api/record' && req.method === 'GET') return send(res, 200, { job: recordJob, browser: !!findBrowser() });
+    // ---- AI voice-over ----
+    if (p === '/api/voice' && req.method === 'GET') {
+      const lang: Lang = url.searchParams.get('lang') === 'en' ? 'en' : 'zh';
+      return send(res, 200, { settings: voiceSettings(), engines: engineStatus(), model: modelStatus(), job: voiceJob, lines: slug ? lineStates(slug, lang) : [] });
+    }
+    if (p === '/api/voice/settings' && req.method === 'POST') {
+      const b = await body(req);
+      try {
+        return send(res, 200, { settings: writeVoiceSettings({ engine: b.engine, voice: b.voice, lang: b.lang === 'en' ? 'en' : 'zh', speed: typeof b.speed === 'number' ? b.speed : undefined }) });
+      } catch (e) {
+        return send(res, 400, { error: (e as Error).message });
+      }
+    }
+    if (p === '/api/voice/model' && req.method === 'POST') {
+      installModel((j) => broadcast({ type: 'voice-model', job: j })).catch(() => undefined);
+      return send(res, 200, { ok: true });
+    }
+    if (p === '/api/voice/sample' && req.method === 'POST') {
+      const b = await body(req);
+      try {
+        const wav = await sample(b.engine as EngineId, String(b.voice), b.lang === 'en' ? 'en' : 'zh');
+        res.writeHead(200, { 'Content-Type': 'audio/wav', 'Cache-Control': 'no-store' });
+        return res.end(wav);
+      } catch (e) {
+        return send(res, 400, { error: (e as Error).message });
+      }
+    }
+    if (p === '/api/voice/run' && req.method === 'POST') {
+      const b = await body(req);
+      checkSlug(b.slug);
+      if (voiceJob?.state === 'running') return send(res, 409, { error: L('Voice-over is already running', '配音正在生成') });
+      startVoice({ slug: b.slug, lang: b.lang === 'en' ? 'en' : 'zh', scenes: Array.isArray(b.scenes) ? b.scenes.map(String) : undefined, lines: Array.isArray(b.lines) ? b.lines.map(String) : undefined, redo: !!b.redo });
+      return send(res, 200, { job: voiceJob });
+    }
+    if (p === '/api/voice/cancel' && req.method === 'POST') {
+      voiceAbort?.abort();
+      return send(res, 200, { ok: true });
     }
     if (p === '/api/ai/test' && req.method === 'POST') return send(res, 200, await aiTest());
     if (p === '/api/chat' && req.method === 'GET') return send(res, 200, { provider: provider(), history: history(slug), running: isRunning(slug) });

@@ -117,7 +117,7 @@ function geminiWorkspace(slug: string): string {
   const dir = path.join(os.tmpdir(), 'cutroom-gemini');
   fs.mkdirSync(path.join(dir, '.gemini'), { recursive: true });
   const settings = {
-    mcpServers: { cutroom: { command: process.execPath, args: [MCP(), slug], cwd: ROOT, env: mcpEnv(), trust: true } },
+    mcpServers: { cutroom: { command: process.execPath, args: [MCP(), slug], cwd: ROOT, env: mcpEnv(), trust: true, timeout: 900_000 } },
     // Its own file, shell and web tools are off; only the editor remains
     tools: { core: ['mcp_cutroom_editor'] },
   };
@@ -156,6 +156,9 @@ export function agentArgs(id: AgentId, slug: string, model: string | undefined):
           .join(', ')}}`,
         '-c',
         'mcp_servers.cutroom.default_tools_approval_mode="approve"',
+        // Voice-over and screen recordings take minutes
+        '-c',
+        'mcp_servers.cutroom.tool_timeout_sec=900',
         // Extra `-c key=value` lines, e.g. openai_base_url for a proxy
         ...(process.env.CUTROOM_CODEX_CONFIG ?? '').split('\n').filter((x) => x.trim()).flatMap((x) => ['-c', x.trim()]),
         ...(model ? ['-m', model] : []),

@@ -16,4 +16,17 @@ export const HELP = `node editor/dist/cli.mjs <slug> <command> [args] [--format 
   set <id|-> <path> <json> set a field (- = board); value 'undefined' deletes; path '.' replaces the scene
   log [n] [--unseen]       recent edits (ui/cli/external); --unseen marks them read
   diff [from] [to]         compare snapshots (default: before last UI edit → now)
-  fx                       list every effect field with allowed values`;
+  fx                       list every effect field with allowed values
+  voice [scene-id ...] [--redo] [--lang zh|en]
+                           AI voice-over for narration lines without current audio (--redo: re-voice them all);
+                           --lang en voices the second-language lines
+  voice list | voice use <engine> [voice]
+                           voice-over engines and voices; pick one (builtin needs no key)
+  inspect <url> [--mobile] a web page's headings and clickable elements, with selectors for record steps
+  record <name> <url> [steps] [--mobile] [--size WxH]
+                           screen-record a web page into cap/<name>.mp4 (cursor, clicks and marks are logged
+                           for auto-zoom). steps = JSON array, one action each: {"wait":ms} {"click":sel}
+                           {"hover":sel} {"fill":[sel,text]} {"type":text} {"press":"Enter"} {"scroll":px}
+                           {"scrollTo":sel} {"select":[css,option]} {"mark":name} {"zoom":sel,"scale":1.8}
+                           {"unzoom":true} {"until":sel} {"goto":url} {"idle":ms}. sel = CSS or text="Label".
+                           No steps: a short scroll through the page. Then: add screen cap/<name>.mp4`;

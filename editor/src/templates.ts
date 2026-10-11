@@ -34,7 +34,7 @@ export function sceneTemplate(kind: string, id: string, src?: string, lang: 'en'
     case 'clip':
       return { ...base, visual: { kind: 'clip', src: src ?? '', fit: 'cover', muted: true }, beat: [{ t: '', n: 4 }], minSec: 4, transition: 'fade' };
     case 'screen':
-      return { ...base, visual: { kind: 'screen', src: src ?? '' }, beat: [{ t: '', n: 4 }], transition: 'fade' };
+      return { ...base, visual: { kind: 'screen', src: src ?? '', to: '@end' }, beat: [{ t: '', n: 4 }], transition: 'fade' };
     default: {
       const demo = DEMO_CARDS[kind];
       if (!demo) throw new Error(`Unknown kind ${kind} (available: ${ADDABLE.map(([k]) => k).join(' / ')})`);

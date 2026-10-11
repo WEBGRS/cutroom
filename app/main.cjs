@@ -46,6 +46,15 @@ function prepareData() {
       }
       fs.cpSync(src, dst, { recursive: true, force: true });
     }
+    // An existing demo project gets the narration added in 0.3.0; files already there are left alone
+    const demoSrc = path.join(ROOT, 'public', 'showcase');
+    const demoDst = path.join(data, 'showcase');
+    if (fs.existsSync(demoDst))
+      for (const f of ['timings.json', 'timings-en.json', 'vo']) {
+        const s = path.join(demoSrc, f);
+        const d = path.join(demoDst, f);
+        if (fs.existsSync(s) && !fs.existsSync(d)) fs.cpSync(s, d, { recursive: true });
+      }
     fs.writeFileSync(stamp, app.getVersion());
   }
   // First run: a demo project to explore

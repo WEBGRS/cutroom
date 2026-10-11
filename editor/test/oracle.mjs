@@ -18,7 +18,7 @@ const MIN_PSNR = system ? 30 : 50;
 // Frames per project; the first frame of each case also gets a control (a different frame must fail)
 const SETS = {
   showcase: [
-    { format: 'wide', mode: 'voice', frames: [495, 140, 258, 870, 1010, 1250, 1620, 2250], control: 30 },
+    { format: 'wide', mode: 'voice', frames: [495, 140, 258, 870, 1010, 1250, 1680, 2250], control: 30 },
     { format: 'tall', mode: 'beat', frames: [290, 60, 520, 650, 940], control: 120 },
   ],
 };

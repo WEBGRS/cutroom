@@ -26,6 +26,7 @@ interface Props {
   doc: Doc;
   slug: string;
   format: Format;
+  lang: 'zh' | 'en';
   mode: 'voice' | 'beat';
   etl: ETimeline | null;
   caps: Caps;
@@ -337,12 +338,17 @@ export function Inspector(p: Props) {
                 <Field multiline value={l.zh} placeholder={tr('Main line  {+faster} {-slower} [[highlight]]', '主字幕　{+加快} {-放慢} [[重点]]')} onCommit={(s) => set(`lines.${k}.zh`, s)} autoFocus={p.focusLine === k} />
                 <Field value={l.en} placeholder={tr('Second-language line (optional)', '第二语言（可空）')} onCommit={(s) => set(`lines.${k}.en`, s || undefined)} />
                 <Field value={l.at} placeholder={tr('Align to @mark (optional)', '对齐到 @标记（可空）')} list="marks" validate={refOk(marks)} onCommit={(s) => set(`lines.${k}.at`, asRef(s))} />
+                <LineVoice slug={p.slug} file={e?.lines[k]?.voiced ? e.lines[k].file : undefined} dur={e?.lines[k]?.voiced ? (e.lines[k].dur / fps) : undefined} empty={!(p.lang === 'en' ? l.en : l.zh)?.trim()} />
               </div>
             ))}
-            <button className="add" onClick={() => set(`lines.${scene.lines.length}`, { zh: '' })}>
-              <Icon name="plus" size={14} />
-              {tr('Add a line', '加一句')}
-            </button>
+            <div className="sec-acts">
+              <button className="add" onClick={() => set(`lines.${scene.lines.length}`, { zh: '' })}>
+                <Icon name="plus" size={14} />
+                {tr('Add a line', '加一句')}
+              </button>
+              <span className="grow" />
+              {scene.lines.some((l) => (p.lang === 'en' ? l.en : l.zh)?.trim()) ? <VoiceScene slug={p.slug} lang={p.lang} scene={scene.id} all={!!e?.lines.length && e.lines.every((x) => x.voiced)} /> : null}
+            </div>
           </>
         ) : !scene.beat ? (
           <>
@@ -953,5 +959,72 @@ function BoardPanel(p: Props) {
       />
       <div className="ibody">{body}</div>
     </div>
+  );
+}
+
+// One narration line's audio: play it, or say there is none yet
+function LineVoice({ slug, file, dur, empty }: { slug: string; file?: string; dur?: number; empty: boolean }) {
+  const [on, setOn] = useState(false);
+  const a = useRef<HTMLAudioElement | null>(null);
+  useEffect(() => () => a.current?.pause(), [file]);
+  if (empty) return null;
+  if (!file)
+    return (
+      <div className="ln-vo">
+        <Icon name="mic" size={12} />
+        {tr('No voice-over yet', '还没有配音')}
+      </div>
+    );
+  const toggle = () => {
+    if (on) {
+      a.current?.pause();
+      return setOn(false);
+    }
+    a.current = new Audio(`/${slug}/${file}`);
+    a.current.onended = () => setOn(false);
+    void a.current.play();
+    setOn(true);
+  };
+  return (
+    <div className="ln-vo ok">
+      <button className="icon sm" onClick={toggle} title={on ? tr('Stop', '停止') : tr('Play the voice-over', '播放配音')}>
+        <Icon name={on ? 'pause' : 'play'} size={12} />
+      </button>
+      {tr(`Voiced · ${dur?.toFixed(1)} s`, `已配音 · ${dur?.toFixed(1)} 秒`)}
+    </div>
+  );
+}
+
+// Voice (or re-voice) every line of one scene with the voice chosen in the library
+function VoiceScene({ slug, lang, scene, all }: { slug: string; lang: 'zh' | 'en'; scene: string; all: boolean }) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  useEffect(() => {
+    if (!busy) return;
+    const es = new EventSource('/api/events');
+    es.onmessage = (m) => {
+      const e = JSON.parse(m.data);
+      if (e.type === 'voice' && e.job.state !== 'running') {
+        setBusy(false);
+        if (e.job.state === 'error') setErr(e.job.error ?? '');
+        else if (e.job.result?.failed.length) setErr(e.job.result.failed[0].error);
+      }
+    };
+    return () => es.close();
+  }, [busy]);
+  const go = async () => {
+    setErr('');
+    const r = await fetch('/api/voice/run', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ slug, lang, scenes: [scene], redo: all }) });
+    if (!r.ok) return setErr((await r.json()).error);
+    setBusy(true);
+  };
+  return (
+    <>
+      {err ? <span className="vo-err" title={err}>{err.length > 60 ? `${err.slice(0, 60)}…` : err}</span> : null}
+      <button className="mini" disabled={busy} onClick={() => void go()} title={tr('Uses the engine and voice chosen under Voiceover in the library', '用素材库「配音」里选的引擎和音色')}>
+        <Icon name={busy ? 'wait' : 'mic'} size={12} />
+        {busy ? tr('Voicing…', '配音中…') : all ? tr('Re-voice scene', '重配这一段') : tr('Voice this scene', '给这一段配音')}
+      </button>
+    </>
   );
 }

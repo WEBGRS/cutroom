@@ -1,0 +1,76 @@
+{
+ "voice": "builtin:zm_041",
+ "lang": "zh",
+ "scenes": {
+  "intro": [
+   {
+    "file": "vo/4e2c6ecadf3d.wav",
+    "dur": 3.89,
+    "text": "这条视频是写出来的，不是拖出来的。",
+    "spoken": "这条视频是写出来的，不是拖出来的。",
+    "voice": "builtin:zm_041"
+   }
+  ],
+  "record": [
+   {
+    "file": "vo/2761065fdb1d.wav",
+    "dur": 2.91,
+    "text": "录屏会跟着点击自动推近。",
+    "spoken": "录屏会跟着点击自动推近。",
+    "voice": "builtin:zm_041"
+   },
+   {
+    "file": "vo/7570946a8aa6.wav",
+    "dur": 3.95,
+    "text": "光标、点击涟漪，都是后期加上去的。",
+    "spoken": "光标、点击涟漪，都是后期加上去的。",
+    "voice": "builtin:zm_041"
+   }
+  ],
+  "photo": [
+   {
+    "file": "vo/447b8070419b.wav",
+    "dur": 5.41,
+    "text": "一张图，加上慢推、暖色和漏光，就动起来了。",
+    "spoken": "一张图，加上慢推、暖色和漏光，就动起来了。",
+    "voice": "builtin:zm_041"
+   }
+  ],
+  "clip": [
+   {
+    "file": "vo/b2c6f8ff70f0.wav",
+    "dur": 4.98,
+    "text": "视频片段加上黑边和胶片颗粒，马上有电影感。",
+    "spoken": "视频片段加上黑边和胶片颗粒，马上有电影感。",
+    "voice": "builtin:zm_041"
+   }
+  ],
+  "numbers": [
+   {
+    "file": "vo/ae20213f71f2.wav",
+    "dur": 5.08,
+    "text": "十种转场，十几个特效参数，十种叠加元素。",
+    "spoken": "十种转场，十几个特效参数，十种叠加元素。",
+    "voice": "builtin:zm_041"
+   }
+  ],
+  "how": [
+   {
+    "file": "vo/c49da7ad49db.wav",
+    "dur": 5.73,
+    "text": "你在界面里拖，AI 用命令行改，改的是同一份文件。",
+    "spoken": "你在界面里拖，AI 用命令行改，改的是同一份文件。",
+    "voice": "builtin:zm_041"
+   }
+  ],
+  "outro": [
+   {
+    "file": "vo/d226381747b5.wav",
+    "dur": 1.78,
+    "text": "开源，欢迎试用。",
+    "spoken": "开源，欢迎试用。",
+    "voice": "builtin:zm_041"
+   }
+  ]
+ }
+}

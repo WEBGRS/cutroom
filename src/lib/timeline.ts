@@ -90,7 +90,8 @@ export function buildTimeline(board: Storyboard, timings: Timings | undefined, f
       const want = sync?.(l.at);
       if (want !== undefined) t = Math.max(t, want);
       const c = clips?.[k];
-      const fresh = c && (!c.text || c.text === plain(l.zh));
+      const said = plain((lang === 'en' ? (l.sayEn ?? l.en ?? '') : (l.say ?? l.zh)).trim());
+      const fresh = c && (!c.text || c.text === plain(l.zh)) && (c.spoken === undefined || c.spoken === said);
       const en = lang === 'en' && l.en;
       const guess = en ? Math.max(0.8, l.en!.length / (silent ? 11 : 14)) : estimate(l.zh, silent ? 3.6 : ZH_CPS);
       const dur = Math.round((fresh && c!.dur ? c!.dur : guess) * fps);
@@ -117,6 +118,8 @@ export function resolveTime(ref: TimeRef | undefined, cap: CaptureMeta | undefin
   const m = /^@([\w-]+)([+-][\d.]+)?$/.exec(ref);
   if (!m) return Number(ref) || dflt;
   const ev = cap?.events.find((e) => e.type === 'mark' && e.name === m[1]);
+  // "@end" is the end of the recording unless the capture has its own mark of that name
+  if (!ev && m[1] === 'end' && cap) return cap.duration + (m[2] ? Number(m[2]) : 0);
   if (!ev) throw new Error(`capture mark not found: ${ref}`);
   return ev.t + (m[2] ? Number(m[2]) : 0);
 }
