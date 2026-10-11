@@ -2,7 +2,7 @@
   "name": "cutroom",
   "version": "0.2.0",
   "private": true,
-  "description": "A code-first video editor: a storyboard file you edit in a timeline UI while an AI assistant edits the same file. Built on Remotion.",
+  "description": "A video editor where you and an AI assistant edit the same storyboard file. Built on Remotion.",
   "license": "MIT",
   "type": "module",
   "scripts": {

@@ -1,17 +1,18 @@
 # Cutroom
 
-A code-first video editor. Each video is a `storyboard.json` file: you edit it in a timeline UI, and an AI assistant can edit the same file from a chat panel. Rendering is done by [Remotion](https://www.remotion.dev).
+A video editor where you and an AI assistant edit the same cut. Each video is one `storyboard.json` file: you work on it in a timeline, the assistant changes it from a chat panel, and [Remotion](https://www.remotion.dev) renders it. Made for product demos, screen recordings and short promos.
 
+[![Download for Windows](https://img.shields.io/github/v/release/WEBGRS/cutroom?label=download&color=3b6ef5)](https://github.com/WEBGRS/cutroom/releases/latest)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![CI](https://github.com/WEBGRS/cutroom/actions/workflows/ci.yml/badge.svg)](https://github.com/WEBGRS/cutroom/actions/workflows/ci.yml)
 
-![Cutroom editor: media library, preview, filmstrip timeline and properties panel](docs/screenshot.png)
+![Cutroom editor: transition library, preview, effect settings, and a timeline with overlay, effect, camera, video, caption, sound and music lanes](docs/screenshot.png)
 
 ## Why
 
 Most editors store a project as an opaque binary or database. Cutroom stores it as a small JSON document, which means:
 
-- **You and an AI can work on the same cut.** The chat panel runs Claude with access to one tool, the editor's CLI. Its edits appear in the preview within a second, and your edits in the UI are visible to it. Both sides go through the same versioned save path, so neither overwrites the other.
+- **You and an AI can work on the same cut.** Hold Ctrl and click a spot in the preview, a scene or a caption, then say what you want changed there. The assistant edits through one tool, the editor's CLI; its changes appear in the preview within a second, and it sees the changes you make by hand. Both sides go through the same versioned save path, so neither overwrites the other.
 ![The AI panel: a spot Ctrl+clicked in the preview, the request, the command the AI ran, and the circle it drew there](docs/ai-chat.png)
 
 - **Timing stays tied to content.** Captions and cuts can be anchored to marks recorded with a screen capture (`"@add-0.3"`), so re-recording a demo doesn't break the edit.
@@ -19,9 +20,9 @@ Most editors store a project as an opaque binary or database. Cutroom stores it 
 
 ## Features
 
-- **Timeline**: filmstrip thumbnails, waveforms, drag to reorder, drag edges to trim, split at the playhead, undo/redo, beat grid for music-cut versions.
-- **Two cuts from one storyboard**: a narrated cut and a beat-synced music cut, each in 16:9 and 9:16. Switch between them under the preview (aspect ratio and language) and above the timeline (narrated or beat cut).
-- **Library panel**: nine sections (media, cards, text, overlays, transitions, effects, backdrops, sound effects, music). Every effect has a rendered preview that plays on hover; one click applies it to the selected scene.
+- **Timeline**: filmstrip thumbnails, waveforms, drag to reorder, drag edges to trim, split at the playhead, undo/redo, and a beat grid for music cuts. Lanes under the scenes show where every overlay, effect, camera move and sound effect sits, and each cut shows its transition. Drag an overlay or a sound to move it; click any bar to open its settings.
+- **Two cuts from one storyboard**: a narrated cut and a beat-synced music cut, each in 16:9 and 9:16.
+- **Library panel**: media, cards, text, overlays, transitions, effects, backdrops, sound effects and music. Every effect has a rendered preview that plays on hover; one click applies it to the selected scene.
 - **182 effects**:
   - 39 transitions (whip pan, glitch, film burn, 3D cube, light leak, tile grid, …)
   - 33 text animations (decode, scramble, typewriter, split-flap, count-up, marker highlight, …), usable on titles, overlays and captions
@@ -30,21 +31,23 @@ Most editors store a project as an opaque binary or database. Cutroom stores it 
   - 10 animated backdrops
   - 33 scene-effect presets (looks, duotone, RGB split, bloom, CRT, pixelate, handheld drift, focus pull, stop motion, …)
   - Many of the designs are adapted from [HyperFrames](https://github.com/heygen-com/hyperframes); see [CREDITS.md](CREDITS.md).
-- **Sound effects**: 58 sounds (whooshes, risers, booms, hits, clicks, typing, notification dings, digital blips). Listen in the library, drag one onto the Sound FX lane of the timeline, then drag it to the exact frame. Each scene stores its cues as `sounds: [{ "id": "whoosh", "at": 0.2 }]`.
+- **58 sound effects**: whooshes, risers, booms, hits, clicks, typing, notification dings and digital blips. Listen in the library, drag one onto the Sound FX lane, then drag it to the exact frame.
 - **Captions**: box, outline or plain styles, any position and size, and most text animations; a Screen Studio-style frame for recordings, frosted cards and a chapter bar.
 - **Screen recordings**: a deterministic browser recorder logs clicks and cursor moves; the editor adds smooth auto-zoom, a synthetic cursor and click ripples afterwards.
-- **Point, then ask**: hold Ctrl and click anything (a spot in the preview, a scene, a caption, a sound, an effect tile, a setting) to attach it to the AI chat, then say what you think of it. The AI is told exactly what you pointed at, including the x/y position and time of a point in the preview.
-- **AI chat**: uses your [Claude Code](https://docs.anthropic.com/en/docs/claude-code) login, a Claude API key, or another provider through its OpenAI-compatible API (OpenAI, Gemini, DeepSeek, Qwen, Kimi, GLM, OpenRouter, a local Ollama, or any compatible server). See [Connecting the AI](#connecting-the-ai).
-- **Export**: MP4, 2× resolution, GIF, ProRes, SRT subtitles and a chapter list. Files go to `out/editor/` (desktop app: `Documents\Cutroom\exports\editor`); the export menu shows the folder and Settings › Export changes it; and a finished export offers Play and Show in folder.
-- **Desktop app**: the same editor in its own window, with a Windows installer.
-- **English and Chinese**: the interface starts in English; pick Chinese in the installer or in Settings.
-- **Settings** (gear in the top bar, or Ctrl+,): interface language, help hints, default lengths and transition for new scenes and overlays, which timeline lanes to show, loop and preview volume, hiding URLs for Xiaohongshu, the export folder and what the Export button makes, the AI connection, a shortcut list, and the thumbnail cache.
+- **AI assistant**: works with a Claude subscription (through Claude Code), a ChatGPT plan (through the Codex CLI), a Google account (through the Gemini CLI), a Claude API key, or any OpenAI-compatible API: OpenAI, Gemini, DeepSeek, Qwen, Kimi, GLM, OpenRouter or a local Ollama. See [Connecting the AI](#connecting-the-ai).
+- **Export**: MP4, 2× resolution, GIF, ProRes, SRT subtitles and a chapter list. The export menu shows where files go (desktop app: `Documents\Cutroom\exports\editor`), and a finished export offers Play and Show in folder.
+- **Settings** (gear icon or Ctrl+,): language, help hints, default lengths and transition for new scenes, which timeline lanes to show, preview loop and volume, hiding URLs for platforms that ban links, the export folder and preset, the AI connection, shortcuts and the thumbnail cache.
+- **English and Chinese** interface, chosen in the installer or in Settings.
 
 ![Sound FX library, the scene's Sound tab and the Sound FX lane on the timeline](docs/sound-fx.png)
 
 ## Install (Windows)
 
-Build the installer with `npm run dist` (it lands in `dist-app/`), or download it from the releases page when one is published. The installer asks for a language first. The app keeps projects, settings and exports in `Documents\Cutroom`, so uninstalling never deletes your videos. The first export downloads Remotion's headless browser (about 110 MB) once.
+Download `Cutroom Setup 0.2.0.exe` from the [latest release](https://github.com/WEBGRS/cutroom/releases/latest) and run it. The installer is not code-signed, so Windows SmartScreen may say "Windows protected your PC": click **More info**, then **Run anyway**.
+
+The installer asks for a language first. Projects, settings and exports live in `Documents\Cutroom`, so uninstalling never deletes your videos. The first export downloads Remotion's headless browser (about 110 MB) once.
+
+To build the installer yourself, run `npm run dist` from a source checkout; it lands in `dist-app/`.
 
 ## Run from source
 
@@ -68,12 +71,19 @@ The `showcase` project opens first. It uses every effect type, so it doubles as 
 
 ## Connecting the AI
 
-Open the **AI assistant** tab. The pill at its top shows the connection; click it to change it.
+Open the **AI assistant** tab and click the connection pill at its top, or go to Settings › AI.
 
-- **Claude Code login** (uses your Claude subscription): install [Claude Code](https://docs.anthropic.com/en/docs/claude-code), run `claude` once in a terminal and sign in, then restart the editor.
-- **Claude API key** (pay per use): create a key in the [Anthropic Console](https://console.anthropic.com) and paste it into the settings page, or set `ANTHROPIC_API_KEY` before starting the editor. A pasted key is stored only in `.editor/settings.json` on your machine (git-ignored) and is never sent back to the page in full.
-- **Other subscriptions**: use a ChatGPT plan through the official [Codex CLI](https://github.com/openai/codex) or a Google account / Google AI plan through the official [Gemini CLI](https://github.com/google-gemini/gemini-cli). Settings › AI can install either one (`npm install -g`) and opens a terminal for its own sign-in. Cutroom starts the CLI with its shell, file and web tools turned off and gives it one tool, the editor, through a small MCP server (`editor/dist/mcp.mjs`); each request is an ephemeral session, so nothing lands in your own Codex or Gemini history. Chinese "Coding Plan" keys are not supported, because their terms only allow interactive coding tools.
-- **Other models**: pick a provider (OpenAI, Google Gemini, DeepSeek, Qwen on Alibaba Model Studio, Kimi, Zhipu GLM, OpenRouter, Ollama, or any other OpenAI-compatible address), paste its key, and choose a model from the list the provider returns. The model must support tool calling, because the assistant edits through one tool. Keys can also come from `OPENAI_API_KEY`, `GEMINI_API_KEY`, `DEEPSEEK_API_KEY`, `DASHSCOPE_API_KEY`, `MOONSHOT_API_KEY`, `ZHIPUAI_API_KEY` or `OPENROUTER_API_KEY`. Ollama needs no key; pull a tool-capable model first, e.g. `ollama pull qwen3`.
+| Option | What you need |
+|---|---|
+| **Claude Code login** | A Claude subscription. Install [Claude Code](https://docs.anthropic.com/en/docs/claude-code), run `claude` once in a terminal and sign in, then restart the editor. |
+| **ChatGPT plan** | The official [Codex CLI](https://github.com/openai/codex), signed in with your ChatGPT account. |
+| **Google account** | The official [Gemini CLI](https://github.com/google-gemini/gemini-cli), signed in with Google (free tier or a Google AI plan). |
+| **Claude API key** | A key from the [Anthropic Console](https://console.anthropic.com), pasted in Settings › AI or set as `ANTHROPIC_API_KEY`. Pay per use. |
+| **Other models** | A key for OpenAI, Google Gemini, DeepSeek, Qwen (Alibaba Model Studio), Kimi, Zhipu GLM or OpenRouter, or a local [Ollama](https://ollama.com) with no key. Pick a model from the list the provider returns; it must support tool calling. |
+
+- **Codex and Gemini CLI**: Settings › AI can install either one (`npm install -g`) and opens a terminal for its own sign-in. Cutroom starts the CLI with its shell, file and web tools turned off and gives it one tool, the editor, through a small MCP server (`editor/dist/mcp.mjs`). Each request is an ephemeral session, so nothing lands in your own Codex or Gemini history.
+- **Keys**: a pasted key is stored only in `.editor/settings.json` on your machine (git-ignored) and is never sent back to the page in full. Keys can also come from `OPENAI_API_KEY`, `GEMINI_API_KEY`, `DEEPSEEK_API_KEY`, `DASHSCOPE_API_KEY`, `MOONSHOT_API_KEY`, `ZHIPUAI_API_KEY` or `OPENROUTER_API_KEY`. For Ollama, pull a tool-capable model first, e.g. `ollama pull qwen3`.
+- **Not supported**: Chinese "Coding Plan" keys, because their terms only allow interactive coding tools.
 
 **Test connection** sends one short request through whichever option is active. In auto mode the editor prefers the Claude Code login, then the Claude API key, then a configured other provider. Whichever model answers, the assistant can only run the editor's own CLI on the open project.
 
@@ -89,7 +99,8 @@ Open the **AI assistant** tab. The pill at its top shows the connection; click i
       "id": "intro",
       "lines": [{ "zh": "这条视频是写出来的。", "en": "This video was written, not dragged." }],
       "visual": { "kind": "title", "title": "Edit video as code" },
-      "fx": { "vignette": 0.35, "grain": 0.2 }
+      "fx": { "vignette": 0.35, "grain": 0.2 },
+      "sounds": [{ "id": "whoosh", "at": 0.2 }]
     },
     {
       "id": "demo",
@@ -125,13 +136,18 @@ node editor/dist/cli.mjs fx                                       # every effect
 | Key | Action |
 |---|---|
 | Space | Play / pause |
-| ← / → (Shift: 1 s) | Step one frame |
-| Ctrl+B or S | Split at the playhead |
+| ← / → | One frame back / forward (with Shift: one second) |
+| Home / End | Go to the start / end |
+| S, Ctrl+B or Ctrl+K | Split at the playhead |
 | Q / W | Trim the scene's start / end to the playhead |
-| Ctrl+D | Duplicate scene |
-| Ctrl+Alt+C / Ctrl+Alt+V | Copy / paste effects |
-| Delete | Remove scene |
-| Ctrl+Z / Ctrl+Y | Undo / redo |
+| Ctrl+D | Duplicate the scene |
+| Delete | Delete the selected scene, sound or overlay |
+| Ctrl+Alt+C / Ctrl+Alt+V | Copy / paste a scene's effects |
+| Ctrl+Z | Undo |
+| Ctrl+Shift+Z or Ctrl+Y | Redo |
+| Esc | Deselect |
+| Ctrl+click | Point the AI at what you click |
+| Ctrl+, | Settings |
 
 ## How it works
 
@@ -144,16 +160,16 @@ node editor/dist/cli.mjs fx                                       # every effect
 ```
 
 - `src/`: the Remotion composition: scenes, camera, captions, effects, transitions.
-- `editor/src/`: UI (React), server, CLI, edit operations, the effects catalog that drives the UI, the CLI's `fx` listing and the AI's instructions.
+- `src/fx/`: the effect library: text animations, transitions, overlays, cards, backdrops, scene effects, sounds, and `registry.ts`, the list that drives the UI and the previews.
+- `editor/src/`: UI (React), server, CLI, edit operations, the effects catalog behind the UI, the CLI's `fx` listing and the AI's instructions, plus the AI providers (`chat.ts`, `compat.ts`, `agents.ts`, `mcp.ts`).
 - `tools/capture.mjs`: deterministic screen recorder. `editor/demo/capture.mjs` shows how to script one.
-- `src/fx/`: the effect library: text animations, transitions, overlays, cards, backdrops, scene effects, and `registry.ts`, the list that drives the UI and the previews.
 - `editor/fx/previews.ts`: renders the hover previews into `public/_fx/` (`npm run previews`; `--only transition/whip` for one).
 - `app/`: desktop shell; `electron-builder.yml` and `build/installer.nsh` make the installer.
 
 ## Tests
 
 ```bash
-npm test             # unit tests (edit operations, timeline model, effects catalog)
+npm test             # unit tests: edit operations, timeline model, effects catalog, AI provider adapters
 npm run typecheck
 npm run test:e2e     # drives the editor in headless Chrome against a throwaway copy of the showcase
 npm run test:oracle  # preview frames vs. Remotion's renderer (PSNR ≥ 50 dB; most frames identical)
@@ -165,10 +181,10 @@ The e2e, oracle, app and screenshot scripts need the editor running (`npm run ed
 
 ## Limitations
 
-- The timeline is scene-based and always closed up (ripple). There is no free placement on multiple tracks; overlays attach to scenes instead.
+- The timeline is scene-based and always closed up (ripple). There is no free placement on multiple tracks; overlays and sounds attach to scenes instead.
 - Twelve of Remotion's shader transitions need an experimental Chrome flag, so they are not offered.
 - Narration audio has to be produced outside the editor (any TTS or your own recording, listed in `timings.json`).
-- The installer is unsigned, so Windows SmartScreen asks for confirmation on first run. It is built for Windows only so far.
+- Windows only so far, and the installer is unsigned.
 
 ## Credits and license
 

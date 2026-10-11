@@ -40,8 +40,19 @@ function mock(): Promise<{ base: string; bodies: any[]; close: () => void }> {
       res.end('data: [DONE]\n\n');
     });
   });
-  return new Promise((ok) => server.listen(0, '127.0.0.1', () => ok({ base: `http://127.0.0.1:${(server.address() as AddressInfo).port}/v1`, bodies, close: () => server.close() })));
+  return new Promise((ok) => {
+    const listen = () =>
+      server.listen(0, '127.0.0.1', () => {
+        const port = (server.address() as AddressInfo).port;
+        // Ports fetch refuses; Windows can hand these out
+        if (FETCH_BLOCKED.has(port)) return server.close(listen);
+        ok({ base: `http://127.0.0.1:${port}/v1`, bodies, close: () => server.close() });
+      });
+    listen();
+  });
 }
+
+const FETCH_BLOCKED = new Set([1719, 1720, 1723, 2049, 3659, 4045, 4190, 5060, 5061, 6000, 6566, 6665, 6666, 6667, 6668, 6669, 6679, 6697, 10080]);
 
 test('model list: chat models only, newest first, picked sensibly', async () => {
   const m = await mock();
