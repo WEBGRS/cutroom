@@ -6,6 +6,7 @@ import { ROOT, STATE } from './store';
 import { HELP } from './help';
 import { catalogText } from './catalog';
 import { L, readSettings, writeSettings } from './settings';
+import { PRESETS, chatLoop, listModels, pickModel, ping, preset, trimHistory, type Conn } from './compat';
 
 export type ChatEvent =
   | { type: 'start'; provider: string }
@@ -35,6 +36,8 @@ interface LogItem {
 interface Saved {
   sessionId?: string;
   api?: Anthropic.Beta.BetaMessageParam[];
+  // OpenAI-compatible conversation, kept only while provider, address and model stay the same
+  compat?: { id: string; messages: Record<string, unknown>[] };
   log: LogItem[];
 }
 
@@ -69,18 +72,57 @@ export function findClaude(): string | null {
 
 // Connection settings saved from the AI panel; the key never leaves this machine
 interface AiSettings {
-  pref?: 'auto' | 'claude-code' | 'anthropic';
+  pref?: 'auto' | 'claude-code' | 'anthropic' | 'compat';
   apiKey?: string;
+  // Other providers: chosen preset, address override (custom), model, one saved key per preset
+  compat?: { preset?: string; base?: string; model?: string; keys?: Record<string, string> };
+}
+export interface CompatPatch {
+  preset?: string;
+  base?: string;
+  model?: string;
+  key?: string | null;
 }
 export const readAi = (): AiSettings => readSettings().ai ?? {};
-export function writeAi(patch: { pref?: string; apiKey?: string | null }) {
+export function writeAi(patch: { pref?: string; apiKey?: string | null; compat?: CompatPatch }) {
   const ai: AiSettings = { ...(readSettings().ai ?? {}) };
-  if (patch.pref !== undefined) ai.pref = ['claude-code', 'anthropic'].includes(patch.pref) ? (patch.pref as AiSettings['pref']) : 'auto';
+  if (patch.pref !== undefined) ai.pref = ['claude-code', 'anthropic', 'compat'].includes(patch.pref) ? (patch.pref as AiSettings['pref']) : 'auto';
   if (patch.apiKey === null || patch.apiKey === '') delete ai.apiKey;
   else if (typeof patch.apiKey === 'string') ai.apiKey = patch.apiKey.trim();
+  const p = patch.compat;
+  if (p && typeof p === 'object') {
+    const c = { ...(ai.compat ?? {}), keys: { ...(ai.compat?.keys ?? {}) } };
+    // Another provider starts from its own address and model
+    if (typeof p.preset === 'string' && preset(p.preset) && p.preset !== c.preset) {
+      c.preset = p.preset;
+      delete c.base;
+      delete c.model;
+    }
+    if (typeof p.base === 'string') {
+      const b = p.base.trim();
+      if (b && !/^https?:\/\//i.test(b)) throw new Error(L('The address must start with http:// or https://', '地址要以 http:// 或 https:// 开头'));
+      if (b && b !== preset(c.preset)?.base) c.base = b;
+      else delete c.base;
+    }
+    if (typeof p.model === 'string') c.model = p.model.trim() || undefined;
+    if (c.preset && p.key === null) delete c.keys[c.preset];
+    else if (c.preset && typeof p.key === 'string' && p.key.trim()) c.keys[c.preset] = p.key.trim();
+    ai.compat = c;
+  }
   writeSettings({ ai });
   authCache = null;
 }
+
+// The other-provider connection as configured; env keys (OPENAI_API_KEY, ...) win over saved ones
+function compatConn(): (Conn & { keySource: 'env' | 'file' | null }) | null {
+  const s = readAi().compat ?? {};
+  const p = preset(s.preset);
+  if (!p) return null;
+  const env = p.env ? (process.env[p.env] ?? '') : '';
+  const file = s.keys?.[p.id] ?? '';
+  return { preset: p.id, base: (s.base || p.base).trim(), model: s.model ?? '', key: env || file, keySource: env ? 'env' : file ? 'file' : null };
+}
+const compatReady = (c: Conn | null) => !!c && !!c.base && !!c.model && (!!c.key || !!preset(c.preset)?.noKey || c.preset === 'custom');
 const apiKey = () => process.env.ANTHROPIC_API_KEY || readAi().apiKey || '';
 const pref = () => readAi().pref ?? (process.env.EDITOR_AI === 'anthropic' ? 'anthropic' : 'auto');
 
@@ -105,13 +147,17 @@ function claudeAuth(bin: string): Promise<{ loggedIn: boolean; method?: string; 
 const claudeVersion = (bin: string) =>
   new Promise<string | null>((resolve) => execFile(bin, ['--version'], { windowsHide: true, timeout: 10_000 }, (err, out) => resolve(err ? null : out.trim().split(/\s/)[0])));
 
-export function provider(): 'claude-code' | 'anthropic' | null {
+export type Provider = 'claude-code' | 'anthropic' | 'compat';
+
+export function provider(): Provider | null {
   const p = pref();
   if (p === 'anthropic') return apiKey() ? 'anthropic' : null;
   if (p === 'claude-code') return findClaude() ? 'claude-code' : null;
+  if (p === 'compat') return compatReady(compatConn()) ? 'compat' : null;
   // Auto: the local login first, unless it is known to be logged out and a key exists
   if (findClaude() && !(authCache?.v && !authCache.v.loggedIn && apiKey())) return 'claude-code';
   if (apiKey()) return 'anthropic';
+  if (compatReady(compatConn())) return 'compat';
   return null;
 }
 
@@ -126,7 +172,41 @@ export async function aiStatus() {
     pref: pref(),
     claude: bin ? { path: bin, version, loggedIn: auth?.loggedIn ?? null, method: auth?.method ?? null, plan: auth?.plan ?? null } : null,
     key: key ? { source: process.env.ANTHROPIC_API_KEY ? 'env' : 'file', masked: mask(key) } : null,
+    compat: compatStatus(),
+    presets: PRESETS.map(({ id, en, zh, base, keyUrl, env, noKey }) => ({ id, en, zh, base, keyUrl, env, noKey })),
   };
+}
+
+function compatStatus() {
+  const c = compatConn();
+  if (!c) return null;
+  return { preset: c.preset, base: c.base, model: c.model, key: c.key ? { source: c.keySource, masked: mask(c.key) } : null, ready: compatReady(c) };
+}
+
+// Readable reason for a failed request to another provider
+function compatError(e: unknown, c: Conn): string {
+  const st = (e as { status?: number }).status;
+  const m = (e as Error).message ?? String(e);
+  if (st === 401 || st === 403) return L(`The key was rejected (${st}): ${m.slice(4, 160)}`, `Key 被拒绝（${st}）：${m.slice(4, 160)}`);
+  if (st === 404) return L(`Not found (404): check the address and the model name. ${m.slice(4, 160)}`, `找不到（404）：检查地址和模型名。${m.slice(4, 160)}`);
+  if (st === 429) return L('Rate limit or no balance left on this account (429)', '请求太频繁或账户余额不足（429）');
+  if (/ECONNREFUSED|fetch failed/i.test(m + String((e as { cause?: unknown }).cause ?? ''))) return c.preset === 'ollama' ? L('Ollama is not running: start it, then pull a model, e.g. ollama pull qwen3', 'Ollama 没有在运行：先启动它，再拉一个模型，比如 ollama pull qwen3') : L(`Could not reach ${c.base}`, `连不上 ${c.base}`);
+  return m.slice(0, 300);
+}
+
+// Models the provider offers; also settles which one is used
+export async function compatModels(): Promise<{ models: string[]; model: string; error?: string }> {
+  const c = compatConn();
+  if (!c || !c.base) return { models: [], model: '', error: L('Choose a provider first', '先选择服务商') };
+  if (!c.key && !preset(c.preset)?.noKey && c.preset !== 'custom') return { models: [], model: c.model, error: L('Save an API key first', '先保存 API Key') };
+  try {
+    const models = await listModels(c);
+    const model = pickModel(models, c.model, preset(c.preset)?.model ?? '');
+    if (model && model !== c.model) writeAi({ compat: { model } });
+    return { models, model };
+  } catch (e) {
+    return { models: [], model: c.model, error: compatError(e, c) };
+  }
 }
 
 // One tiny real request through whichever connection is active
@@ -135,6 +215,15 @@ export async function aiTest(): Promise<{ ok: boolean; message: string; ms: numb
   const prov = provider();
   const done = (ok: boolean, message: string) => ({ ok, message, ms: Date.now() - t0 });
   if (!prov) return done(false, L('No connection yet: sign in to Claude Code or add an API key', '还没有可用的连接：登录 Claude Code，或者填一个 API Key'));
+  if (prov === 'compat') {
+    const c = compatConn()!;
+    try {
+      const m = await ping(c);
+      return done(true, L(`Works; answered by ${m}`, `可用，由 ${m} 回答`));
+    } catch (e) {
+      return done(false, compatError(e, c));
+    }
+  }
   if (prov === 'anthropic') {
     try {
       const m = await new Anthropic({ apiKey: apiKey() }).models.retrieve('claude-opus-5-5');
@@ -166,12 +255,20 @@ export async function aiTest(): Promise<{ ok: boolean; message: string; ms: numb
   });
 }
 
-export function systemPrompt(slug: string): string {
+// How the model reaches the CLI: Claude Code runs it through Bash; API connections call one `editor` tool
+const TOOL_DESC = (slug: string) =>
+  `Run one Cutroom CLI command for project "${slug}". Pass the command and its arguments as an array, e.g. ["ls","--format","tall"], ["trim","record","--to","@filter+0.8"], ["set","intro","fx.look","\\"warm\\""]. Output is the command's stdout.`;
+
+export function systemPrompt(slug: string, via: 'bash' | 'tool' = 'bash'): string {
+  const how =
+    via === 'bash'
+      ? `- Use only the Bash tool, and only this command form (the working directory is already the project root; never cd, never edit files directly, never run other programs):
+  ${CLI} ${slug} <command> ...`
+      : `- Use only the \`editor\` tool. Give it the command and its arguments as an array of strings, without any program name or project id: ["ls","--format","wide"], ["show","intro"], ["set","intro","fx.look","\\"warm\\""]. JSON values for \`set\` are passed as one string.`;
   return `You are the editing assistant inside Cutroom, a code-first video editor. You are talking to the user through a small chat panel next to a live preview of project "${slug}". Every change you make through the CLI appears in the preview within a second.
 
 How to edit:
-- Use only the Bash tool, and only this command form (the working directory is already the project root; never cd, never edit files directly, never run other programs):
-  ${CLI} ${slug} <command> ...
+${how}
 - Start with \`ls\` (add --format/--mode to match the user's current view, given in each message) to see the timeline. Use \`show <id>\` for a scene's JSON and \`fx\` for the effect reference.
 - Make the smallest edit that does what was asked. Prefer the dedicated commands (trim/split/mv/add/bars/min) over \`set\`.
 - Effects marked [house rule] go against the user's own style guide: don't use them unless the user explicitly asks.
@@ -260,6 +357,7 @@ export async function chat(slug: string, message: string, ctx: ChatContext, mode
   const prompt = `${contextLine(ctx)}\n\n${pointed}${message || '(No words: look at what they pointed at, say what you notice and suggest a fix.)'}`;
   try {
     if (prov === 'claude-code') await viaClaudeCode(slug, prompt, model, saved, wrapped, t0);
+    else if (prov === 'compat') await viaCompat(slug, prompt, saved, wrapped, t0);
     else await viaApi(slug, prompt, saved, wrapped, t0);
   } catch (err) {
     emit({ type: 'error', message: (err as Error).message });
@@ -268,6 +366,7 @@ export async function chat(slug: string, message: string, ctx: ChatContext, mode
     const s = load(slug);
     if (saved.sessionId) s.sessionId = saved.sessionId;
     if (saved.api) s.api = saved.api;
+    if (saved.compat) s.compat = saved.compat;
     reply.t = new Date().toISOString();
     if (reply.text || reply.tools!.length) s.log.push(reply);
     save(slug, s);
@@ -365,7 +464,7 @@ async function viaApi(slug: string, prompt: string, saved: Saved, emit: (e: Chat
   const tools: Anthropic.Beta.BetaTool[] = [
     {
       name: 'editor',
-      description: `Run one Cutroom CLI command for project "${slug}". Pass the command and its arguments as an array, e.g. ["ls","--format","tall"], ["trim","record","--to","@filter+0.8"], ["set","intro","fx.look","\\"warm\\""]. Output is the command's stdout.`,
+      description: TOOL_DESC(slug),
       input_schema: { type: 'object', properties: { args: { type: 'array', items: { type: 'string' } } }, required: ['args'], additionalProperties: false },
       strict: true,
     },
@@ -376,7 +475,7 @@ async function viaApi(slug: string, prompt: string, saved: Saved, emit: (e: Chat
       {
         model: 'claude-opus-5-5',
         max_tokens: 16000,
-        system: systemPrompt(slug),
+        system: systemPrompt(slug, 'tool'),
         tools,
         messages,
         betas: ['server-side-fallback-2026-07-01'],
@@ -408,6 +507,32 @@ async function viaApi(slug: string, prompt: string, saved: Saved, emit: (e: Chat
     messages.push({ role: 'user', content: results });
   }
   saved.api = messages;
+  emit({ type: 'done', ms: Date.now() - t0 });
+}
+
+// OpenAI-compatible providers (OpenAI, Gemini, DeepSeek, Qwen, Kimi, GLM, OpenRouter, Ollama, custom)
+async function viaCompat(slug: string, prompt: string, saved: Saved, emit: (e: ChatEvent) => void, t0: number): Promise<void> {
+  const c = compatConn()!;
+  const controller = new AbortController();
+  running.set(slug, { kill: () => controller.abort() });
+  const id = `${c.preset}|${c.base}|${c.model}`;
+  try {
+    const messages = await chatLoop({
+      c,
+      system: systemPrompt(slug, 'tool'),
+      history: saved.compat?.id === id ? saved.compat.messages : [],
+      prompt,
+      toolDescription: TOOL_DESC(slug),
+      run: (args) => runCli(slug, args),
+      onText: (s) => emit({ type: 'text', delta: s }),
+      onTool: (tid, args) => emit({ type: 'tool', id: tid, cmd: args.join(' ') }),
+      onToolResult: (tid, ok, out) => emit({ type: 'tool_result', id: tid, ok, out }),
+      signal: controller.signal,
+    });
+    saved.compat = { id, messages: trimHistory(messages) };
+  } catch (e) {
+    if (!controller.signal.aborted) emit({ type: 'error', message: compatError(e, c) });
+  }
   emit({ type: 'done', ms: Date.now() - t0 });
 }
 

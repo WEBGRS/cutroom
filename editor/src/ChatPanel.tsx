@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Icon } from './icons';
-import { tr } from './i18n';
+import { nm, tr } from './i18n';
 import type { AiRef } from './pick';
 
 export interface ChatContext {
@@ -28,11 +28,23 @@ interface Item {
   error?: string;
 }
 
+interface Preset {
+  id: string;
+  en: string;
+  zh: string;
+  base: string;
+  keyUrl?: string;
+  env?: string;
+  noKey?: boolean;
+}
+
 interface AiStatus {
-  provider: 'claude-code' | 'anthropic' | null;
-  pref: 'auto' | 'claude-code' | 'anthropic';
+  provider: 'claude-code' | 'anthropic' | 'compat' | null;
+  pref: 'auto' | 'claude-code' | 'anthropic' | 'compat';
   claude: { path: string; version: string | null; loggedIn: boolean | null; method: string | null; plan: string | null } | null;
   key: { source: 'env' | 'file'; masked: string } | null;
+  compat: { preset: string; base: string; model: string; key: { source: 'env' | 'file'; masked: string } | null; ready: boolean } | null;
+  presets: Preset[];
 }
 
 const MODELS: [string, string][] = [
@@ -45,9 +57,10 @@ const MODELS: [string, string][] = [
 const SUGGEST = [tr('Make the selected scene a bit shorter', '把选中这段缩短一点'), tr('Add a slow push-in to every image', '给所有图片加慢推效果'), tr('Use outlined captions, a little bigger', '字幕改成描边样式，放大一点'), tr('Add a title card at the start', '在最前面加一个标题卡')];
 
 const PREFS: [AiStatus['pref'], string, string][] = [
-  ['auto', tr('Automatic', '自动'), tr('Uses your Claude Code login if there is one, otherwise the API key', '有 Claude Code 登录就用它，没有再用 API Key')],
+  ['auto', tr('Automatic', '自动'), tr('Your Claude Code login if there is one, else the Claude API key, else another model you set up', '优先用 Claude Code 登录，其次 Claude API Key，最后用你配置的其他模型')],
   ['claude-code', tr('Claude Code login', 'Claude Code 登录'), tr('Uses your Claude subscription; nothing extra to pay', '用你的 Claude 订阅额度，不另外付费')],
-  ['anthropic', 'API Key', tr('Pay per use; create a key at console.anthropic.com', '按用量付费，Key 在 console.anthropic.com 创建')],
+  ['anthropic', tr('Claude API key', 'Claude API Key'), tr('Pay per use; create a key at console.anthropic.com', '按用量付费，Key 在 console.anthropic.com 创建')],
+  ['compat', tr('Other models', '其他模型'), tr('OpenAI, Gemini, DeepSeek, Qwen, Kimi, GLM, OpenRouter or local Ollama, with your own key', 'OpenAI、Gemini、DeepSeek、通义千问、Kimi、智谱、OpenRouter 或本机 Ollama，用你自己的 Key')],
 ];
 
 const store = {
@@ -79,16 +92,161 @@ function Rich({ text }: { text: string }) {
   );
 }
 
-const providerName = (s: AiStatus) => (s.provider === 'claude-code' ? 'Claude Code' : s.provider === 'anthropic' ? 'API Key' : tr('Not connected', '未连接'));
+const presetOf = (s: AiStatus) => s.presets?.find((p) => p.id === s.compat?.preset);
+const providerName = (s: AiStatus) => {
+  if (s.provider === 'claude-code') return 'Claude Code';
+  if (s.provider === 'anthropic') return 'Claude API';
+  if (s.provider === 'compat') {
+    const p = presetOf(s);
+    // Short provider name; a custom address shows its host
+    let host = '';
+    try {
+      host = new URL(s.compat?.base ?? '').host;
+    } catch {
+      host = '';
+    }
+    const name = s.compat?.preset === 'custom' ? host : p ? nm(p).replace(/[（(].*$/, '').trim() : '';
+    return `${name} · ${s.compat?.model ?? ''}`;
+  }
+  return tr('Not connected', '未连接');
+};
+
+// Another provider: which one, its address, its key, its model
+function CompatSection({ st, save, refresh }: { st: AiStatus; save: (body: object) => Promise<void>; refresh: () => Promise<void> }) {
+  const c = st.compat;
+  const p = presetOf(st);
+  const [key, setKey] = useState('');
+  const [base, setBase] = useState(c?.base ?? '');
+  const [model, setModel] = useState(c?.model ?? '');
+  const [models, setModels] = useState<{ list: string[]; error?: string; loading: boolean }>({ list: [], loading: false });
+  const canList = !!c?.base && (!!c?.key || !!p?.noKey || c?.preset === 'custom');
+  useEffect(() => setBase(c?.base ?? ''), [c?.base]);
+  useEffect(() => setModel(c?.model ?? ''), [c?.model]);
+  const load = async () => {
+    setModels((m) => ({ ...m, loading: true }));
+    try {
+      const j = await (await fetch('/api/ai/models')).json();
+      setModels({ list: j.models ?? [], error: j.error, loading: false });
+      if (j.model && j.model !== c?.model) await refresh();
+    } catch (e) {
+      setModels({ list: [], error: (e as Error).message, loading: false });
+    }
+  };
+  useEffect(() => {
+    if (canList) void load();
+    else setModels({ list: [], loading: false });
+  }, [c?.preset, c?.base, c?.key?.masked]);
+  const commitBase = () => {
+    if (base.trim() !== (c?.base ?? '')) void save({ compat: { base: base.trim() } });
+  };
+  const commitModel = (v = model) => {
+    if (v.trim() !== (c?.model ?? '')) void save({ compat: { model: v.trim() } });
+  };
+  return (
+    <section>
+      <h4>{tr('Other models', '其他模型')}</h4>
+      <label className="crow">
+        <span>{tr('Provider', '服务商')}</span>
+        <select value={c?.preset ?? ''} onChange={(e) => void save({ compat: { preset: e.target.value } })}>
+          {!c ? <option value="">{tr('Choose…', '请选择…')}</option> : null}
+          {st.presets.map((x) => (
+            <option key={x.id} value={x.id}>
+              {nm(x)}
+            </option>
+          ))}
+        </select>
+      </label>
+      {c ? (
+        <>
+          <label className="crow">
+            <span>{tr('Address', '接口地址')}</span>
+            <input value={base} placeholder="https://…/v1" onChange={(e) => setBase(e.target.value)} onBlur={commitBase} onKeyDown={(e) => e.key === 'Enter' && commitBase()} spellCheck={false} />
+          </label>
+          {!p?.noKey ? (
+            <>
+              {c.key ? (
+                <div className="state ok">
+                  <Icon name="check" size={14} />
+                  <span>
+                    {c.key.source === 'env' ? tr(`From the ${p?.env} variable: `, `来自环境变量 ${p?.env}：`) : tr('Key saved: ', '已保存 Key：')}
+                    <code>{c.key.masked}</code>
+                  </span>
+                  {c.key.source === 'file' ? (
+                    <button className="mini" onClick={() => void save({ compat: { key: null } })}>
+                      {tr('Remove', '删除')}
+                    </button>
+                  ) : null}
+                </div>
+              ) : null}
+              <div className="keyrow">
+                <input type="password" value={key} placeholder={c.preset === 'custom' ? tr('API key (leave empty if the server needs none)', 'API Key（服务不需要就留空）') : tr(`Paste your ${nm(p!)} API key`, `粘贴 ${nm(p!)} 的 API Key`)} onChange={(e) => setKey(e.target.value)} autoComplete="off" spellCheck={false} />
+                <button
+                  className="btn"
+                  disabled={!key.trim()}
+                  onClick={async () => {
+                    await save({ compat: { key: key.trim() } });
+                    setKey('');
+                  }}
+                >
+                  {tr('Save', '保存')}
+                </button>
+              </div>
+              {p?.keyUrl ? (
+                <p className="hint">
+                  {tr('Get a key: ', '去这里创建 Key：')}
+                  <a href={p.keyUrl} target="_blank" rel="noreferrer">
+                    {p.keyUrl.replace(/^https?:\/\//, '').replace(/\/$/, '')}
+                  </a>
+                </p>
+              ) : null}
+            </>
+          ) : (
+            <p className="hint">{tr('No key needed. Install Ollama, run it, and pull a model that supports tools, e.g. ollama pull qwen3', '不需要 Key。安装并打开 Ollama，再拉一个支持工具调用的模型，比如 ollama pull qwen3')}</p>
+          )}
+          <label className="crow">
+            <span>{tr('Model', '模型')}</span>
+            <span className="mrow">
+              <input list="compat-models" value={model} placeholder={models.loading ? tr('Loading the list…', '正在读取模型列表…') : tr('Model name', '模型名')} onChange={(e) => {
+                setModel(e.target.value);
+                if (models.list.includes(e.target.value)) commitModel(e.target.value);
+              }} onBlur={() => commitModel()} onKeyDown={(e) => e.key === 'Enter' && commitModel()} spellCheck={false} />
+              <button className="icon sm" title={tr('Reload the model list', '重新读取模型列表')} onClick={() => void load()} disabled={!canList || models.loading}>
+                <Icon name="redo" size={13} />
+              </button>
+            </span>
+          </label>
+          <datalist id="compat-models">
+            {models.list.map((m) => (
+              <option key={m} value={m} />
+            ))}
+          </datalist>
+          {models.error ? (
+            <div className="state bad">
+              <Icon name="close" size={14} />
+              <span>{models.error}</span>
+            </div>
+          ) : models.list.length ? (
+            <p className="hint">{tr(`${models.list.length} models available. Pick one that supports tool calling (function calling); the AI edits through a tool.`, `这个服务有 ${models.list.length} 个模型。选一个支持工具调用 (function calling) 的，AI 要靠工具来改片子。`)}</p>
+          ) : null}
+        </>
+      ) : null}
+    </section>
+  );
+}
 
 function Connection({ st, onChange, onClose }: { st: AiStatus | null; onChange: (s: AiStatus) => void; onClose: () => void }) {
   const [key, setKey] = useState('');
   const [test, setTest] = useState<{ ok: boolean; message: string; ms: number } | 'run' | null>(null);
+  const [err, setErr] = useState('');
   const save = async (body: object) => {
     const r = await post('/api/ai', body);
-    onChange(await r.json());
+    const j = await r.json();
+    if (!r.ok) return setErr(j.error ?? String(r.status));
+    setErr('');
+    onChange(j);
     setTest(null);
   };
+  const refresh = async () => onChange(await (await fetch('/api/ai')).json());
   const runTest = async () => {
     setTest('run');
     try {
@@ -116,6 +274,15 @@ function Connection({ st, onChange, onClose }: { st: AiStatus | null; onChange: 
         </div>
       </section>
 
+      {st.pref === 'compat' ? <CompatSection st={st} save={save} refresh={refresh} /> : null}
+      {err ? (
+        <div className="state bad">
+          <Icon name="close" size={14} />
+          <span>{err}</span>
+        </div>
+      ) : null}
+
+      {st.pref === 'auto' || st.pref === 'claude-code' ? (
       <section>
         <h4>Claude Code</h4>
         {!c ? (
@@ -148,9 +315,11 @@ function Connection({ st, onChange, onClose }: { st: AiStatus | null; onChange: 
         )}
         {c ? <div className="path" title={c.path}>{c.path}</div> : null}
       </section>
+      ) : null}
 
+      {st.pref === 'auto' || st.pref === 'anthropic' ? (
       <section>
-        <h4>API Key</h4>
+        <h4>{tr('Claude API key', 'Claude API Key')}</h4>
         {st.key ? (
           <div className="state ok">
             <Icon name="check" size={14} />
@@ -180,6 +349,7 @@ function Connection({ st, onChange, onClose }: { st: AiStatus | null; onChange: 
         </div>
         <p className="hint">{tr('The key stays on this computer in .editor/settings.json. It is never committed to git or shown in full.', 'Key 只存在这台电脑的 .editor/settings.json，不会进 git，也不会显示完整内容。')}</p>
       </section>
+      ) : null}
 
       <section className="test">
         <button className="btn" onClick={runTest} disabled={test === 'run' || !st.provider}>
@@ -194,7 +364,7 @@ function Connection({ st, onChange, onClose }: { st: AiStatus | null; onChange: 
             </span>
           </span>
         ) : !st.provider ? (
-          <span className="hint">{st.pref === 'anthropic' ? tr('Save an API key above, or switch to the Claude Code login', '先在上面保存 API Key，或改用 Claude Code 登录') : st.pref === 'claude-code' ? tr('Install Claude Code and sign in first', '先安装并登录 Claude Code') : tr('Sign in to Claude Code or save an API key first', '先登录 Claude Code 或保存 API Key')}</span>
+          <span className="hint">{st.pref === 'anthropic' ? tr('Save an API key above, or switch to the Claude Code login', '先在上面保存 API Key，或改用 Claude Code 登录') : st.pref === 'claude-code' ? tr('Install Claude Code and sign in first', '先安装并登录 Claude Code') : st.pref === 'compat' ? tr('Choose a provider, save its key and pick a model', '选好服务商，保存 Key，再选一个模型') : tr('Sign in to Claude Code or save an API key first', '先登录 Claude Code 或保存 API Key')}</span>
         ) : null}
       </section>
 

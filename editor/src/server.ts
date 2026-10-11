@@ -4,7 +4,7 @@ import path from 'node:path';
 import { spawn, execFile, type ChildProcess } from 'node:child_process';
 import { Conflict, DATA, OUT, PUBLIC, ROOT, STATE, appendLog, boardFile, checkSlug, currentVersion, readDoc, readLog, slugs, snapshot, writeDoc, hash } from './store';
 import type { Doc } from './ops';
-import { aiStatus, aiTest, chat, history, isRunning, provider, reset, stop, writeAi } from './chat';
+import { aiStatus, aiTest, chat, compatModels, history, isRunning, provider, reset, stop, writeAi } from './chat';
 import { boardTemplate } from './templates';
 import { L, readSettings, uiLang, writeSettings } from './settings';
 
@@ -346,9 +346,14 @@ const server = http.createServer(async (req, res) => {
     if (p === '/api/ai' && req.method === 'GET') return send(res, 200, await aiStatus());
     if (p === '/api/ai' && req.method === 'POST') {
       const b = await body(req);
-      writeAi({ pref: b.pref, apiKey: b.apiKey });
+      try {
+        writeAi({ pref: b.pref, apiKey: b.apiKey, compat: b.compat });
+      } catch (e) {
+        return send(res, 400, { error: (e as Error).message });
+      }
       return send(res, 200, await aiStatus());
     }
+    if (p === '/api/ai/models' && req.method === 'GET') return send(res, 200, await compatModels());
     if (p === '/api/ai/test' && req.method === 'POST') return send(res, 200, await aiTest());
     if (p === '/api/chat' && req.method === 'GET') return send(res, 200, { provider: provider(), history: history(slug), running: isRunning(slug) });
     if (p === '/api/chat/reset' && req.method === 'POST') {

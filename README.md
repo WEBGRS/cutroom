@@ -34,7 +34,7 @@ Most editors store a project as an opaque binary or database. Cutroom stores it 
 - **Captions**: box, outline or plain styles, any position and size, and most text animations; a Screen Studio-style frame for recordings, frosted cards and a chapter bar.
 - **Screen recordings**: a deterministic browser recorder logs clicks and cursor moves; the editor adds smooth auto-zoom, a synthetic cursor and click ripples afterwards.
 - **Point, then ask**: hold Ctrl and click anything (a spot in the preview, a scene, a caption, a sound, an effect tile, a setting) to attach it to the AI chat, then say what you think of it. The AI is told exactly what you pointed at, including the x/y position and time of a point in the preview.
-- **AI chat**: uses your [Claude Code](https://docs.anthropic.com/en/docs/claude-code) login or an Anthropic API key. See [Connecting the AI](#connecting-the-ai).
+- **AI chat**: uses your [Claude Code](https://docs.anthropic.com/en/docs/claude-code) login, a Claude API key, or another provider through its OpenAI-compatible API (OpenAI, Gemini, DeepSeek, Qwen, Kimi, GLM, OpenRouter, a local Ollama, or any compatible server). See [Connecting the AI](#connecting-the-ai).
 - **Export**: MP4, 2× resolution, GIF, ProRes, SRT subtitles and a chapter list. Files go to `out/editor/` (desktop app: `Documents\Cutroom\exports\editor`); the export menu shows the folder, and a finished export offers Play and Show in folder.
 - **Desktop app**: the same editor in its own window, with a Windows installer.
 - **English and Chinese**: the interface starts in English; pick Chinese in the installer or from the globe menu in the top bar.
@@ -70,9 +70,10 @@ The `showcase` project opens first. It uses every effect type, so it doubles as 
 Open the **AI assistant** tab. The pill at its top shows the connection; click it to change it.
 
 - **Claude Code login** (uses your Claude subscription): install [Claude Code](https://docs.anthropic.com/en/docs/claude-code), run `claude` once in a terminal and sign in, then restart the editor.
-- **API key** (pay per use): create a key in the [Anthropic Console](https://console.anthropic.com) and paste it into the settings page, or set `ANTHROPIC_API_KEY` before starting the editor. A pasted key is stored only in `.editor/settings.json` on your machine (git-ignored) and is never sent back to the page in full.
+- **Claude API key** (pay per use): create a key in the [Anthropic Console](https://console.anthropic.com) and paste it into the settings page, or set `ANTHROPIC_API_KEY` before starting the editor. A pasted key is stored only in `.editor/settings.json` on your machine (git-ignored) and is never sent back to the page in full.
+- **Other models**: pick a provider (OpenAI, Google Gemini, DeepSeek, Qwen on Alibaba Model Studio, Kimi, Zhipu GLM, OpenRouter, Ollama, or any other OpenAI-compatible address), paste its key, and choose a model from the list the provider returns. The model must support tool calling, because the assistant edits through one tool. Keys can also come from `OPENAI_API_KEY`, `GEMINI_API_KEY`, `DEEPSEEK_API_KEY`, `DASHSCOPE_API_KEY`, `MOONSHOT_API_KEY`, `ZHIPUAI_API_KEY` or `OPENROUTER_API_KEY`. Ollama needs no key; pull a tool-capable model first, e.g. `ollama pull qwen3`.
 
-**Test connection** sends one short request through whichever option is active. In auto mode the editor prefers the Claude Code login and falls back to the key. Either way the assistant can only run the editor's own CLI on the open project.
+**Test connection** sends one short request through whichever option is active. In auto mode the editor prefers the Claude Code login, then the Claude API key, then a configured other provider. Whichever model answers, the assistant can only run the editor's own CLI on the open project.
 
 ## A storyboard
 

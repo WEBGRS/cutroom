@@ -564,6 +564,14 @@ details[open] > summary { margin-bottom: 8px; }
 .keyrow { display: flex; gap: 6px; margin-top: 8px; }
 .keyrow input { flex: 1; font-family: var(--mono); font-size: 12px; }
 .keyrow input::placeholder { font-family: var(--ui); }
+.crow { display: grid; grid-template-columns: 74px minmax(0, 1fr); align-items: center; gap: 8px; margin-top: 8px; font-size: 12px; color: var(--ink2); }
+.crow > select, .crow > input { width: 100%; }
+.crow input { font-family: var(--mono); font-size: 12px; }
+.crow input::placeholder { font-family: var(--ui); }
+.mrow { display: flex; gap: 6px; align-items: center; min-width: 0; }
+.mrow input { flex: 1; min-width: 0; }
+.conn-page .hint a { color: var(--accent-hi); }
+.conn-page section > .state { margin-top: 8px; }
 .test { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .conn-acts { display: flex; justify-content: flex-end; }
 
