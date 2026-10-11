@@ -43,7 +43,7 @@ Most editors store a project as an opaque binary or database. Cutroom stores it 
 
 ## Install (Windows)
 
-Download `Cutroom Setup 0.2.0.exe` from the [latest release](https://github.com/WEBGRS/cutroom/releases/latest) and run it. The installer is not code-signed, so Windows SmartScreen may say "Windows protected your PC": click **More info**, then **Run anyway**.
+Download `Cutroom-Setup-<version>.exe` from the [latest release](https://github.com/WEBGRS/cutroom/releases/latest) and run it. The installer is not code-signed, so Windows SmartScreen may say "Windows protected your PC": click **More info**, then **Run anyway**.
 
 The installer asks for a language first. Projects, settings and exports live in `Documents\Cutroom`, so uninstalling never deletes your videos. The first export downloads Remotion's headless browser (about 110 MB) once.
 
