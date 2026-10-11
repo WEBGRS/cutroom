@@ -39,9 +39,27 @@ interface Preset {
   noKey?: boolean;
 }
 
+interface AgentInfo {
+  id: string;
+  en: string;
+  zh: string;
+  plansEn: string;
+  plansZh: string;
+  login: string;
+  pkg: string;
+  installed: boolean;
+  path: string | null;
+  version: string | null;
+  loggedIn: boolean | null;
+  method: string | null;
+  model: string;
+}
+
 export interface AiStatus {
-  provider: 'claude-code' | 'anthropic' | 'compat' | null;
-  pref: 'auto' | 'claude-code' | 'anthropic' | 'compat';
+  provider: 'claude-code' | 'anthropic' | 'compat' | 'agent' | null;
+  pref: 'auto' | 'claude-code' | 'anthropic' | 'compat' | 'agent';
+  agent: string | null;
+  agents: AgentInfo[];
   claude: { path: string; version: string | null; loggedIn: boolean | null; method: string | null; plan: string | null } | null;
   key: { source: 'env' | 'file'; masked: string } | null;
   compat: { preset: string; base: string; model: string; key: { source: 'env' | 'file'; masked: string } | null; ready: boolean } | null;
@@ -54,6 +72,7 @@ const PREFS: [AiStatus['pref'], string, string][] = [
   ['auto', tr('Automatic', '自动'), tr('Your Claude Code login if there is one, else the Claude API key, else another model you set up', '优先用 Claude Code 登录，其次 Claude API Key，最后用你配置的其他模型')],
   ['claude-code', tr('Claude Code login', 'Claude Code 登录'), tr('Uses your Claude subscription; nothing extra to pay', '用你的 Claude 订阅额度，不另外付费')],
   ['anthropic', tr('Claude API key', 'Claude API Key'), tr('Pay per use; create a key at console.anthropic.com', '按用量付费，Key 在 console.anthropic.com 创建')],
+  ['agent', tr('Other subscriptions', '其他订阅'), tr('Your ChatGPT or Google plan, through the official Codex CLI or Gemini CLI', '用你的 ChatGPT 或 Google 订阅，通过官方的 Codex CLI 或 Gemini CLI')],
   ['compat', tr('Other models', '其他模型'), tr('OpenAI, Gemini, DeepSeek, Qwen, Kimi, GLM, OpenRouter or local Ollama, with your own key', 'OpenAI、Gemini、DeepSeek、通义千问、Kimi、智谱、OpenRouter 或本机 Ollama，用你自己的 Key')],
 ];
 
@@ -90,6 +109,7 @@ const presetOf = (s: AiStatus) => s.presets?.find((p) => p.id === s.compat?.pres
 const providerName = (s: AiStatus) => {
   if (s.provider === 'claude-code') return 'Claude Code';
   if (s.provider === 'anthropic') return 'Claude API';
+  if (s.provider === 'agent') return s.agent === 'codex' ? 'ChatGPT · Codex' : s.agent === 'gemini' ? 'Gemini CLI' : tr('Subscription', '订阅');
   if (s.provider === 'compat') {
     const p = presetOf(s);
     // Short provider name; a custom address shows its host
@@ -104,6 +124,89 @@ const providerName = (s: AiStatus) => {
   }
   return tr('Not connected', '未连接');
 };
+
+// Another subscription: pick the vendor's CLI, install it, sign in through it
+function AgentSection({ st, save, onChange }: { st: AiStatus; save: (body: object) => Promise<void>; onChange: (s: AiStatus) => void }) {
+  const [busy, setBusy] = useState('');
+  const [note, setNote] = useState('');
+  const act = async (id: string, action: string) => {
+    setBusy(`${id}:${action}`);
+    setNote('');
+    try {
+      const r = await post('/api/ai/agent', { id, action });
+      const j = await r.json();
+      if (action === 'install') setNote(j.ok ? tr('Installed.', '已安装。') : tr(`Install failed: ${j.out}`, `安装失败：${j.out}`));
+      if (action === 'signin') setNote(r.ok ? tr('A terminal window opened. Finish signing in there, then press Refresh.', '已打开一个终端窗口，在里面完成登录，再点「刷新」。') : j.error);
+      const s = await (await post('/api/ai/agent', { id, action: 'refresh' })).json();
+      onChange(s);
+    } finally {
+      setBusy('');
+    }
+  };
+  return (
+    <section>
+      <h4>{tr('Other subscriptions', '其他订阅')}</h4>
+      <div className="rcards" role="radiogroup">
+        {st.agents.map((a) => {
+          const on = st.agent === a.id;
+          return (
+            <div key={a.id} className={`rc agent${on ? ' on' : ''}`}>
+              <input type="radio" name="agent" checked={on} onChange={() => void save({ agent: { id: a.id } })} aria-label={nm(a)} />
+              <span className="ag">
+                <b>{nm(a)}</b>
+                <small>{tr(a.plansEn, a.plansZh)}</small>
+                <span className={`state ${!a.installed ? 'bad' : a.loggedIn === false ? 'warn' : 'ok'}`}>
+                  <Icon name={!a.installed ? 'close' : a.loggedIn === false ? 'warn' : 'check'} size={13} />
+                  <span>
+                    {!a.installed
+                      ? tr('Not installed', '没有安装')
+                      : a.loggedIn === false
+                        ? tr('Installed, not signed in', '已安装，未登录')
+                        : tr(`Ready${a.method ? ` (${a.method})` : ''}`, `可用${a.method ? `（${a.method}）` : ''}`)}
+                    {a.version ? ` · v${a.version}` : ''}
+                  </span>
+                </span>
+                <span className="ag-acts">
+                  {!a.installed ? (
+                    <button className="btn" disabled={!!busy} onClick={() => act(a.id, 'install')} title={`npm install -g ${a.pkg}`}>
+                      {busy === `${a.id}:install` ? tr('Installing…', '安装中…') : tr('Install', '安装')}
+                    </button>
+                  ) : (
+                    <button className="btn" disabled={!!busy} onClick={() => act(a.id, 'signin')} title={a.login}>
+                      {a.loggedIn ? tr('Switch account', '切换账号') : tr('Sign in', '登录')}
+                    </button>
+                  )}
+                  <button className="btn" disabled={!!busy} onClick={() => act(a.id, 'refresh')}>
+                    {tr('Refresh', '刷新')}
+                  </button>
+                </span>
+                {on ? (
+                  <label className="crow">
+                    <span>{tr('Model', '模型')}</span>
+                    <input
+                      defaultValue={a.model}
+                      placeholder={tr('Leave empty for the CLI’s default', '留空用它的默认模型')}
+                      onBlur={(e) => e.target.value.trim() !== a.model && void save({ agent: { id: a.id, model: e.target.value } })}
+                      onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
+                      spellCheck={false}
+                    />
+                  </label>
+                ) : null}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+      {note ? <p className="hint">{note}</p> : null}
+      <p className="hint">
+        {tr(
+          'The CLI runs on this computer with your own sign-in. Cutroom turns off its shell, file and web tools; it can only use the editor. Chinese “Coding Plan” keys (GLM, Kimi, Qwen, MiniMax) are not supported: their terms allow them only in interactive coding tools.',
+          'CLI 在这台电脑上用你自己的账号运行。剪辑台会关掉它的命令行、读写文件和联网工具，它只能操作剪辑台。国内各家的「编程套餐 (Coding Plan)」Key（智谱、Kimi、通义、MiniMax）不支持：条款只允许在交互式编程工具里使用。',
+        )}
+      </p>
+    </section>
+  );
+}
 
 // Another provider: which one, its address, its key, its model
 function CompatSection({ st, save, refresh }: { st: AiStatus; save: (body: object) => Promise<void>; refresh: () => Promise<void> }) {
@@ -269,6 +372,7 @@ export function Connection({ st, onChange, onClose }: { st: AiStatus | null; onC
       </section>
 
       {st.pref === 'compat' ? <CompatSection st={st} save={save} refresh={refresh} /> : null}
+      {st.pref === 'agent' ? <AgentSection st={st} save={save} onChange={onChange} /> : null}
       {err ? (
         <div className="state bad">
           <Icon name="close" size={14} />
@@ -358,7 +462,7 @@ export function Connection({ st, onChange, onClose }: { st: AiStatus | null; onC
             </span>
           </span>
         ) : !st.provider ? (
-          <span className="hint">{st.pref === 'anthropic' ? tr('Save an API key above, or switch to the Claude Code login', '先在上面保存 API Key，或改用 Claude Code 登录') : st.pref === 'claude-code' ? tr('Install Claude Code and sign in first', '先安装并登录 Claude Code') : st.pref === 'compat' ? tr('Choose a provider, save its key and pick a model', '选好服务商，保存 Key，再选一个模型') : tr('Sign in to Claude Code or save an API key first', '先登录 Claude Code 或保存 API Key')}</span>
+          <span className="hint">{st.pref === 'anthropic' ? tr('Save an API key above, or switch to the Claude Code login', '先在上面保存 API Key，或改用 Claude Code 登录') : st.pref === 'claude-code' ? tr('Install Claude Code and sign in first', '先安装并登录 Claude Code') : st.pref === 'compat' ? tr('Choose a provider, save its key and pick a model', '选好服务商，保存 Key，再选一个模型') : st.pref === 'agent' ? tr('Choose a subscription and install its CLI', '选一个订阅，并安装它的命令行工具') : tr('Sign in to Claude Code or save an API key first', '先登录 Claude Code 或保存 API Key')}</span>
         ) : null}
       </section>
 

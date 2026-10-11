@@ -13,6 +13,7 @@ files:
   - editor/index.html
   - editor/dist/server.mjs
   - editor/dist/cli.mjs
+  - editor/dist/mcp.mjs
   - editor/dist/app.js
   - src/**
   - "!src/resolve/**"

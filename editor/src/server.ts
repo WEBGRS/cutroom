@@ -5,6 +5,7 @@ import { spawn, execFile, type ChildProcess } from 'node:child_process';
 import { Conflict, DATA, OUT, PUBLIC, ROOT, STATE, appendLog, boardFile, checkSlug, currentVersion, readDoc, readLog, slugs, snapshot, writeDoc, hash } from './store';
 import type { Doc } from './ops';
 import { aiStatus, aiTest, chat, compatModels, history, isRunning, provider, reset, stop, writeAi } from './chat';
+import { agentDef, installAgent, openSignIn, forgetAgents, type AgentId } from './agents';
 import { boardTemplate } from './templates';
 import { L, readSettings, uiLang, writeSettings } from './settings';
 
@@ -377,13 +378,28 @@ const server = http.createServer(async (req, res) => {
     if (p === '/api/ai' && req.method === 'POST') {
       const b = await body(req);
       try {
-        writeAi({ pref: b.pref, apiKey: b.apiKey, compat: b.compat });
+        writeAi({ pref: b.pref, apiKey: b.apiKey, compat: b.compat, agent: b.agent });
       } catch (e) {
         return send(res, 400, { error: (e as Error).message });
       }
       return send(res, 200, await aiStatus());
     }
     if (p === '/api/ai/models' && req.method === 'GET') return send(res, 200, await compatModels());
+    // Subscription agents: sign in opens a terminal with the vendor's own login; install runs npm -g
+    if (p === '/api/ai/agent' && req.method === 'POST') {
+      const b = await body(req);
+      if (!agentDef(b.id)) return send(res, 400, { error: 'unknown agent' });
+      if (b.action === 'signin') {
+        if (!openSignIn(b.id as AgentId)) return send(res, 400, { error: L('Install it first', '先安装') });
+        return send(res, 200, { ok: true });
+      }
+      if (b.action === 'install') return send(res, 200, await installAgent(b.id as AgentId));
+      if (b.action === 'refresh') {
+        forgetAgents();
+        return send(res, 200, await aiStatus());
+      }
+      return send(res, 400, { error: 'unknown action' });
+    }
     if (p === '/api/ai/test' && req.method === 'POST') return send(res, 200, await aiTest());
     if (p === '/api/chat' && req.method === 'GET') return send(res, 200, { provider: provider(), history: history(slug), running: isRunning(slug) });
     if (p === '/api/chat/reset' && req.method === 'POST') {

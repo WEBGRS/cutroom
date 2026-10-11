@@ -13,7 +13,7 @@
     "build": "node editor/build.mjs",
     "studio": "remotion studio",
     "typecheck": "tsc --noEmit && tsc -p editor/tsconfig.json",
-    "test": "node editor/build.mjs && node --test editor/dist/test/ops.test.mjs editor/dist/test/compat.test.mjs",
+    "test": "node editor/build.mjs && node --test editor/dist/test/ops.test.mjs editor/dist/test/compat.test.mjs editor/dist/test/agents.test.mjs",
     "test:e2e": "node editor/test/e2e.mjs showcase",
     "test:oracle": "node editor/test/oracle.mjs showcase",
     "test:app": "node editor/test/app.mjs",

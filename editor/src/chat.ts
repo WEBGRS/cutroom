@@ -7,6 +7,7 @@ import { HELP } from './help';
 import { catalogText } from './catalog';
 import { L, readSettings, writeSettings } from './settings';
 import { PRESETS, chatLoop, listModels, pickModel, ping, preset, trimHistory, type Conn } from './compat';
+import { AGENTS, agentDef, agentState, findCli, forgetAgents, startAgent, type AgentId } from './agents';
 
 export type ChatEvent =
   | { type: 'start'; provider: string }
@@ -72,8 +73,10 @@ export function findClaude(): string | null {
 
 // Connection settings saved from the AI panel; the key never leaves this machine
 interface AiSettings {
-  pref?: 'auto' | 'claude-code' | 'anthropic' | 'compat';
+  pref?: 'auto' | 'claude-code' | 'anthropic' | 'compat' | 'agent';
   apiKey?: string;
+  // Another subscription through its own CLI (Codex, Gemini CLI), with an optional model per agent
+  agent?: { id?: AgentId; models?: Record<string, string> };
   // Other providers: chosen preset, address override (custom), model, one saved key per preset
   compat?: { preset?: string; base?: string; model?: string; keys?: Record<string, string> };
 }
@@ -84,9 +87,19 @@ export interface CompatPatch {
   key?: string | null;
 }
 export const readAi = (): AiSettings => readSettings().ai ?? {};
-export function writeAi(patch: { pref?: string; apiKey?: string | null; compat?: CompatPatch }) {
+export function writeAi(patch: { pref?: string; apiKey?: string | null; compat?: CompatPatch; agent?: { id?: string; model?: string } }) {
   const ai: AiSettings = { ...(readSettings().ai ?? {}) };
-  if (patch.pref !== undefined) ai.pref = ['claude-code', 'anthropic', 'compat'].includes(patch.pref) ? (patch.pref as AiSettings['pref']) : 'auto';
+  if (patch.pref !== undefined) ai.pref = ['claude-code', 'anthropic', 'compat', 'agent'].includes(patch.pref) ? (patch.pref as AiSettings['pref']) : 'auto';
+  if (patch.agent && typeof patch.agent === 'object') {
+    const a = { ...(ai.agent ?? {}), models: { ...(ai.agent?.models ?? {}) } };
+    if (typeof patch.agent.id === 'string' && agentDef(patch.agent.id)) a.id = patch.agent.id as AgentId;
+    if (a.id && typeof patch.agent.model === 'string') {
+      const m = patch.agent.model.trim();
+      if (m) a.models[a.id] = m;
+      else delete a.models[a.id];
+    }
+    ai.agent = a;
+  }
   if (patch.apiKey === null || patch.apiKey === '') delete ai.apiKey;
   else if (typeof patch.apiKey === 'string') ai.apiKey = patch.apiKey.trim();
   const p = patch.compat;
@@ -147,13 +160,22 @@ function claudeAuth(bin: string): Promise<{ loggedIn: boolean; method?: string; 
 const claudeVersion = (bin: string) =>
   new Promise<string | null>((resolve) => execFile(bin, ['--version'], { windowsHide: true, timeout: 10_000 }, (err, out) => resolve(err ? null : out.trim().split(/\s/)[0])));
 
-export type Provider = 'claude-code' | 'anthropic' | 'compat';
+export type Provider = 'claude-code' | 'anthropic' | 'compat' | 'agent';
+
+// The chosen subscription agent, if its CLI is installed
+const chosenAgent = (): AgentId | null => {
+  const id = readAi().agent?.id;
+  const def = agentDef(id);
+  return def && findCli(def.bin) ? def.id : null;
+};
+const agentModel = (id: AgentId) => readAi().agent?.models?.[id];
 
 export function provider(): Provider | null {
   const p = pref();
   if (p === 'anthropic') return apiKey() ? 'anthropic' : null;
   if (p === 'claude-code') return findClaude() ? 'claude-code' : null;
   if (p === 'compat') return compatReady(compatConn()) ? 'compat' : null;
+  if (p === 'agent') return chosenAgent() ? 'agent' : null;
   // Auto: the local login first, unless it is known to be logged out and a key exists
   if (findClaude() && !(authCache?.v && !authCache.v.loggedIn && apiKey())) return 'claude-code';
   if (apiKey()) return 'anthropic';
@@ -173,6 +195,8 @@ export async function aiStatus() {
     claude: bin ? { path: bin, version, loggedIn: auth?.loggedIn ?? null, method: auth?.method ?? null, plan: auth?.plan ?? null } : null,
     key: key ? { source: process.env.ANTHROPIC_API_KEY ? 'env' : 'file', masked: mask(key) } : null,
     compat: compatStatus(),
+    agent: readAi().agent?.id ?? null,
+    agents: await Promise.all(AGENTS.map(async (a) => ({ ...(await agentState(a.id)), en: a.en, zh: a.zh, plansEn: a.plansEn, plansZh: a.plansZh, login: a.login, pkg: a.pkg, model: agentModel(a.id) ?? '' }))),
     presets: PRESETS.map(({ id, en, zh, base, keyUrl, env, noKey }) => ({ id, en, zh, base, keyUrl, env, noKey })),
   };
 }
@@ -215,6 +239,33 @@ export async function aiTest(): Promise<{ ok: boolean; message: string; ms: numb
   const prov = provider();
   const done = (ok: boolean, message: string) => ({ ok, message, ms: Date.now() - t0 });
   if (!prov) return done(false, L('No connection yet: sign in to Claude Code or add an API key', '还没有可用的连接：登录 Claude Code，或者填一个 API Key'));
+  if (prov === 'agent') {
+    const id = chosenAgent()!;
+    forgetAgents();
+    const st = await agentState(id);
+    if (st.loggedIn === false) return done(false, L(`${agentDef(id)!.en} is installed but not signed in`, `${agentDef(id)!.zh} 已安装，但还没登录`));
+    return new Promise((resolve) => {
+      let text = '';
+      let error = '';
+      const r = startAgent(
+        id,
+        '_',
+        agentModel(id),
+        'Reply with the single word OK. Do not use any tools.',
+        (e) => {
+          if (e.type === 'text') text += e.delta;
+          if (e.type === 'error') error = e.message;
+        },
+        (code, stderr) => {
+          clearTimeout(timer);
+          if (text.trim() && !error) resolve(done(true, L(`${agentDef(id)!.en} works`, `${agentDef(id)!.zh} 可用`)));
+          else resolve(done(false, (error || stderr.trim().split('\n').slice(-3).join(' ') || L(`It exited (${code}) without an answer`, `没有回答就退出了（${code}）`)).slice(0, 300)));
+        },
+      );
+      const timer = setTimeout(() => r?.kill(), 120_000);
+      if (!r) resolve(done(false, L('The command was not found', '找不到这个命令')));
+    });
+  }
   if (prov === 'compat') {
     const c = compatConn()!;
     try {
@@ -358,6 +409,7 @@ export async function chat(slug: string, message: string, ctx: ChatContext, mode
   try {
     if (prov === 'claude-code') await viaClaudeCode(slug, prompt, model, saved, wrapped, t0);
     else if (prov === 'compat') await viaCompat(slug, prompt, saved, wrapped, t0);
+    else if (prov === 'agent') await viaAgent(slug, prompt, saved, wrapped, t0);
     else await viaApi(slug, prompt, saved, wrapped, t0);
   } catch (err) {
     emit({ type: 'error', message: (err as Error).message });
@@ -508,6 +560,56 @@ async function viaApi(slug: string, prompt: string, saved: Saved, emit: (e: Chat
   }
   saved.api = messages;
   emit({ type: 'done', ms: Date.now() - t0 });
+}
+
+// Another subscription through its own CLI. Each message is a fresh, ephemeral session: the instructions and the
+// last few exchanges go in front of the request, so nothing lands in the user's own Codex or Gemini history.
+async function viaAgent(slug: string, prompt: string, saved: Saved, emit: (e: ChatEvent) => void, t0: number): Promise<void> {
+  const id = chosenAgent()!;
+  const def = agentDef(id)!;
+  const st = await agentState(id);
+  if (st.loggedIn === false) {
+    emit({ type: 'error', message: L(`${def.en} is not signed in. Open Settings › AI and press Sign in, or run "${def.login}" in a terminal.`, `${def.zh} 还没登录。到 设置 › AI 点「登录」，或在终端运行「${def.login}」。`) });
+    return emit({ type: 'done', ms: Date.now() - t0 });
+  }
+  const recent = saved.log
+    .slice(-7, -1)
+    .map((x) => `${x.role === 'user' ? 'User' : 'You'}: ${x.text.slice(0, 600)}`)
+    .join('\n');
+  const full = `<instructions>\n${systemPrompt(slug, 'tool')}\n</instructions>\n\n${recent ? `<conversation so far>\n${recent}\n</conversation so far>\n\n` : ''}${prompt}`;
+  await new Promise<void>((resolve) => {
+    let finished = false;
+    let failed = false;
+    const r = startAgent(
+      id,
+      slug,
+      agentModel(id),
+      full,
+      (e) => {
+        if (e.type === 'text') emit({ type: 'text', delta: e.delta });
+        else if (e.type === 'tool') emit({ type: 'tool', id: e.id, cmd: e.args.join(' ') });
+        else if (e.type === 'tool_result') emit({ type: 'tool_result', id: e.id, ok: e.ok, out: e.out });
+        else if (e.type === 'error') {
+          failed = true;
+          emit({ type: 'error', message: e.message });
+        } else finished = true;
+      },
+      (code, stderr) => {
+        clearTimeout(timer);
+        running.delete(slug);
+        if (!finished && !failed && code !== 0) emit({ type: 'error', message: L(`${def.en} exited (${code})${stderr ? ': ' + stderr.trim().slice(-300) : ''}`, `${def.zh} 退出了（${code}）${stderr ? '：' + stderr.trim().slice(-300) : ''}`) });
+        emit({ type: 'done', ms: Date.now() - t0 });
+        resolve();
+      },
+    );
+    if (!r) {
+      emit({ type: 'error', message: L(`${def.en} is not installed`, `${def.zh} 没有安装`) });
+      emit({ type: 'done', ms: Date.now() - t0 });
+      return resolve();
+    }
+    running.set(slug, { kill: r.kill });
+    const timer = setTimeout(r.kill, 5 * 60_000);
+  });
 }
 
 // OpenAI-compatible providers (OpenAI, Gemini, DeepSeek, Qwen, Kimi, GLM, OpenRouter, Ollama, custom)
