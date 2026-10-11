@@ -21,7 +21,7 @@ test('record steps: one known action each, with the right kind of value', () => 
   assert.throws(() => R.parseSteps([{ fill: '#q' }]), /bad value for "fill"/);
 });
 
-test('records a local page with clicks, typing and marks', { skip: !R.findBrowser() && 'no Chrome or Edge' }, async () => {
+test('records a local page with clicks, typing and marks', { skip: !R.findBrowser() && 'no Chrome or Edge', timeout: 120_000 }, async () => {
   const site = path.join(DATA, 'site.html');
   fs.writeFileSync(site, '<!doctype html><body style="font:20px sans-serif"><input id="q"><button id="go" onclick="document.body.append(\'added\')">Add</button></body>');
   const r = await R.recordPage({ slug: 'demo', name: 'Unit Test!', url: pathToFileURL(site).href, steps: [{ mark: 'start' }, { fill: ['#q', 'abc'] }, { click: 'text="Add"' }, { mark: 'end-ish' }, { wait: 300 }], size: { width: 640, height: 360 } });

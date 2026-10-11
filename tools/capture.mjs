@@ -63,11 +63,23 @@ export async function record(name, opts, script) {
   const out = join(outDir, `${name}.mp4`);
   let ff = null;
   let ffDone = Promise.resolve();
+  // Set when ffmpeg quits early (missing binary or library), so frames stop instead of waiting forever
+  let ffDead = null;
   const openFF = () => {
     const args = ['-y', '-loglevel', 'error', '-f', 'image2pipe', '-framerate', String(fps), '-c:v', 'png', '-i', '-', '-vf', `scale=${W}:${H}:flags=lanczos`];
     args.push('-c:v', 'libx264', '-preset', 'slow', '-crf', String(crf), '-pix_fmt', 'yuv420p', '-g', String(fps), '-movflags', '+faststart', out);
     ff = spawn(ffmpeg, args, { stdio: ['pipe', 'ignore', 'inherit'], windowsHide: true });
-    ffDone = new Promise((res, rej) => ff.on('close', (c) => (c === 0 ? res() : rej(new Error(`ffmpeg exit ${c}`)))));
+    ff.on('error', (e) => (ffDead = e));
+    ff.stdin.on('error', (e) => (ffDead ??= e));
+    ffDone = new Promise((res, rej) =>
+      ff.on('close', (c) => {
+        if (c !== 0) ffDead ??= new Error(`ffmpeg exit ${c}`);
+        ff.stdin.emit('drain');
+        c === 0 ? res() : rej(new Error(`ffmpeg exit ${c}`));
+      }),
+    );
+    // Reported through ffDead and awaited at the end; never an unhandled rejection
+    ffDone.catch(() => undefined);
   };
 
   const events = [];
@@ -115,7 +127,9 @@ export async function record(name, opts, script) {
     if (region) shot.clip = { ...region, scale: 1 };
     const { data } = await cdp.send('Page.captureScreenshot', shot);
     const buf = Buffer.from(data, 'base64');
+    if (ffDead) throw new Error(`ffmpeg stopped: ${ffDead.message}`);
     if (!ff.stdin.write(buf)) await new Promise((res) => ff.stdin.once('drain', res));
+    if (ffDead) throw new Error(`ffmpeg stopped: ${ffDead.message}`);
     frame++;
     if (frame % (fps * 5) === 0) console.log(`[${name}] ${frame / fps}s captured`);
   }
