@@ -69,7 +69,21 @@ export const modelsDir = () =>
       ? path.join(os.homedir(), 'Library', 'Caches', 'Cutroom', 'models')
       : path.join(os.homedir(), '.cache', 'cutroom', 'models'));
 const kokoroDir = () => path.join(modelsDir(), KOKORO.name);
-export const modelInstalled = () => fs.existsSync(path.join(kokoroDir(), 'model.int8.onnx')) && fs.existsSync(path.join(kokoroDir(), 'voices.bin'));
+
+// The desktop app runs on Electron, which refuses the native module's audio buffers, so it runs
+// sherpa-onnx's own command-line program instead (Windows x64 build, downloaded next to the model)
+const SHERPA_CLI = {
+  name: 'sherpa-onnx-v1.13.8-win-x64-shared-MT-Release',
+  url: 'https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.8/sherpa-onnx-v1.13.8-win-x64-shared-MT-Release.tar.bz2',
+  bytes: 24_805_859,
+  files: ['sherpa-onnx-offline-tts.exe', 'onnxruntime.dll', 'onnxruntime_providers_shared.dll'],
+};
+const useCli = () => (process.env.CUTROOM_TTS_BACKEND ? process.env.CUTROOM_TTS_BACKEND === 'cli' : !!process.versions.electron);
+const cliDir = () => path.join(modelsDir(), SHERPA_CLI.name);
+const cliExe = () => path.join(cliDir(), SHERPA_CLI.files[0]);
+const cliInstalled = () => SHERPA_CLI.files.every((f) => fs.existsSync(path.join(cliDir(), f)));
+export const modelInstalled = () => fs.existsSync(path.join(kokoroDir(), 'model.int8.onnx')) && fs.existsSync(path.join(kokoroDir(), 'voices.bin')) && (!useCli() || cliInstalled());
+const downloadBytes = () => (fs.existsSync(path.join(kokoroDir(), 'voices.bin')) ? 0 : KOKORO.bytes) + (useCli() && !cliInstalled() ? SHERPA_CLI.bytes : 0);
 
 export interface ModelJob {
   state: 'running' | 'done' | 'error';
@@ -78,7 +92,7 @@ export interface ModelJob {
   error?: string;
 }
 let modelJob: ModelJob | null = null;
-export const modelStatus = () => ({ installed: modelInstalled(), bytes: KOKORO.bytes, dir: kokoroDir(), job: modelJob });
+export const modelStatus = () => ({ installed: modelInstalled(), bytes: downloadBytes() || KOKORO.bytes, dir: kokoroDir(), job: modelJob });
 
 // Windows ships bsdtar, which unpacks .tar.bz2; prefer it over any GNU tar on PATH
 const tarBin = () => {
@@ -86,51 +100,107 @@ const tarBin = () => {
   return process.platform === 'win32' && fs.existsSync(sys) ? sys : 'tar';
 };
 
+const untar = (archive: string, into: string, members: string[] = []) =>
+  new Promise<void>((res, rej) => {
+    const p = spawn(tarBin(), ['-xjf', archive, '-C', into, ...members], { windowsHide: true });
+    let err = '';
+    p.stderr.on('data', (d) => (err += d));
+    p.on('error', rej);
+    p.on('close', (c) => (c === 0 ? res() : rej(new Error(`tar: ${err.trim().slice(-200)}`))));
+  });
+
 export async function installModel(onProgress?: (j: ModelJob) => void): Promise<void> {
   if (modelInstalled()) return;
   if (modelJob?.state === 'running') throw new Error(L('The voice model is already downloading', '语音模型正在下载'));
+  if (useCli() && !(process.platform === 'win32' && process.arch === 'x64'))
+    throw new Error(L('The built-in voices in the desktop app need 64-bit Windows; run Cutroom from source on other systems', '桌面版内置配音需要 64 位 Windows；其他系统请从源码运行 Cutroom'));
   const dir = modelsDir();
   fs.mkdirSync(dir, { recursive: true });
-  const archive = path.join(dir, `${KOKORO.name}.tar.bz2.part`);
-  const tmp = path.join(dir, `${KOKORO.name}.unpack`);
-  modelJob = { state: 'running', got: 0, total: KOKORO.bytes };
+  modelJob = { state: 'running', got: 0, total: downloadBytes() };
   const tell = () => onProgress?.({ ...modelJob! });
-  try {
-    const r = await fetch(process.env.CUTROOM_MODEL_URL ?? KOKORO.url);
+  const parts: string[] = [];
+  // Download one archive into the models folder, counting toward the shared progress bar
+  const fetchTo = async (url: string, file: string) => {
+    parts.push(file);
+    const r = await fetch(url);
     if (!r.ok || !r.body) throw new Error(`${r.status} ${r.statusText}`);
-    modelJob.total = Number(r.headers.get('content-length')) || KOKORO.bytes;
-    const out = fs.createWriteStream(archive);
+    const out = fs.createWriteStream(file);
     let last = 0;
     for await (const chunk of r.body as unknown as AsyncIterable<Uint8Array>) {
       if (!out.write(chunk)) await new Promise((res) => out.once('drain', res));
-      modelJob.got += chunk.length;
+      modelJob!.got += chunk.length;
       if (Date.now() - last > 300) {
         last = Date.now();
         tell();
       }
     }
     await new Promise<void>((res, rej) => out.end((e?: Error | null) => (e ? rej(e) : res())));
-    fs.rmSync(tmp, { recursive: true, force: true });
-    fs.mkdirSync(tmp, { recursive: true });
-    await new Promise<void>((res, rej) => {
-      const p = spawn(tarBin(), ['-xjf', archive, '-C', tmp], { windowsHide: true });
-      let err = '';
-      p.stderr.on('data', (d) => (err += d));
-      p.on('error', rej);
-      p.on('close', (c) => (c === 0 ? res() : rej(new Error(`tar: ${err.trim().slice(-200)}`))));
-    });
-    const inner = path.join(tmp, KOKORO.name);
-    fs.rmSync(kokoroDir(), { recursive: true, force: true });
-    fs.renameSync(fs.existsSync(inner) ? inner : tmp, kokoroDir());
+  };
+  const tmp = path.join(dir, `${KOKORO.name}.unpack`);
+  try {
+    if (!fs.existsSync(path.join(kokoroDir(), 'voices.bin'))) {
+      const archive = path.join(dir, `${KOKORO.name}.tar.bz2.part`);
+      await fetchTo(process.env.CUTROOM_MODEL_URL ?? KOKORO.url, archive);
+      fs.rmSync(tmp, { recursive: true, force: true });
+      fs.mkdirSync(tmp, { recursive: true });
+      await untar(archive, tmp);
+      const inner = path.join(tmp, KOKORO.name);
+      fs.rmSync(kokoroDir(), { recursive: true, force: true });
+      fs.renameSync(fs.existsSync(inner) ? inner : tmp, kokoroDir());
+    }
+    if (useCli() && !cliInstalled()) {
+      const archive = path.join(dir, `${SHERPA_CLI.name}.tar.bz2.part`);
+      await fetchTo(SHERPA_CLI.url, archive);
+      fs.rmSync(tmp, { recursive: true, force: true });
+      fs.mkdirSync(tmp, { recursive: true });
+      await untar(archive, tmp, SHERPA_CLI.files.map((f) => `${SHERPA_CLI.name}/bin/${f}`));
+      fs.mkdirSync(cliDir(), { recursive: true });
+      for (const f of SHERPA_CLI.files) fs.renameSync(path.join(tmp, SHERPA_CLI.name, 'bin', f), path.join(cliDir(), f));
+    }
     if (!modelInstalled()) throw new Error(L('The download did not contain the voice model', '下载的文件里没有语音模型'));
     modelJob = { ...modelJob, state: 'done' };
   } catch (e) {
     modelJob = { ...modelJob!, state: 'error', error: (e as Error).message };
     throw e;
   } finally {
-    fs.rmSync(archive, { force: true });
+    for (const f of parts) fs.rmSync(f, { force: true });
     fs.rmSync(tmp, { recursive: true, force: true });
     tell();
+  }
+}
+
+// One line through the command-line program; the model loads for each call, so callers run a few at once
+async function cliSynth(text: string, sid: number, speed: number): Promise<{ samples: Float32Array; sampleRate: number }> {
+  const dir = kokoroDir();
+  fixLexicon(dir);
+  const f = (n: string) => path.join(dir, n);
+  const out = path.join(os.tmpdir(), `cutroom-tts-${process.pid}-${crypto.randomBytes(6).toString('hex')}.wav`);
+  const args = [
+    `--kokoro-model=${f('model.int8.onnx')}`,
+    `--kokoro-voices=${f('voices.bin')}`,
+    `--kokoro-tokens=${f('tokens.txt')}`,
+    `--kokoro-data-dir=${f('espeak-ng-data')}`,
+    `--kokoro-dict-dir=${f('dict')}`,
+    `--kokoro-lexicon=${f('lexicon-us-en.txt')},${f('lexicon-zh.txt')}`,
+    `--tts-rule-fsts=${f('date-zh.fst')},${f('phone-zh.fst')},${f('number-zh.fst')}`,
+    '--num-threads=2',
+    `--sid=${sid}`,
+    `--speed=${speed}`,
+    `--output-filename=${out}`,
+    text,
+  ];
+  try {
+    await new Promise<void>((res, rej) => {
+      const p = spawn(cliExe(), args, { windowsHide: true, stdio: ['ignore', 'ignore', 'pipe'] });
+      let err = '';
+      p.stderr.on('data', (d) => (err = (err + d).slice(-2000)));
+      p.on('error', rej);
+      p.on('close', (c) => (c === 0 && fs.existsSync(out) ? res() : rej(new Error(`voice program failed (${c}): ${err.trim().split(/\r?\n/).pop() ?? ''}`))));
+    });
+    const { samples, sr } = decodeWav(fs.readFileSync(out));
+    return { samples, sampleRate: sr };
+  } finally {
+    fs.rmSync(out, { force: true });
   }
 }
 
@@ -411,7 +481,7 @@ async function synthOne(engine: EngineId, voice: string, text: string, lang: Lan
     }
     case 'builtin': {
       const sid = Math.max(0, KOKORO.speakers.indexOf(voice));
-      const a = await withKokoro((t) => t.generateAsync({ text: speakable(text, lang), sid, speed }));
+      const a = useCli() ? await cliSynth(speakable(text, lang), sid, speed) : await withKokoro((t) => t.generateAsync({ text: speakable(text, lang), sid, speed }));
       return { samples: a.samples, sr: a.sampleRate };
     }
     case 'openai': {
@@ -577,7 +647,7 @@ export async function voiceProject(run: VoiceRun, onProgress?: (p: VoiceProgress
     onProgress?.({ done, total: todo.length, line: t.text });
   };
   // Cloud engines take a few requests at once; the built-in pool sets its own width
-  const width = !todo.length ? 0 : engine === 'builtin' ? (await kokoroPool().catch(() => [null])).length : engine === 'test' ? 4 : 3;
+  const width = !todo.length ? 0 : engine === 'builtin' ? (useCli() ? 3 : (await kokoroPool().catch(() => [null])).length) : engine === 'test' ? 4 : 3;
   const queue = [...todo];
   await Promise.all(
     Array.from({ length: Math.min(width, queue.length) }, async () => {
