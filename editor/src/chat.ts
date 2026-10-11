@@ -8,7 +8,7 @@ import { imagesIn, lookReadRule } from './look';
 import { catalogText } from './catalog';
 import { L, readSettings, writeSettings } from './settings';
 import { PRESETS, chatLoop, listModels, pickModel, ping, preset, trimHistory, type Conn } from './compat';
-import { AGENTS, agentDef, agentState, findCli, forgetAgents, startAgent, type AgentId } from './agents';
+import { AGENTS, agentDef, agentState, cliOf, forgetAgents, startAgent, type AgentId } from './agents';
 
 export type ChatEvent =
   | { type: 'start'; provider: string }
@@ -76,7 +76,7 @@ export function findClaude(): string | null {
 interface AiSettings {
   pref?: 'auto' | 'claude-code' | 'anthropic' | 'compat' | 'agent';
   apiKey?: string;
-  // Another subscription through its own CLI (Codex, Gemini CLI), with an optional model per agent
+  // Another subscription through its own CLI (Codex, Gemini CLI, Antigravity), with an optional model per agent
   agent?: { id?: AgentId; models?: Record<string, string> };
   // Other providers: chosen preset, address override (custom), model, one saved key per preset
   compat?: { preset?: string; base?: string; model?: string; keys?: Record<string, string> };
@@ -167,7 +167,7 @@ export type Provider = 'claude-code' | 'anthropic' | 'compat' | 'agent';
 const chosenAgent = (): AgentId | null => {
   const id = readAi().agent?.id;
   const def = agentDef(id);
-  return def && findCli(def.bin) ? def.id : null;
+  return def && cliOf(def) ? def.id : null;
 };
 const agentModel = (id: AgentId) => readAi().agent?.models?.[id];
 
@@ -197,7 +197,7 @@ export async function aiStatus() {
     key: key ? { source: process.env.ANTHROPIC_API_KEY ? 'env' : 'file', masked: mask(key) } : null,
     compat: compatStatus(),
     agent: readAi().agent?.id ?? null,
-    agents: await Promise.all(AGENTS.map(async (a) => ({ ...(await agentState(a.id)), en: a.en, zh: a.zh, plansEn: a.plansEn, plansZh: a.plansZh, login: a.login, pkg: a.pkg, model: agentModel(a.id) ?? '' }))),
+    agents: await Promise.all(AGENTS.map(async (a) => ({ ...(await agentState(a.id)), en: a.en, zh: a.zh, plansEn: a.plansEn, plansZh: a.plansZh, login: a.login, pkg: a.pkg, url: a.url, model: agentModel(a.id) ?? '' }))),
     presets: PRESETS.map(({ id, en, zh, base, keyUrl, env, noKey }) => ({ id, en, zh, base, keyUrl, env, noKey })),
   };
 }
@@ -311,7 +311,8 @@ export async function aiTest(): Promise<{ ok: boolean; message: string; ms: numb
 const TOOL_DESC = (slug: string) =>
   `Run one Cutroom CLI command for project "${slug}". Pass the command and its arguments as an array, e.g. ["ls","--format","tall"], ["trim","record","--to","@filter+0.8"], ["set","intro","fx.look","\\"warm\\""]. Output is the command's stdout.`;
 
-export function systemPrompt(slug: string, via: 'bash' | 'tool' = 'bash'): string {
+// via: bash = Claude Code; tool = an `editor` tool whose results carry the frames; files = an `editor` tool, frames opened as files
+export function systemPrompt(slug: string, via: 'bash' | 'tool' | 'files' = 'bash'): string {
   const how =
     via === 'bash'
       ? `- Use only the Bash tool, and only this command form (the working directory is already the project root; never cd, never edit files directly, never run other programs):
@@ -325,8 +326,9 @@ ${how}
 - One CLI command per Bash call, or several joined with &&. Shell loops and variables are blocked; \`show a b c\` or \`show all\` prints several scenes at once.
 - Write nothing between commands: no progress notes. Your only text is the final reply, in the user's language.
 - Before you say a cut is ready (and whenever asked to check it), run \`check\` and fix what it lists.
-- You can see the video: \`look\` renders frames exactly as exported (\`look record photo+2.5 0:31\`; no arguments = a spread of scenes; add --format tall or --mode beat for those cuts). ${via === 'bash' ? 'Then open every image path it prints with the Read tool (Read works only there).' : 'The frames come back to you as images.'} Look after you place text, overlays, circles or crops, after changing looks or colours, and before you call a cut done; fix what you see (unreadable text, things covering each other, a circle that misses its target).
+- You can see the video: \`look\` renders frames exactly as exported (\`look record photo+2.5 0:31\`; no arguments = a spread of scenes; add --format tall or --mode beat for those cuts). ${via === 'bash' ? 'Then open every image path it prints with the Read tool (Read works only there).' : via === 'files' ? 'Then open every image path it prints with your file viewer. Those frames are the only files you can open; any other file read ends your turn, so learn everything else through the editor (`help` lists its commands).' : 'The frames come back to you as images.'} Look after you place text, overlays, circles or crops, after changing looks or colours, and before you call a cut done; fix what you see (unreadable text, things covering each other, a circle that misses its target).
 - Make the smallest edit that does what was asked. Prefer the dedicated commands (trim/split/mv/add/bars/min) over \`set\`.
+- A scene's \`visual\` is shared by the 16:9 and 9:16 versions. To change only the 9:16 one, run \`tall <id> on\` and edit \`tall.*\` instead.
 - Effects marked [house rule] go against the user's own style guide: don't use them unless the user explicitly asks.
 - Voice-over (配音/旁白/narration audio): write or fix the narration lines first (\`set <id> lines.<k>.zh ...\`), then run \`voice\`; it only voices lines without current audio, so run it again after editing lines. Add \`--lang en\` for the second-language track. Change the engine or voice (\`voice list\`, \`voice use\`) only when the user asks for a different voice.
 - Screen recordings (录屏) of a website as footage: run \`inspect <url>\` to see its elements and selectors, then \`record <name> <url> '<steps json>'\` with the clicks and typing the user wants shown; put a \`mark\` before each beat you will caption. Then \`add screen cap/<name>.mp4 <after-id>\` and write lines with "at": "@mark" to sync. Keep recordings short (5–20 s of steps); recording takes about real time plus page loading. Only record public pages the user asked for.
@@ -462,7 +464,8 @@ function viaClaudeCode(slug: string, prompt: string, model: string | undefined, 
       else child.kill();
     };
     running.set(slug, { kill });
-    const timer = setTimeout(kill, 5 * 60_000);
+    // A whole cut with voice-over and recordings takes a while
+    const timer = setTimeout(kill, 30 * 60_000);
     let wrote = false;
     let gap = false;
     const filter = new CanaryFilter((s) => {
@@ -593,7 +596,8 @@ async function viaApi(slug: string, prompt: string, saved: Saved, emit: (e: Chat
 }
 
 // Another subscription through its own CLI. Each message is a fresh, ephemeral session: the instructions and the
-// last few exchanges go in front of the request, so nothing lands in the user's own Codex or Gemini history.
+// last few exchanges go in front of the request, so nothing lands in the user's own Codex or Gemini history
+// (Antigravity runs with a home folder of its own).
 async function viaAgent(slug: string, prompt: string, saved: Saved, emit: (e: ChatEvent) => void, t0: number): Promise<void> {
   const id = chosenAgent()!;
   const def = agentDef(id)!;
@@ -606,7 +610,7 @@ async function viaAgent(slug: string, prompt: string, saved: Saved, emit: (e: Ch
     .slice(-7, -1)
     .map((x) => `${x.role === 'user' ? 'User' : 'You'}: ${x.text.slice(0, 600)}`)
     .join('\n');
-  const full = `<instructions>\n${systemPrompt(slug, 'tool')}\n</instructions>\n\n${recent ? `<conversation so far>\n${recent}\n</conversation so far>\n\n` : ''}${prompt}`;
+  const full = `<instructions>\n${systemPrompt(slug, id === 'antigravity' ? 'files' : 'tool')}\n</instructions>\n\n${recent ? `<conversation so far>\n${recent}\n</conversation so far>\n\n` : ''}${prompt}`;
   await new Promise<void>((resolve) => {
     let finished = false;
     let failed = false;
@@ -638,7 +642,8 @@ async function viaAgent(slug: string, prompt: string, saved: Saved, emit: (e: Ch
       return resolve();
     }
     running.set(slug, { kill: r.kill });
-    const timer = setTimeout(r.kill, 5 * 60_000);
+    // A whole cut with voice-over and recordings takes a while
+    const timer = setTimeout(r.kill, 30 * 60_000);
   });
 }
 

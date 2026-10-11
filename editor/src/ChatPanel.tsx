@@ -49,12 +49,14 @@ interface AgentInfo {
   plansEn: string;
   plansZh: string;
   login: string;
-  pkg: string;
+  pkg?: string;
+  url?: string;
   installed: boolean;
   path: string | null;
   version: string | null;
   loggedIn: boolean | null;
   method: string | null;
+  models?: string[];
   model: string;
 }
 
@@ -74,7 +76,7 @@ const PREFS: [AiStatus['pref'], string, string][] = [
   ['auto', tr('Automatic', '自动'), tr('Your Claude Code login if there is one, else the Claude API key, else another model you set up', '优先用 Claude Code 登录，其次 Claude API Key，最后用你配置的其他模型')],
   ['claude-code', tr('Claude Code login', 'Claude Code 登录'), tr('Uses your Claude subscription; nothing extra to pay', '用你的 Claude 订阅额度，不另外付费')],
   ['anthropic', tr('Claude API key', 'Claude API Key'), tr('Pay per use; create a key at console.anthropic.com', '按用量付费，Key 在 console.anthropic.com 创建')],
-  ['agent', tr('Other subscriptions', '其他订阅'), tr('Your ChatGPT or Google plan, through the official Codex CLI or Gemini CLI', '用你的 ChatGPT 或 Google 订阅，通过官方的 Codex CLI 或 Gemini CLI')],
+  ['agent', tr('Other subscriptions', '其他订阅'), tr('Your ChatGPT or Google plan, through the official Codex CLI, Gemini CLI or Antigravity', '用你的 ChatGPT 或 Google 订阅，通过官方的 Codex CLI、Gemini CLI 或 Antigravity')],
   ['compat', tr('Other models', '其他模型'), tr('OpenAI, Gemini, DeepSeek, Qwen, Kimi, GLM, OpenRouter or local Ollama, with your own key', 'OpenAI、Gemini、DeepSeek、通义千问、Kimi、智谱、OpenRouter 或本机 Ollama，用你自己的 Key')],
 ];
 
@@ -111,7 +113,7 @@ const presetOf = (s: AiStatus) => s.presets?.find((p) => p.id === s.compat?.pres
 const providerName = (s: AiStatus) => {
   if (s.provider === 'claude-code') return 'Claude Code';
   if (s.provider === 'anthropic') return 'Claude API';
-  if (s.provider === 'agent') return s.agent === 'codex' ? 'ChatGPT · Codex' : s.agent === 'gemini' ? 'Gemini CLI' : tr('Subscription', '订阅');
+  if (s.provider === 'agent') return s.agent === 'codex' ? 'ChatGPT · Codex' : s.agent === 'gemini' ? 'Gemini CLI' : s.agent === 'antigravity' ? 'Antigravity' : tr('Subscription', '订阅');
   if (s.provider === 'compat') {
     const p = presetOf(s);
     // Short provider name; a custom address shows its host
@@ -169,7 +171,11 @@ function AgentSection({ st, save, onChange }: { st: AiStatus; save: (body: objec
                   </span>
                 </span>
                 <span className="ag-acts">
-                  {!a.installed ? (
+                  {!a.installed && !a.pkg && a.url ? (
+                    <a className="btn" href={a.url} target="_blank" rel="noreferrer">
+                      {tr('Download', '下载')}
+                    </a>
+                  ) : !a.installed ? (
                     <button className="btn" disabled={!!busy} onClick={() => act(a.id, 'install')} title={`npm install -g ${a.pkg}`}>
                       {busy === `${a.id}:install` ? tr('Installing…', '安装中…') : tr('Install', '安装')}
                     </button>
@@ -187,11 +193,19 @@ function AgentSection({ st, save, onChange }: { st: AiStatus; save: (body: objec
                     <span>{tr('Model', '模型')}</span>
                     <input
                       defaultValue={a.model}
+                      list={a.models?.length ? `models-${a.id}` : undefined}
                       placeholder={tr('Leave empty for the CLI’s default', '留空用它的默认模型')}
                       onBlur={(e) => e.target.value.trim() !== a.model && void save({ agent: { id: a.id, model: e.target.value } })}
                       onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
                       spellCheck={false}
                     />
+                    {a.models?.length ? (
+                      <datalist id={`models-${a.id}`}>
+                        {a.models.map((m) => (
+                          <option key={m} value={m} />
+                        ))}
+                      </datalist>
+                    ) : null}
                   </label>
                 ) : null}
               </span>
@@ -202,8 +216,8 @@ function AgentSection({ st, save, onChange }: { st: AiStatus; save: (body: objec
       {note ? <p className="hint">{note}</p> : null}
       <p className="hint">
         {tr(
-          'The CLI runs on this computer with your own sign-in. Cutroom turns off its shell, file and web tools; it can only use the editor. Chinese “Coding Plan” keys (GLM, Kimi, Qwen, MiniMax) are not supported: their terms allow them only in interactive coding tools.',
-          'CLI 在这台电脑上用你自己的账号运行。剪辑台会关掉它的命令行、读写文件和联网工具，它只能操作剪辑台。国内各家的「编程套餐 (Coding Plan)」Key（智谱、Kimi、通义、MiniMax）不支持：条款只允许在交互式编程工具里使用。',
+          'The CLI runs on this computer with your own sign-in. Cutroom blocks its shell, file and web-page tools, so the only thing it can change is your project, through the editor. Chinese “Coding Plan” keys (GLM, Kimi, Qwen, MiniMax) are not supported: their terms allow them only in interactive coding tools.',
+          'CLI 在这台电脑上用你自己的账号运行。剪辑台会屏蔽它的命令行、读写文件和打开网页的工具，它能改动的只有你的项目，而且只能通过剪辑台。国内各家的「编程套餐 (Coding Plan)」Key（智谱、Kimi、通义、MiniMax）不支持：条款只允许在交互式编程工具里使用。',
         )}
       </p>
     </section>

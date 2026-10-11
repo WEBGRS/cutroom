@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { agentArgs, findCli, parseAgentLine, type AgentEvent } from '../src/agents';
+import { AGY_DENY, agentArgs, findCli, parseAgentLine, type AgentEvent } from '../src/agents';
+import { lookDir } from '../src/look';
 
 // Lines as Codex 0.162 and Gemini CLI 0.63 print them (captured against a mock model)
 const CODEX = [
@@ -26,7 +27,24 @@ const GEMINI = [
   '{"type":"result","status":"success","stats":{"total_tokens":45}}',
 ];
 
-const parse = (id: 'codex' | 'gemini', lines: string[]) => {
+// Antigravity CLI 1.3.3 (agy), trimmed from a real run: a denied shell command, the tool list it reads, one editor call
+const step = (u: object) => JSON.stringify({ event: 'step_update', step_update: { conversation_id: 'c1', ...u } });
+const AGY = [
+  '{"event":"init","init":{"model":"gemini-3.8-flash-low","tools":["call_mcp_tool","run_command"],"permission_mode":"request-review"}}',
+  step({ step_index: 0, state: 'DONE', step_type: 'user_input' }),
+  step({ step_index: 1, state: 'ACTIVE', step_type: 'agent_response', text_delta: 'Checking.' }),
+  step({ step_index: 1, state: 'DONE', step_type: 'agent_response', text_delta: '\n', usage: { input_tokens: 12932 } }),
+  step({ step_index: 2, state: 'ACTIVE', step_type: 'tool', tool_name: 'run_command', tool_info: { name: 'run_command', parameters: { CommandLine: 'echo hi' } } }),
+  step({ step_index: 2, state: 'ERROR', step_type: 'tool', tool_name: 'run_command', tool_info: { name: 'run_command', parameters: { CommandLine: 'echo hi' }, error: { type: 'TOOL_ERROR', message: 'Permission denied for command(echo hi). Matches user-configured deny rule.' } } }),
+  step({ step_index: 3, state: 'DONE', step_type: 'tool', tool_name: 'view_file', tool_info: { name: 'view_file', parameters: { AbsolutePath: 'C:\\t\\.gemini\\antigravity-cli\\mcp\\cutroom\\editor.json' }, output: '1 lines, 484 bytes' } }),
+  step({ step_index: 4, state: 'ACTIVE', step_type: 'tool', tool_name: 'call_mcp_tool', tool_info: { name: 'call_mcp_tool', parameters: { Arguments: { args: ['ls'] }, ServerName: 'cutroom', ToolName: 'editor' } } }),
+  step({ step_index: 4, state: 'ACTIVE', step_type: 'tool', tool_name: 'call_mcp_tool', tool_info: { name: 'call_mcp_tool', parameters: { Arguments: { args: ['ls'] }, ServerName: 'cutroom', ToolName: 'editor' } } }),
+  step({ step_index: 4, state: 'DONE', step_type: 'tool', tool_name: 'call_mcp_tool', tool_info: { name: 'call_mcp_tool', parameters: { Arguments: { args: ['ls'] }, ServerName: 'cutroom', ToolName: 'editor' }, output: 'launch · wide · voice · zh' } }),
+  step({ step_index: 5, state: 'ACTIVE', step_type: 'agent_response', text_delta: 'Two scenes.' }),
+  '{"event":"result","result":{"conversation_id":"c1","status":"SUCCESS","response":"Checking.\\nTwo scenes.","num_turns":1}}',
+];
+
+const parse = (id: 'codex' | 'gemini' | 'antigravity', lines: string[]) => {
   const st = { textSince: false, wrote: false };
   return lines.flatMap((l) => parseAgentLine(id, l, st));
 };
@@ -51,6 +69,25 @@ test('gemini events: text, tool call, failed tool, paragraph break, done', () =>
   assert.equal((ev[2] as { ok: boolean }).ok, false);
   assert.deepEqual(ev[3], { type: 'text', delta: '\n\n' });
   assert.deepEqual(parse('gemini', ['{"type":"result","status":"error","error":{"message":"quota"}}'])[0], { type: 'error', message: 'quota' });
+});
+
+test('antigravity events: only the editor calls show, each once, then the reply', () => {
+  const ev = parse('antigravity', AGY);
+  assert.deepEqual(ev, [
+    { type: 'text', delta: 'Checking.' },
+    { type: 'text', delta: '\n' },
+    { type: 'tool', id: 'step-4', args: ['ls'] },
+    { type: 'tool_result', id: 'step-4', ok: true, out: 'launch · wide · voice · zh' },
+    { type: 'text', delta: '\n\n' },
+    { type: 'text', delta: 'Two scenes.' },
+    { type: 'done' },
+  ] satisfies AgentEvent[]);
+  assert.deepEqual(parse('antigravity', ['{"event":"result","result":{"status":"ERROR","error":"quota exhausted"}}']), [{ type: 'error', message: 'quota exhausted' }, { type: 'done' }]);
+  // A tool it could not ask permission for ends the turn silently; the user is told why
+  const denied = parse('antigravity', ['{"event":"result","result":{"status":"SUCCESS","response":"","denied_actions":[{"action":"read_file","display_name":"ViewFile"}]}}']);
+  assert.equal(denied[0].type, 'error');
+  assert.match((denied[0] as { message: string }).message, /Antigravity.*ViewFile/);
+  assert.deepEqual(denied[1], { type: 'done' });
 });
 
 test('npm .cmd shims resolve to node + the script, no shell needed', { skip: process.platform !== 'win32' }, () => {
@@ -83,4 +120,23 @@ test('agents get only the editor tool', () => {
   assert.deepEqual(settings.tools.core, ['mcp_cutroom_editor']);
   assert.equal(settings.mcpServers.cutroom.args.at(-1), 'demo');
   assert.equal(g.env.GEMINI_CLI_TRUST_WORKSPACE, 'true');
+  // Antigravity: a home of its own holding only the editor, which it may call; its shell, writes and page reads are denied
+  const a = agentArgs('antigravity', 'demo', 'gemini-3.1-pro-high');
+  const home = a.env.HOME;
+  assert.equal(a.env.USERPROFILE, home);
+  assert.notEqual(path.resolve(home), path.resolve(os.homedir()));
+  assert.equal(path.dirname(a.cwd), home);
+  const read = (rel: string) => JSON.parse(fs.readFileSync(path.join(home, rel), 'utf8'));
+  const mcp = read('.gemini/config/mcp_config.json').mcpServers;
+  assert.deepEqual(Object.keys(mcp), ['cutroom']);
+  assert.equal(mcp.cutroom.args.at(-1), 'demo');
+  assert.equal(mcp.cutroom.env.USERPROFILE, os.homedir(), 'the editor itself keeps the real home');
+  assert.equal(mcp.cutroom.env.CUTROOM_LOOK_FILES, '1', 'it drops images in tool results, so frames are opened as files');
+  assert.equal(mcp.cutroom.timeoutSeconds, 900, 'its default is 3 minutes per call');
+  const perm = read('.gemini/antigravity-cli/settings.json').permissions;
+  assert.deepEqual(perm.allow, ['mcp(cutroom/editor)', `read_file(${path.resolve(lookDir())})`]);
+  assert.deepEqual(perm.deny, AGY_DENY);
+  for (const r of ['command(*)', 'write_file(*)', 'read_url(*)']) assert.ok(perm.deny.includes(r), r);
+  assert.deepEqual(a.args.slice(0, 4), ['--input-format', 'stream-json', '--output-format', 'stream-json']);
+  assert.deepEqual(a.args.slice(-4), ['--model', 'gemini-3.1-pro-high', '-p', '']);
 });

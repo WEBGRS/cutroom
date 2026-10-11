@@ -187,6 +187,7 @@ async function main() {
           value = raw;
         }
       if (id !== '-' && p === '.') return save(replaceScene(doc, id, value as Scene));
+      if (/^(visual|tall)\.zoom$/.test(p) && value !== undefined && value !== 'auto' && value !== 'off') throw new Error(`${p} is "auto" (the camera follows the cursor and zooms in on clicks) or "off" (the whole recording, no camera moves); use undefined for the default (auto)`);
       // The beat cut has four settings; its tempo is not one of them
       const BEAT_KEYS = ['music', 'startBar', 'volume', 'overlays'];
       if (id === '-' && /^beat(\.|$)/.test(p)) {
@@ -378,6 +379,9 @@ async function checkCmd() {
     if (e && v.kind === 'screen' && e.capDur !== undefined && e.from !== undefined) {
       const hold = e.dur / fps - (e.capDur - e.from) / e.rate;
       if (hold > 0.5) add(s.id, `the recording runs out ${hold.toFixed(1)} s before the scene ends, so its last frame stands still`, `start it earlier (trim ${s.id} --from <earlier>), shorten its lines, or slow it down (set ${s.id} visual.rate 0.8)`);
+      const fv = (format === 'tall' && s.tall ? s.tall : s.visual) as { kind: string; zoom?: string };
+      if (format === 'tall' && fv.kind === 'screen' && fv.zoom !== undefined && fv.zoom !== 'auto') add(s.id, 'the camera is off, so the whole desktop recording sits small in the 9:16 frame and its text is unreadable on a phone', `set ${s.id} ${s.tall ? 'tall' : 'visual'}.zoom undefined (the camera follows the cursor again), or give the 9:16 version a phone recording: tall ${s.id} on`);
+      if (e.rate < 0.75) add(s.id, `the recording plays at ${e.rate}× speed, so the cursor and typing look like slow motion`, `keep visual.rate at 0.8 or above: show a longer stretch of the recording (trim ${s.id} --from/--to) or shorten the narration`);
     }
     if (e && e.dur < fps) add(s.id, `only ${(e.dur / fps).toFixed(2)} s long`, `min ${s.id} 2`);
     const cues = (e?.sounds ?? []).filter((c) => !c.past).sort((a, b) => a.f - b.f);
@@ -391,6 +395,19 @@ async function checkCmd() {
     });
     for (const [k, b] of (Array.isArray(s.beat) ? s.beat : []).entries()) if (len(b.t) > 12) add(`${s.id} beat ${k + 1}`, `beat-cut text is ${len(b.t)} characters; it should be a short label`, `set ${s.id} beat.${k}.t '"…"'`);
   }
+  // The same seconds of one recording played in two scenes
+  const played = doc.board.scenes.flatMap((s) => {
+    const v = (format === 'tall' && s.tall ? s.tall : s.visual) as { kind: string; src?: string };
+    const e = tl.scenes.find((x) => x.id === s.id);
+    if (v.kind !== 'screen' || !v.src || !e || e.from === undefined) return [];
+    return [{ id: s.id, src: v.src, a: e.from, b: Math.min(e.capDur ?? Infinity, e.from + (e.dur / fps) * e.rate) }];
+  });
+  for (const [i, x] of played.entries())
+    for (const y of played.slice(i + 1)) {
+      const a = Math.max(x.a, y.a);
+      const b = Math.min(x.b, y.b);
+      if (y.src === x.src && b - a > 0.5) add(`${x.id} and ${y.id}`, `both play ${x.src} ${a.toFixed(1)}–${b.toFixed(1)} s, so the same moment is shown twice`, `start the later one where the earlier ends (trim ${y.a >= x.a ? y.id : x.id} --from ${(y.a >= x.a ? x.b : y.b).toFixed(1)}) or end the earlier one sooner`);
+    }
   for (const lng of ['zh', 'en'] as const) {
     const st = lineStates(slug, lng);
     const voiced = st.some((x) => x.state === 'voiced');

@@ -30,6 +30,19 @@ export interface Frame {
 }
 
 export async function renderFrames(o: { slug: string; format: 'wide' | 'tall'; mode: 'voice' | 'beat'; lang: 'zh' | 'en'; frames: Frame[]; log?: (s: string) => void }): Promise<{ file: string; label: string }[]> {
+  // The renderer echoes the page's failed requests (timings of a project not voiced yet); noise for the reader
+  const err = console.error;
+  console.error = (...a: unknown[]) => {
+    if (!a.some((x) => String(x).includes('Failed to load resource'))) err(...a);
+  };
+  try {
+    return await render(o);
+  } finally {
+    console.error = err;
+  }
+}
+
+async function render(o: { slug: string; format: 'wide' | 'tall'; mode: 'voice' | 'beat'; lang: 'zh' | 'en'; frames: Frame[]; log?: (s: string) => void }): Promise<{ file: string; label: string }[]> {
   const log = o.log ?? (() => undefined);
   const { bundle } = await import('@remotion/bundler');
   const { ensureBrowser, openBrowser, renderStill, selectComposition } = await import('@remotion/renderer');

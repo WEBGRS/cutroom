@@ -45,6 +45,34 @@ test('check lists problems with the command that fixes them', () => {
   assert.match(r.out, /media file media\/lake\.jpg is missing/);
 });
 
+test('check finds the same footage played in two scenes', () => {
+  const screen = board().scenes.find((s: { visual: { kind: string } }) => s.visual.kind === 'screen');
+  assert.ok(cli('set', screen.id, 'visual.from', '0').ok);
+  assert.doesNotMatch(cli('check').out, /shown twice/);
+  assert.ok(cli('dup', screen.id).ok);
+  const copy = sceneIds()[sceneIds().indexOf(screen.id) + 1];
+  const r = cli('check');
+  assert.match(r.out, new RegExp(`${screen.id} and ${copy}: both play cap/planner\\.mp4 0\\.0–[\\d.]+ s, so the same moment is shown twice\\n    fix: start the later one where the earlier ends \\(trim ${copy} --from [\\d.]+\\)`));
+  assert.ok(cli('rm', copy).ok);
+  assert.doesNotMatch(cli('check').out, /shown twice/);
+  // Stretching a recording to fill narration
+  assert.ok(cli('set', screen.id, 'visual.rate', '0.6').ok);
+  assert.match(cli('check').out, new RegExp(`${screen.id}: the recording plays at 0\\.6× speed[\\s\\S]*fix: keep visual\\.rate at 0\\.8 or above`));
+  assert.ok(cli('set', screen.id, 'visual.rate', '1').ok);
+});
+
+test('screen zoom: two values only; camera off is flagged in 9:16', () => {
+  const screen = board().scenes.find((s: { visual: { kind: string } }) => s.visual.kind === 'screen');
+  const bad = cli('set', screen.id, 'visual.zoom', 'false');
+  assert.equal(bad.ok, false);
+  assert.match(bad.out, /visual\.zoom is "auto" .* or "off"/);
+  assert.ok(cli('set', screen.id, 'visual.zoom', '"off"').ok);
+  assert.doesNotMatch(cli('check').out, /camera is off/, '16:9 shows the whole recording well enough');
+  assert.match(cli('check', '--format', 'tall').out, new RegExp(`${screen.id}: the camera is off[\\s\\S]*fix: set ${screen.id} visual\\.zoom undefined`));
+  assert.ok(cli('set', screen.id, 'visual.zoom', 'undefined').ok);
+  assert.doesNotMatch(cli('check', '--format', 'tall').out, /camera is off/);
+});
+
 test('beat cut: tempo comes from beat data, guesses are refused', () => {
   const bad = cli('set', '-', 'beat', '{"bpm":120}');
   assert.equal(bad.ok, false);

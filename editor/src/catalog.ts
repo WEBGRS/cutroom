@@ -203,7 +203,7 @@ export function catalogText(): string {
         'flow{title,cols}',
         'image{src,fit,frame}',
         'clip{src,from,rate,fit,frame,muted}',
-        'screen{src,from,to,rate,zoom,base,frame,url}',
+        'screen{src,from,to,rate,zoom:"auto"|"off",base,frame,url}',
       ].join(' '),
   );
   out.push('Cards: ' + CARD_LIST.map((c) => `${c.id}=${c.en}`).join(', '));

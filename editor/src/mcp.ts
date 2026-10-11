@@ -1,5 +1,5 @@
 // MCP server (stdio, newline-delimited JSON-RPC) with one tool: run the editor CLI on one project.
-// Other agents (Codex, Gemini CLI) edit through it. Usage: node editor/dist/mcp.mjs <slug>
+// Other agents (Codex, Gemini CLI, Antigravity) edit through it. Usage: node editor/dist/mcp.mjs <slug>
 import { spawn } from 'node:child_process';
 import path from 'node:path';
 import readline from 'node:readline';
@@ -43,9 +43,11 @@ async function handle(m: { id?: number | string; method?: string; params?: any }
       const a = m.params?.arguments?.args;
       if (!Array.isArray(a) || !a.every((x) => typeof x === 'string')) return reply({ content: [{ type: 'text', text: 'args must be an array of strings' }], isError: true });
       const r = await run(a);
-      // Frames from look go back as images
-      const pics = imagesIn(r.out).map((x) => ({ type: 'image', data: x.data, mimeType: x.mime }));
-      return reply({ content: [{ type: 'text', text: r.out.slice(0, 20000) || '(no output)' }, ...pics], isError: !r.ok });
+      // Frames from look go back as images, or as files to open for clients that drop images (Antigravity)
+      const files = !!process.env.CUTROOM_LOOK_FILES;
+      const pics = files ? [] : imagesIn(r.out).map((x) => ({ type: 'image', data: x.data, mimeType: x.mime }));
+      const text = (r.out.slice(0, 20000) || '(no output)') + (files && imagesIn(r.out).length ? '\nOpen each image path above with your file viewer to see the frames.' : '');
+      return reply({ content: [{ type: 'text', text }, ...pics], isError: !r.ok });
     }
     default:
       // Notifications (no id) need no answer
