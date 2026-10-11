@@ -213,7 +213,8 @@ export function editTimeline(p: Props, fps: number): ETimeline {
       return { i, id: c.id, f, dur: Math.max(1, Math.round((def?.dur ?? 0.5) * fps)), label: def?.en ?? c.id, past: at === undefined || at < 0 || f >= s.dur };
     });
     const hideOverlays = p.mode === 'beat' && !board.beat?.overlays;
-    e.overlays = (s.scene.overlays ?? []).map((o, i) => {
+    // Empty entries (left by older saves) are skipped; check reports them
+    e.overlays = (s.scene.overlays ?? []).flatMap((o, i) => (o ? [{ o, i }] : [])).map(({ o, i }) => {
       const def = OVERLAY_LIST.find((x) => x.id === o.kind);
       const text = o.text ? ` ${plain(o.text).slice(0, 24)}` : '';
       const off: ETag | undefined = o.only && o.only !== p.format ? { en: `only in ${o.only === 'wide' ? '16:9' : '9:16'}`, zh: `只在${o.only === 'wide' ? '横屏' : '竖屏'}` } : hideOverlays ? { en: 'the beat cut hides overlays', zh: '卡点版不显示叠加' } : undefined;

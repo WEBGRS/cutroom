@@ -12,7 +12,7 @@ A video editor where you and an AI assistant edit the same cut. Each video is on
 
 Most editors store a project as an opaque binary or database. Cutroom stores it as a small JSON document, which means:
 
-- **You and an AI can work on the same cut.** Hold Ctrl and click a spot in the preview, a scene or a caption, then say what you want changed there. The assistant edits through one tool, the editor's CLI; its changes appear in the preview within a second, and it sees the changes you make by hand. Both sides go through the same versioned save path, so neither overwrites the other. Ask it for footage and it records a website for you ("record searching for Remotion on wikipedia.org"); ask for narration and it writes the lines and voices them.
+- **You and an AI can work on the same cut.** Hold Ctrl and click a spot in the preview, a scene or a caption, then say what you want changed there. The assistant edits through one tool, the editor's CLI; its changes appear in the preview within a second, and it sees the changes you make by hand. Both sides go through the same versioned save path, so neither overwrites the other. Ask it for footage and it records a website for you ("record searching for Remotion on wikipedia.org"); ask for narration and it writes the lines and voices them. It can also look at the video: frames rendered exactly as an export would be, so it checks the text, circles and crops it placed and fixes what it sees.
 ![The AI panel: a spot Ctrl+clicked in the preview, the request, the command the AI ran, and the circle it drew there](docs/ai-chat.png)
 
 - **Timing stays tied to content.** Captions and cuts can be anchored to marks recorded with a screen capture (`"@add-0.3"`), so re-recording a demo doesn't break the edit.
@@ -132,6 +132,7 @@ node editor/dist/cli.mjs showcase set photo fx.look '"warm"'
 node editor/dist/cli.mjs showcase add title intro                 # new title card after "intro"
 node editor/dist/cli.mjs showcase log --unseen                    # what changed in the UI since you last looked
 node editor/dist/cli.mjs showcase check                           # problems to fix before export, each with its fix
+node editor/dist/cli.mjs showcase look record photo+2.5           # render frames as an export would, for the AI to look at
 node editor/dist/cli.mjs showcase show all                        # every scene's JSON
 node editor/dist/cli.mjs showcase media                           # recordings (with marks), images, videos, music
 node editor/dist/cli.mjs showcase beat use music/realizer.mp3     # beat-cut music; the tempo comes from its beat data

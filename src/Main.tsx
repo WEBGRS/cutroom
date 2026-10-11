@@ -41,7 +41,7 @@ export const SceneView: React.FC<{ s: TScene; props: Props; layout: Layout; them
       <FxLayer fx={s.scene.fx} dur={s.dur}>
         {body}
       </FxLayer>
-      {!bare && s.scene.overlays?.length ? <Overlays items={s.scene.overlays} layout={layout} theme={theme} /> : null}
+      {!bare && s.scene.overlays?.length ? <Overlays items={s.scene.overlays.filter(Boolean)} layout={layout} theme={theme} /> : null}
     </AbsoluteFill>
   );
 };
@@ -116,7 +116,7 @@ const VoiceMain: React.FC<Props> = (props) => {
         ))}
       {tl.scenes.flatMap((s) =>
         (s.scene.overlays ?? [])
-          .filter((o) => o.kind === 'punch' && sfx.pop !== false)
+          .filter((o) => o?.kind === 'punch' && sfx.pop !== false)
           .map((o, k) => (
             <Sequence key={`p-${s.scene.id}-${k}`} from={s.start + Math.round(o.at * fps)} durationInFrames={Math.round(fps * 0.6)}>
               <Audio src={staticFile('sfx/pop.wav')} volume={0.4 * sv} />

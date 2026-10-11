@@ -28,6 +28,8 @@ interface Item {
   tools: Tool[];
   pending?: boolean;
   error?: string;
+  // Notes the model wrote between commands; shown only when no answer follows
+  aside?: string;
 }
 
 interface Preset {
@@ -563,7 +565,8 @@ export function ChatPanel({ slug, context, where, refs, onRemoveRef, onClearRefs
           if (!line.trim()) continue;
           const e = JSON.parse(line);
           if (e.type === 'text') patchLast((it) => ({ ...it, text: it.text + e.delta }));
-          else if (e.type === 'tool') patchLast((it) => ({ ...it, tools: [...it.tools, { id: e.id, cmd: e.cmd }] }));
+          // Text written before a command is a working note, not the answer: set it aside
+          else if (e.type === 'tool') patchLast((it) => ({ ...it, aside: [it.aside, it.text.trim()].filter(Boolean).join('\n\n'), text: '', tools: [...it.tools, { id: e.id, cmd: e.cmd }] }));
           else if (e.type === 'tool_result') patchLast((it) => ({ ...it, tools: it.tools.map((t) => (t.id === e.id ? { ...t, ok: e.ok, out: e.out } : t)) }));
           else if (e.type === 'error') patchLast((it) => ({ ...it, error: e.message }));
         }
@@ -571,7 +574,7 @@ export function ChatPanel({ slug, context, where, refs, onRemoveRef, onClearRefs
     } catch (err) {
       patchLast((it) => ({ ...it, error: (err as Error).message }));
     }
-    patchLast((it) => ({ ...it, pending: false }));
+    patchLast((it) => ({ ...it, pending: false, text: it.text.trim() ? it.text : (it.aside ?? '') }));
     setRunning(false);
   };
 

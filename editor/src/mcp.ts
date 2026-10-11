@@ -4,6 +4,7 @@ import { spawn } from 'node:child_process';
 import path from 'node:path';
 import readline from 'node:readline';
 import { fileURLToPath } from 'node:url';
+import { imagesIn } from './look';
 
 const slug = process.argv[2];
 const CLI = path.join(path.dirname(fileURLToPath(import.meta.url)), 'cli.mjs');
@@ -42,7 +43,9 @@ async function handle(m: { id?: number | string; method?: string; params?: any }
       const a = m.params?.arguments?.args;
       if (!Array.isArray(a) || !a.every((x) => typeof x === 'string')) return reply({ content: [{ type: 'text', text: 'args must be an array of strings' }], isError: true });
       const r = await run(a);
-      return reply({ content: [{ type: 'text', text: r.out.slice(0, 20000) || '(no output)' }], isError: !r.ok });
+      // Frames from look go back as images
+      const pics = imagesIn(r.out).map((x) => ({ type: 'image', data: x.data, mimeType: x.mime }));
+      return reply({ content: [{ type: 'text', text: r.out.slice(0, 20000) || '(no output)' }, ...pics], isError: !r.ok });
     }
     default:
       // Notifications (no id) need no answer

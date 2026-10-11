@@ -11,6 +11,7 @@ import { aiStatus, aiTest, chat, compatModels, history, isRunning, provider, res
 import { agentDef, installAgent, openSignIn, forgetAgents, type AgentId } from './agents';
 import { boardTemplate } from './templates';
 import { L, readSettings, uiLang, writeSettings } from './settings';
+import { slimPublic } from './slim';
 
 const PORT = Number(process.env.PORT ?? 8814);
 const EDITOR = path.join(ROOT, 'editor');
@@ -273,7 +274,9 @@ function startRender(o: { slug: string; format: string; mode: string; variant: s
   const propsFile = path.join(STATE, `render-props.json`);
   fs.writeFileSync(propsFile, JSON.stringify({ slug: o.slug, format: o.format, mode: o.mode, variant: o.variant, lang: o.lang, voice: o.voice }));
   const cli = path.join(ROOT, 'node_modules', '@remotion', 'cli', 'remotion-cli.js');
-  const args = [cli, 'render', 'src/index.ts', `studio-${o.format}`, out, `--props=${propsFile}`, `--codec=${codec}`, `--public-dir=${PUBLIC}`];
+  // Only this project and the shared assets go into the render bundle (not every project and old export)
+  const slim = slimPublic(o.slug);
+  const args = [cli, 'render', 'src/index.ts', `studio-${o.format}`, out, `--props=${propsFile}`, `--codec=${codec}`, `--public-dir=${slim?.dir ?? PUBLIC}`];
   if (scale !== 1) args.push(`--scale=${scale}`);
   const child = spawn(process.execPath, args, { cwd: ROOT, windowsHide: true });
   const j: Job = { slug: o.slug, name, out, state: 'running', done: 0, total: 0, phase: L('Bundling', '打包'), tail: [], started: Date.now(), child };
@@ -299,6 +302,7 @@ function startRender(o: { slug: string; format: string; mode: string; variant: s
   child.stdout.on('data', onData);
   child.stderr.on('data', onData);
   child.on('close', (code) => {
+    slim?.cleanup();
     if (j.state === 'running') j.state = code === 0 ? 'done' : 'error';
     j.child = undefined;
     broadcast({ type: 'render', job: jobView() });

@@ -105,7 +105,7 @@ export interface LoopOpts {
   history: Msg[];
   prompt: string;
   toolDescription: string;
-  run: (args: string[]) => Promise<{ ok: boolean; out: string }>;
+  run: (args: string[]) => Promise<{ ok: boolean; out: string; images?: { mime: string; data: string }[] }>;
   onText: (s: string) => void;
   onTool: (id: string, args: string[]) => void;
   onToolResult: (id: string, ok: boolean, out: string) => void;
@@ -192,6 +192,9 @@ export async function chatLoop(o: LoopOpts): Promise<Msg[]> {
   ];
   const messages: Msg[] = [...o.history, { role: 'user', content: o.prompt }];
   let wrote = false;
+  const pics: { mime: string; data: string }[] = [];
+  let seeing = true;
+  const isPics = (m: Msg) => m.role === 'user' && Array.isArray(m.content);
   for (let turn = 0; turn < 24; turn++) {
     const r = await fetch(join(o.c.base, '/chat/completions'), {
       method: 'POST',
@@ -199,7 +202,18 @@ export async function chatLoop(o: LoopOpts): Promise<Msg[]> {
       body: JSON.stringify({ model: o.c.model, stream: true, messages: [{ role: 'system', content: o.system }, ...messages], tools }),
       signal: o.signal,
     });
-    if (!r.ok) throw await failure(r);
+    if (!r.ok) {
+      const err = await failure(r);
+      // A model without vision rejects the frames: drop them once and carry on with text
+      const k = messages.findLastIndex(isPics);
+      if (k >= 0 && seeing && [400, 415, 422].includes((err as Error & { status?: number }).status ?? 0)) {
+        messages.splice(k, 1, { role: 'user', content: '(This model cannot view images, so the frames from look are not available; judge from the text output.)' });
+        seeing = false;
+        turn--;
+        continue;
+      }
+      throw err;
+    }
     let first = true;
     const m = await readStream(
       r,
@@ -228,10 +242,15 @@ export async function chatLoop(o: LoopOpts): Promise<Msg[]> {
       const res = await o.run(args);
       o.onToolResult(x.id, res.ok, res.out.slice(0, 600));
       messages.push({ role: 'tool', tool_call_id: x.id, content: (res.ok ? '' : 'Error: ') + (res.out.slice(0, 20000) || '(no output)') });
+      if (res.images?.length) pics.push(...res.images);
     }
+    // Frames from look: vision models see them; others get told once and go on with text
+    if (pics.length && seeing) messages.push({ role: 'user', content: [{ type: 'text', text: 'The frames look rendered, in order:' }, ...pics.splice(0).map((x) => ({ type: 'image_url' as const, image_url: { url: `data:${x.mime};base64,${x.data}` } }))] });
+    pics.length = 0;
   }
-  // Earlier turns' reasoning is not sent again
+  // Earlier turns' reasoning and frames are not sent again
   return messages.map((x) => {
+    if (isPics(x)) return { role: 'user', content: '(frames from look were shown here)' };
     if (!('reasoning_content' in x)) return x;
     const { reasoning_content: _r, ...rest } = x;
     return rest;

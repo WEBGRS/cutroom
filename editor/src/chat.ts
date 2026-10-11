@@ -4,6 +4,7 @@ import path from 'node:path';
 import Anthropic from '@anthropic-ai/sdk';
 import { ROOT, STATE } from './store';
 import { HELP } from './help';
+import { imagesIn, lookReadRule } from './look';
 import { catalogText } from './catalog';
 import { L, readSettings, writeSettings } from './settings';
 import { PRESETS, chatLoop, listModels, pickModel, ping, preset, trimHistory, type Conn } from './compat';
@@ -324,6 +325,7 @@ ${how}
 - One CLI command per Bash call, or several joined with &&. Shell loops and variables are blocked; \`show a b c\` or \`show all\` prints several scenes at once.
 - Write nothing between commands: no progress notes. Your only text is the final reply, in the user's language.
 - Before you say a cut is ready (and whenever asked to check it), run \`check\` and fix what it lists.
+- You can see the video: \`look\` renders frames exactly as exported (\`look record photo+2.5 0:31\`; no arguments = a spread of scenes; add --format tall or --mode beat for those cuts). ${via === 'bash' ? 'Then open every image path it prints with the Read tool (Read works only there).' : 'The frames come back to you as images.'} Look after you place text, overlays, circles or crops, after changing looks or colours, and before you call a cut done; fix what you see (unreadable text, things covering each other, a circle that misses its target).
 - Make the smallest edit that does what was asked. Prefer the dedicated commands (trim/split/mv/add/bars/min) over \`set\`.
 - Effects marked [house rule] go against the user's own style guide: don't use them unless the user explicitly asks.
 - Voice-over (配音/旁白/narration audio): write or fix the narration lines first (\`set <id> lines.<k>.zh ...\`), then run \`voice\`; it only voices lines without current audio, so run it again after editing lines. Add \`--lang en\` for the second-language track. Change the engine or voice (\`voice list\`, \`voice use\`) only when the user asks for a different voice.
@@ -337,7 +339,7 @@ Video craft (use it when writing lines or restructuring; the user's own request 
 - Write narration like a person talking: short sentences, first person, plain words; no stock phrases, no lists of three, and never describe what the viewer can already see.
 - Beat-cut text is a short label for what the screen can't show ("自动排课"), not a sentence.
 - At most one [[highlight]] per line. Keep transitions consistent and cut plainly between related shots.
-- Text placed over footage (recordings, photos, clips) gets \`"plate": true\` so it reads on bright frames; you cannot see the frames.
+- Text placed over footage (recordings, photos, clips) gets \`"plate": true\` so it reads on bright frames; confirm with \`look\`.
 - The beat cut needs music with beat data: \`beat use music/<track>.mp3\` (\`beat\` lists them with their tempo). Don't invent BPM values; the beat data sets the tempo.
 - Build new scenes from the project's own footage: run \`media\` to see recordings, images, videos and music.
 
@@ -408,9 +410,13 @@ export async function chat(slug: string, message: string, ctx: ChatContext, mode
   save(slug, saved);
   const reply: LogItem = { role: 'assistant', text: '', tools: [], t: '' };
   const toolIds = new Map<string, number>();
+  // Text before a command is a working note; the answer is what comes after the last one
+  let aside = '';
   const wrapped = (e: ChatEvent) => {
     if (e.type === 'text') reply.text += e.delta;
     if (e.type === 'tool') {
+      aside = [aside, reply.text.trim()].filter(Boolean).join('\n\n');
+      reply.text = '';
       toolIds.set(e.id, reply.tools!.length);
       reply.tools!.push({ cmd: e.cmd, ok: true });
     }
@@ -436,6 +442,7 @@ export async function chat(slug: string, message: string, ctx: ChatContext, mode
     if (saved.api) s.api = saved.api;
     if (saved.compat) s.compat = saved.compat;
     reply.t = new Date().toISOString();
+    reply.text = (reply.text.trim() ? reply.text : aside).trim();
     if (reply.text || reply.tools!.length) s.log.push(reply);
     save(slug, s);
   }
@@ -444,7 +451,7 @@ export async function chat(slug: string, message: string, ctx: ChatContext, mode
 // Claude Code headless, restricted to the editor CLI; uses the local Claude Code login
 function viaClaudeCode(slug: string, prompt: string, model: string | undefined, saved: Saved, emit: (e: ChatEvent) => void, t0: number): Promise<void> {
   return new Promise((resolve) => {
-    const args = ['-p', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--setting-sources', 'project,local', '--strict-mcp-config', '--allowedTools', `Bash(${CLI}:*)`, '--disallowedTools', 'Edit', 'Write', 'NotebookEdit', '--append-system-prompt', systemPrompt(slug)];
+    const args = ['-p', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--setting-sources', 'project,local', '--strict-mcp-config', '--allowedTools', `Bash(${CLI}:*)`, lookReadRule(), '--disallowedTools', 'Edit', 'Write', 'NotebookEdit', '--append-system-prompt', systemPrompt(slug)];
     if (model) args.push('--model', model);
     if (saved.sessionId) args.push('--resume', saved.sessionId);
     // Voice-over and screen recordings can outlast Bash's default 2-minute limit
@@ -571,11 +578,17 @@ async function viaApi(slug: string, prompt: string, saved: Saved, emit: (e: Chat
       emit({ type: 'tool', id: u.id, cmd: args.join(' ') });
       const r = await runCli(slug, args as string[]);
       emit({ type: 'tool_result', id: u.id, ok: r.ok, out: r.out.slice(0, 600) });
-      results.push({ type: 'tool_result', tool_use_id: u.id, is_error: !r.ok, content: r.out.slice(0, 20000) || '(no output)' });
+      const pics = imagesIn(r.out).map((x) => ({ type: 'image' as const, source: { type: 'base64' as const, media_type: x.mime as 'image/jpeg', data: x.data } }));
+      results.push({ type: 'tool_result', tool_use_id: u.id, is_error: !r.ok, content: pics.length ? [{ type: 'text', text: r.out.slice(0, 20000) }, ...pics] : r.out.slice(0, 20000) || '(no output)' });
     }
     messages.push({ role: 'user', content: results });
   }
-  saved.api = messages;
+  // Frames are kept out of the saved history so later messages don't resend them
+  saved.api = messages.map((m) =>
+    Array.isArray(m.content)
+      ? { ...m, content: (m.content as Anthropic.Beta.BetaContentBlockParam[]).map((b) => (b.type === 'tool_result' && Array.isArray(b.content) ? { ...b, content: b.content.map((c) => (c.type === 'image' ? { type: 'text' as const, text: '(frame shown here)' } : c)) } : b)) }
+      : m,
+  );
   emit({ type: 'done', ms: Date.now() - t0 });
 }
 
@@ -642,7 +655,10 @@ async function viaCompat(slug: string, prompt: string, saved: Saved, emit: (e: C
       history: saved.compat?.id === id ? saved.compat.messages : [],
       prompt,
       toolDescription: TOOL_DESC(slug),
-      run: (args) => runCli(slug, args),
+      run: async (args) => {
+        const r = await runCli(slug, args);
+        return { ...r, images: imagesIn(r.out) };
+      },
       onText: (s) => emit({ type: 'text', delta: s }),
       onTool: (tid, args) => emit({ type: 'tool', id: tid, cmd: args.join(' ') }),
       onToolResult: (tid, ok, out) => emit({ type: 'tool_result', id: tid, ok, out }),

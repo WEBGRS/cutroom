@@ -25,6 +25,8 @@ export const HELP = `node editor/dist/cli.mjs <slug> <command> [args] [--format 
   media                    the project's recordings (with marks), images, videos, audio and the music library
   beat [use <music/track.mp3> [--bar N] | off]
                            beat cut music: the tempo comes from the track's beat data (no BPM to set); lists tracks
+  look [t | id | id+t ...] render frames exactly as exported and print their image paths (t = seconds or m:ss,
+                           id = a scene's middle; up to 8; default: a spread of scenes). Respects --format/--mode/--lang
   check                    problems to fix before export (long captions, missing voice-over, overlapping or silent sounds,
                            unreadable text on footage, missing media, too-short scenes), each with the command that fixes it
   inspect <url> [--mobile] a web page's headings and clickable elements, with selectors for record steps

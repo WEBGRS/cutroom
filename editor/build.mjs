@@ -2,7 +2,7 @@ import { build, context } from 'esbuild';
 import { readdirSync } from 'node:fs';
 
 const watch = process.argv.includes('--watch');
-const node = { platform: 'node', bundle: true, external: ['sherpa-onnx-node', 'playwright-core', 'playwright'], format: 'esm', target: 'node22', sourcemap: true, logLevel: 'warning', banner: { js: "import { createRequire } from 'module'; const require = createRequire(import.meta.url);" } };
+const node = { platform: 'node', bundle: true, external: ['sherpa-onnx-node', 'playwright-core', 'playwright', '@remotion/bundler', '@remotion/renderer'], format: 'esm', target: 'node22', sourcemap: true, logLevel: 'warning', banner: { js: "import { createRequire } from 'module'; const require = createRequire(import.meta.url);" } };
 const tests = readdirSync('editor/test').filter((f) => f.endsWith('.test.ts')).map((f) => `editor/test/${f}`);
 
 const configs = [

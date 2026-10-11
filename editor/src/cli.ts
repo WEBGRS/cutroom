@@ -13,6 +13,7 @@ import { sceneTemplate } from './templates';
 import { installModel, lineStates, modelInstalled, voiceOf, voiceProject, voiceSettings, writeVoiceSettings } from './voice';
 import { ENGINES, engineDef, type EngineId } from './voices';
 import { inspectPage, parseSteps, recordPage } from './record';
+import { renderFrames } from './look';
 
 const HELP = `Cutroom CLI\n${HELP_TEXT}\n`;
 
@@ -256,6 +257,8 @@ async function main() {
       return checkCmd();
     case 'beat':
       return beatCmd(rest);
+    case 'look':
+      return lookCmd(rest);
     case 'inspect': {
       if (!rest[0]) throw new Error('inspect <url> [--mobile]');
       return console.log(await inspectPage(rest[0], mobile));
@@ -283,6 +286,34 @@ async function main() {
     default:
       console.log(HELP);
   }
+}
+
+// Render frames for the AI to look at: seconds, m:ss, a scene id (its middle) or id+seconds; default a few scenes
+async function lookCmd(rest: string[]) {
+  const { doc } = readDoc(slug);
+  const { tl } = await timeline(doc);
+  const fps = tl.fps;
+  const at = (s: (typeof tl.scenes)[number], rel: number) => ({ f: s.start + rel * fps, label: `${fmtTime(Math.round(s.start + rel * fps), fps)}, ${s.id} +${rel.toFixed(2)} s` });
+  const frames: { f: number; label: string }[] = [];
+  const picks = rest.length ? rest : tl.scenes.filter((_, i, all) => all.length <= 8 || i % Math.ceil(all.length / 8) === 0).map((s) => s.id);
+  for (const a of picks.slice(0, 8)) {
+    const m = /^(\d+):(\d+(?:\.\d+)?)$/.exec(a);
+    const sec = /^\d+(?:\.\d+)?$/.test(a) ? Number(a) : m ? Number(m[1]) * 60 + Number(m[2]) : null;
+    if (sec !== null) {
+      const f = Math.round(sec * fps);
+      const s = tl.scenes.find((x) => f >= x.start && f < x.start + x.dur) ?? tl.scenes[tl.scenes.length - 1];
+      frames.push(at(s, (f - s.start) / fps));
+      continue;
+    }
+    const r = /^([\w-]+?)(?:\+(\d+(?:\.\d+)?))?$/.exec(a);
+    const s = r ? tl.scenes.find((x) => x.id === r[1]) : undefined;
+    if (!s) throw new Error(`look takes seconds (12.5), m:ss (0:12.5), a scene id (its middle) or id+seconds; no scene "${a}"`);
+    frames.push(at(s, r![2] !== undefined ? Math.min(Number(r![2]), s.dur / fps - 0.05) : (s.dur / fps) * 0.55));
+  }
+  console.log(`rendering ${frames.length} frame(s) of ${slug} (${format}, ${mode === 'beat' ? 'beat cut' : 'narrated'}, ${lang}) as an export would…`);
+  const shots = await renderFrames({ slug, format, mode, lang, frames, log: (s) => console.log(s) });
+  for (const x of shots) console.log(`image: ${path.resolve(x.file)}  (${x.label})`);
+  console.log('Each image is one frame exactly as exported. Look at them before judging layout, text or colour.');
 }
 
 // Beat cut setup: the tempo comes from the track's own beat data, so there is no BPM to choose
@@ -354,6 +385,7 @@ async function checkCmd() {
       if (cues[i].f - cues[i - 1].f < fps * 0.25) add(s.id, `sounds ${cues[i - 1].label} and ${cues[i].label} start ${((cues[i].f - cues[i - 1].f) / fps).toFixed(2)} s apart`, `move one: set ${s.id} sounds.${cues[i].i}.at <seconds>`);
     for (const c of e?.sounds ?? []) if (c.past) add(s.id, `sound ${c.label} starts after the scene ends, so it never plays`, `set ${s.id} sounds.${c.i}.at <seconds>`);
     (s.overlays ?? []).forEach((o, i) => {
+      if (!o) return add(s.id, `overlays.${i} is empty`, `set ${s.id} overlays.${i} undefined`);
       if (e && o.at * fps >= e.dur) add(s.id, `overlay ${o.kind} at ${o.at} s starts after the scene ends`, `set ${s.id} overlays.${i}.at <seconds>`);
       if (ON_TOP.has(o.kind) && FOOTAGE.has(v.kind) && !o.plate) add(s.id, `${o.kind === 'text' ? 'text' : `${o.kind} text`} "${plain(o.text).slice(0, 20)}" sits on ${v.kind === 'screen' ? 'a screen recording' : 'footage'} and may not read on bright frames`, `set ${s.id} overlays.${i}.plate true`);
     });

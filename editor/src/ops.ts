@@ -230,11 +230,17 @@ export const setPath = (doc: Doc, id: string | null, path: string, value: unknow
     const ks = parts(path);
     if (!ks.length) throw new Error('路径为空');
     let o = root;
+    // An index past the end would leave holes (null entries) in the list
+    const gap = (arr: unknown[], k: string | number) => {
+      if (typeof k === 'number' && k > arr.length) throw new Error(`${path}：下标 ${k} 超出了末尾（现在有 ${arr.length} 个），要追加请用 ${arr.length}`);
+    };
     ks.slice(0, -1).forEach((k, n) => {
+      if (Array.isArray(o)) gap(o, k);
       if (o[k] == null) o[k] = typeof ks[n + 1] === 'number' ? [] : {};
       o = o[k];
     });
     const last = ks[ks.length - 1];
+    if (Array.isArray(o) && value !== undefined) gap(o, last);
     const old = o[last];
     if (value === undefined) {
       if (Array.isArray(o) && typeof last === 'number') o.splice(last, 1);
