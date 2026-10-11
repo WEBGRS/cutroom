@@ -14,6 +14,12 @@ import { installModel, lineStates, modelInstalled, voiceOf, voiceProject, voiceS
 import { ENGINES, engineDef, type EngineId } from './voices';
 import { inspectPage, parseSteps, readRecipes, recordPage, rerecord } from './record';
 import { runExport } from './exporter';
+import { exportJianying } from './jianying';
+import { imagine, type ImageEngine, type Shape } from './imagegen';
+import { analyzeShots, summary } from './shots';
+import { analyzeFocus } from './reframe';
+import { pcm, probe } from './media';
+import { speechRanges } from './silence';
 import { renderFrames } from './look';
 import { importHtml, isHtml, lintHtml, listHtml, pageName, readHtml, starterHtml, writeHtml } from './htmlfiles';
 import { varValues } from '../../src/lib/html';
@@ -34,6 +40,7 @@ const has = (name: string) => {
   return i >= 0;
 };
 
+const formatGiven = process.argv.includes('--format');
 const format = (flag('format', 'wide') as Format) ?? 'wide';
 const mode = (flag('mode', 'voice') as 'voice' | 'beat') ?? 'voice';
 const lang = (flag('lang', 'zh') as 'zh' | 'en') ?? 'zh';
@@ -52,6 +59,19 @@ const codecArg = flag('codec');
 const scaleArg = flag('scale');
 const clean = has('clean');
 const silent = has('silent');
+const nameArg = flag('name');
+const sensArg = flag('sensitivity');
+const minArg = flag('min');
+const maxMbArg = flag('max-mb');
+const jianying = has('jianying');
+const transparent = has('transparent');
+const shapeArg = flag('shape');
+// An option this CLI doesn't know is an error, not something to silently ignore
+const unknown = args.find((a) => /^--[a-z][\w-]*$/.test(a));
+if (unknown) {
+  console.error(`错误: unknown option ${unknown} (help lists the commands and their options)`);
+  process.exit(1);
+}
 const [slug, cmd, ...rest] = args;
 
 const getJson = async <T>(p: string): Promise<T | undefined> => {
@@ -299,6 +319,96 @@ async function main() {
       return lookCmd(rest);
     case 'export':
       return exportCmd();
+    case 'imagine': {
+      const [name, ...words] = rest;
+      const prompt = words.join(' ').trim();
+      if (!name || !prompt) throw new Error('imagine <name> "<what to draw>" [--transparent] [--shape square|wide|tall] [--engine openai|gemini]');
+      if (shapeArg && !['square', 'wide', 'tall'].includes(shapeArg)) throw new Error('--shape is square, wide or tall');
+      if (engineArg && !['openai', 'gemini'].includes(engineArg)) throw new Error('--engine is openai or gemini');
+      console.log(`drawing "${prompt.slice(0, 80)}" …`);
+      const r = await imagine({ slug, name, prompt, engine: engineArg as ImageEngine | undefined, shape: shapeArg as Shape | undefined, transparent });
+      console.log(`saved ${r.file} (${(r.bytes / 1024).toFixed(0)} KB, ${r.engine})`);
+      return console.log(transparent ? `use it on a scene: set <id> overlays.<n> '{"kind":"image","src":"${r.file}","at":0.3,"dur":3,"x":0.8,"y":0.25,"w":0.22}'  (then look)` : `as a scene: add image ${r.file} [after-id]; on a scene: an image overlay with "src":"${r.file}"`);
+    }
+    case 'cut-silence': {
+      const sc = sceneOf(rest[0] ?? '');
+      const v = sc.visual;
+      if (v.kind !== 'clip') throw new Error(`cut-silence works on video scenes (a person talking); ${sc.id} is ${v.kind}`);
+      const file = path.join(PUBLIC, slug, v.src);
+      const info = await probe(file);
+      if (!info.audio) throw new Error(`${v.src} has no sound to find pauses in`);
+      const { tl } = await timeline(doc);
+      const e = tl.scenes.find((x) => x.id === sc.id);
+      const rate = v.rate ?? 1;
+      const from = v.from ?? 0;
+      const len = e ? Math.min(info.duration - from, (e.dur / tl.fps) * rate) : info.duration - from;
+      const R = 16000;
+      const all = await pcm(file, R);
+      const part = all.subarray(Math.floor(from * R), Math.min(all.length, Math.ceil((from + len) * R)));
+      const min = minArg !== undefined ? Number(minArg) : 0.5;
+      const { keep } = speechRanges(part, R, { minSilence: min });
+      if (!keep.length) throw new Error(`no speech found in ${v.src} between ${from.toFixed(1)} and ${(from + len).toFixed(1)} s`);
+      if (keep.length === 1 && keep[0][0] < 0.05 && keep[0][1] > len - 0.05) return console.log(`${sc.id}: no pauses of ${min} s or longer`);
+      const board = structuredClone(doc.board);
+      const at = board.scenes.findIndex((x) => x.id === sc.id);
+      const ids: string[] = [];
+      // Output time t of the old scene → [piece, time in that piece]; times inside a removed pause go to the next piece
+      const place = (t: number): [number, number] => {
+        const src = t * rate;
+        for (let k = 0; k < keep.length; k++) if (src < keep[k][1]) return [k, Math.max(0, src - keep[k][0]) / rate];
+        return [keep.length - 1, (keep[keep.length - 1][1] - keep[keep.length - 1][0]) / rate];
+      };
+      const pieces = keep.map(([a, b], k) => {
+        const id = k === 0 ? sc.id : uniqueId({ ...board, scenes: [...board.scenes, ...ids.map((x) => ({ id: x }) as Scene)] }, `${sc.id}-${k + 1}`);
+        ids.push(id);
+        const piece: Scene = { ...structuredClone(sc), id, visual: { ...v, from: Math.round((from + a) * 1000) / 1000 }, minSec: Math.round(((b - a) / rate) * 1000) / 1000 };
+        if (k > 0) {
+          piece.transition = 'none';
+          piece.lines = [];
+          delete piece.beat;
+          delete piece.chapter;
+          delete piece.tall;
+        }
+        piece.overlays = (sc.overlays ?? []).filter((o) => o && place(o.at)[0] === k).map((o) => ({ ...o, at: Math.round(place(o.at)[1] * 100) / 100 }));
+        piece.sounds = (sc.sounds ?? []).filter((c) => typeof c.at === 'number' && place(c.at)[0] === k).map((c) => ({ ...c, at: Math.round(place(c.at as number)[1] * 100) / 100 }));
+        if (!piece.overlays.length) delete piece.overlays;
+        if (!piece.sounds.length) delete piece.sounds;
+        return piece;
+      });
+      board.scenes.splice(at, 1, ...pieces);
+      const kept = keep.reduce((s, [a, b]) => s + b - a, 0);
+      save({ doc: { ...doc, board }, desc: `${sc.id}: cut ${keep.length - 1} pause(s), ${len.toFixed(1)} s → ${kept.toFixed(1)} s of footage in ${pieces.length} pieces (${ids.join(', ')})` });
+      if (sc.lines.length) console.log(`note: the narration lines stay on ${sc.id}; check that they still fit (ls)`);
+      if (v.muted !== false) console.log(`note: ${sc.id} plays without its own sound; to hear the speech: set ${sc.id} visual.muted false (and the same on ${ids.slice(1).join(', ')})`);
+      return;
+    }
+    case 'reframe': {
+      // Default target: the 9:16 version, so the 16:9 cut never changes unless asked
+      const target: Format = formatGiven ? format : 'tall';
+      const sc = structuredClone(sceneOf(rest[0] ?? ''));
+      const key = target === 'tall' ? 'tall' : 'visual';
+      if (key === 'tall' && !sc.tall) sc.tall = structuredClone(sc.visual);
+      const v = sc[key]!;
+      if (v.kind !== 'clip' && v.kind !== 'image') throw new Error(`reframe works on image and video scenes; ${sc.id} is ${v.kind}`);
+      if (v.frame) throw new Error(`${sc.id} sits in a ${v.frame} frame; reframe crops full-bleed footage (set ${key}.frame undefined first)`);
+      const { tl } = await timeline(doc);
+      const e = tl.scenes.find((x) => x.id === sc.id);
+      const outAr = target === 'tall' ? 1080 / 1920 : 1920 / 1080;
+      const f = await analyzeFocus({ slug, src: v.src, from: v.kind === 'clip' ? v.from : undefined, dur: e && v.kind === 'clip' ? (e.dur / tl.fps) * (v.rate ?? 1) : undefined, outAr });
+      v.pos = [f.x, f.y];
+      v.fit = undefined;
+      if (v.kind === 'clip') v.ar = Math.round(f.ar * 10000) / 10000;
+      save(replaceScene(doc, sc.id, sc));
+      const side = f.x < 0.35 ? 'left side' : f.x > 0.65 ? 'right side' : 'middle';
+      return console.log(f.vis >= 0.999 ? `${v.src} already fits ${target === 'tall' ? '9:16' : '16:9'} without cropping` : `${sc.id} ${key}.pos = [${f.x}, ${f.y}]: keeps the ${side}, ${Math.round(f.vis * 100)}% of the width in view. Check it: look ${sc.id} --format ${target}`);
+    }
+    case 'shots': {
+      if (!rest[0]) throw new Error('shots <video> [--name n] [--sensitivity 0..1]  (a file on disk or in the project)');
+      const t0 = Date.now();
+      const { report, dir } = await analyzeShots({ slug, file: rest[0], name: nameArg, sensitivity: sensArg === undefined ? undefined : Number(sensArg), log: (s) => console.log(s) });
+      console.log(summary(report, dir));
+      return console.log(`(${((Date.now() - t0) / 1000).toFixed(1)} s) Open the keyframe images to see what each shot shows.`);
+    }
     case 'rerecord':
       return rerecordCmd(rest);
     case 'inspect': {
@@ -333,10 +443,19 @@ async function main() {
 // Render the video to a file, like the editor's export button
 async function exportCmd() {
   const variant = clean ? 'clean' : 'default';
+  if (jianying) {
+    const { tl, props } = await timeline();
+    console.log(`exporting ${slug} as a JianyingPro (剪映) draft (${format === 'tall' ? '9:16' : '16:9'}, ${mode === 'beat' ? 'beat cut' : 'narrated'}, ${lang}) …`);
+    const r = await exportJianying({ props: { ...props, variant, voice: silent ? 'off' : 'on' }, fps: tl.fps, root: outArg, name: nameArg, log: (s) => console.log(s) });
+    console.log(`draft "${r.name}" (${r.seconds.toFixed(1)} s) in ${r.dir}`);
+    for (const t of r.tracks) console.log(`  ${t.name}: ${t.segments} segment(s)`);
+    return console.log(r.registered ? "added to JianyingPro's draft list: open JianyingPro (restart it if it is running) and pick the draft" : 'restart JianyingPro to see the draft');
+  }
   console.log(`exporting ${slug} (${format === 'tall' ? '9:16' : '16:9'}, ${mode === 'beat' ? 'beat cut' : 'narrated'}, ${lang}${clean ? ', links hidden' : ''}${silent ? ', no voice' : ''}) …`);
   const shown: Record<string, number> = {};
   const t0 = Date.now();
-  const r = await runExport({ slug, format, mode, lang, variant, voice: silent ? 'off' : 'on', scale: scaleArg ? Number(scaleArg) : undefined, codec: codecArg, out: outArg }, (line) => {
+  const seconds = maxMbArg ? await timeline().then(({ tl }) => tl.total / tl.fps) : undefined;
+  const r = await runExport({ slug, format, mode, lang, variant, voice: silent ? 'off' : 'on', scale: scaleArg ? Number(scaleArg) : undefined, codec: codecArg, out: outArg, maxMb: maxMbArg ? Number(maxMbArg) : undefined, seconds }, (line) => {
     const m = [...line.matchAll(/(\d+)\/(\d+)/g)].pop();
     if (m) {
       const phase = /encod/i.test(line) ? 'encoding' : 'rendering';
@@ -490,6 +609,7 @@ async function checkCmd() {
     for (const c of e?.sounds ?? []) if (c.past) add(s.id, `sound ${c.label} starts after the scene ends, so it never plays`, `set ${s.id} sounds.${c.i}.at <seconds>`);
     (s.overlays ?? []).forEach((o, i) => {
       if (!o) return add(s.id, `overlays.${i} is empty`, `set ${s.id} overlays.${i} undefined`);
+      if (o.kind === 'image' && (!o.src || !fs.existsSync(path.join(PUBLIC, slug, o.src)))) add(s.id, `image overlay ${i + 1} ${o.src ? `points at ${o.src}, which is missing` : 'has no image'}`, `set ${s.id} overlays.${i}.src '"media/<file>.png"' (media lists the images; imagine makes one)`);
       if (e && o.at * fps >= e.dur) add(s.id, `overlay ${o.kind} at ${o.at} s starts after the scene ends`, `set ${s.id} overlays.${i}.at <seconds>`);
       if (ON_TOP.has(o.kind) && FOOTAGE.has(v.kind) && !o.plate) add(s.id, `${o.kind === 'text' ? 'text' : `${o.kind} text`} "${plain(o.text).slice(0, 20)}" sits on ${v.kind === 'screen' ? 'a screen recording' : 'footage'} and may not read on bright frames`, `set ${s.id} overlays.${i}.plate true`);
     });
@@ -544,6 +664,14 @@ function mediaCmd() {
     return `${f}  ${meta.w}×${meta.h}${meta.dur ? `, ${meta.dur} s` : ''}${meta.vars.length ? `, variables: ${meta.vars.map((v) => v.id).join(' ')}` : ''}`;
   });
   console.log(`HTML pages (add html <src>):\n${pages.map((f) => `  ${mark(f)}`).join('\n') || '  none'}`);
+  const refDir = path.join(dir, 'ref');
+  const refs = fs.existsSync(refDir)
+    ? fs.readdirSync(refDir).filter((n) => fs.existsSync(path.join(refDir, n, 'shots.json'))).map((n) => {
+        const r = JSON.parse(fs.readFileSync(path.join(refDir, n, 'shots.json'), 'utf8')) as { stats: { count: number; mean: number }; duration: number };
+        return `ref/${n}/shots.json  ${r.stats.count} shots in ${r.duration.toFixed(1)} s, average ${r.stats.mean.toFixed(2)} s`;
+      })
+    : [];
+  if (refs.length) console.log(`shot breakdowns (shots <video>):\n${refs.map((f) => `  ${f}`).join('\n')}`);
   console.log(`project audio:\n${audio.map((f) => `  ${f}`).join('\n') || '  none'}`);
   console.log(`music library (set - music.src '"music/…"'):\n${music.map((f) => `  ${f}`).join('\n') || '  none'}`);
 }

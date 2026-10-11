@@ -283,7 +283,7 @@ export function Inspector(p: Props) {
           </select>
         </div>
         {(scene.overlays ?? []).length ? (
-          (scene.overlays ?? []).map((o, i) => <OverlayItem key={i} o={o} i={i} focus={p.focus?.tab === 'over' && p.focus.i === i} set={set} />)
+          (scene.overlays ?? []).map((o, i) => <OverlayItem key={i} o={o} i={i} focus={p.focus?.tab === 'over' && p.focus.i === i} set={set} assets={p.assets} />)
         ) : (
           <p className="hint">{tr('No overlays yet. Labels, arrows, highlight boxes, lower thirds and animated text go here; the Overlays and Text sections of the library add them too.', '这一段还没有叠加元素。标签、箭头、高亮框、字幕条、动画文字都在这里加，也可以从左边素材库的「叠加」「文字」页点选。')}</p>
         )}
@@ -494,7 +494,9 @@ function SoundItem({ c, i, max, past, marks, focus, set, del }: { c: SoundCue; i
 
 const XY: Record<string, [string, string]> = { x: ['x', '横 x'], y: ['y', '纵 y'], w: ['w', '宽 w'], h: ['h', '高 h'] };
 
-function OverlayItem({ o, i, focus, set }: { o: Overlay; i: number; focus: boolean; set: (path: string, value: unknown) => void }) {
+const ENTER: [string, string, string][] = [['pop', 'Pop', '弹出'], ['rise', 'Rise', '上浮'], ['slide', 'Slide in', '侧滑'], ['spin', 'Spin in', '旋入'], ['fade', 'Fade', '淡入']];
+
+function OverlayItem({ o, i, focus, set, assets }: { o: Overlay; i: number; focus: boolean; set: (path: string, value: unknown) => void; assets: string[] }) {
   const def = OVERLAY_LIST.find((x) => x.id === o.kind);
   const f = (name: string) => `overlays.${i}.${name}`;
   const fields = def?.fields ?? ['text', 'sub', 'x', 'y'];
@@ -515,6 +517,29 @@ function OverlayItem({ o, i, focus, set }: { o: Overlay; i: number; focus: boole
           <Icon name="close" size={14} />
         </button>
       </div>
+      {fields.includes('src') ? (
+        <div className="row">
+          <label>{tr('Image', '图片')}</label>
+          <select value={o.src ?? ''} onChange={(e) => set(f('src'), e.target.value || undefined)}>
+            <option value="">{tr('Choose an image', '选择图片')}</option>
+            {[...new Set([o.src ?? '', ...assets.filter(isImg)])].filter(Boolean).map((a) => (
+              <option key={a}>{a}</option>
+            ))}
+          </select>
+        </div>
+      ) : null}
+      {fields.includes('enter') ? (
+        <div className="row">
+          <label>{tr('Entrance', '进场')}</label>
+          <select value={o.enter ?? 'pop'} onChange={(e) => set(f('enter'), e.target.value === 'pop' ? undefined : e.target.value)}>
+            {ENTER.map(([id, en, zh]) => (
+              <option key={id} value={id}>
+                {tr(en, zh)}
+              </option>
+            ))}
+          </select>
+        </div>
+      ) : null}
       {fields.includes('text') ? <Field value={o.text} placeholder={tr('Text', '文字')} onCommit={(s) => set(f('text'), s)} /> : null}
       {fields.includes('sub') ? <Field value={o.sub} placeholder={tr('Second line (optional)', '副标题（可空）')} onCommit={(s) => set(f('sub'), s || undefined)} /> : null}
       {fields.includes('anim') ? (
@@ -562,6 +587,18 @@ function OverlayItem({ o, i, focus, set }: { o: Overlay; i: number; focus: boole
           <div>
             <label title={tr('A dark backing so the text reads on bright footage', '深色底板，让文字压在亮画面上也看得清')}>{tr('Backing', '底板')}</label>
             <input type="checkbox" checked={!!o.plate} onChange={(e) => set(f('plate'), e.target.checked || undefined)} />
+          </div>
+        ) : null}
+        {fields.includes('rot') ? (
+          <div>
+            <label>{tr('Turn °', '旋转 °')}</label>
+            <Field value={o.rot} placeholder="0" validate={isNum} onCommit={(s) => set(f('rot'), num(s))} />
+          </div>
+        ) : null}
+        {fields.includes('float') ? (
+          <div>
+            <label title={tr('Bobs gently after it lands', '落定后轻轻浮动')}>{tr('Float', '浮动')}</label>
+            <input type="checkbox" checked={!!o.float} onChange={(e) => set(f('float'), e.target.checked || undefined)} />
           </div>
         ) : null}
       </div>

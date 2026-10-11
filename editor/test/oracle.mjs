@@ -58,6 +58,9 @@ for (const c of CASES) {
   await page.waitForFunction(() => window.__player, null, { timeout: 30000 });
   const preview = async (f, file) => {
     await page.evaluate((f) => window.__player.seekTo(f), f);
+    // The player is on the frame and React has committed it (a ready mark from the previous frame doesn't count)
+    await page.waitForFunction((f) => window.__player.getCurrentFrame() === f, f);
+    await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
     // HTML scenes load their page first (fonts, scripts) and then set its clock
     await page.waitForFunction(() => [...document.querySelectorAll('[data-html-scene]')].every((i) => i.dataset.ready), null, { timeout: 30000 });
     // Settle: two identical screenshots in a row

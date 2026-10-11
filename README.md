@@ -16,6 +16,7 @@ A video editor for demos of the software you build. Record your app, cut it with
   ![The AI panel: a spot Ctrl+clicked in the preview, the request, the command the AI ran, and the circle it drew there](docs/ai-chat.png)
 - **Plays HTML when the library runs out.** Any HTML page with seekable animation becomes a scene, frame-accurate in preview and export: a chart of your real numbers, a diagram, a branded title. [HyperFrames](https://github.com/heygen-com/hyperframes) compositions play unchanged, and the assistant can write these pages too.
 - **Shows what you'll export.** The preview is a Remotion Player running the same React composition as the renderer. A test renders frames both ways and compares them; most come out bit-identical.
+- **Hands off to 剪映 (JianyingPro).** `export --jianying` writes a draft with the picture cut per scene, the narration, the music (its ducking as volume keyframes), the sound effects and the captions on their own tracks, and adds it to JianyingPro's draft list, for anyone who finishes videos there.
 
 ## Where it fits
 
@@ -65,6 +66,9 @@ Open the project in the editor afterwards to adjust it by hand; the agent sees y
   - 33 scene-effect presets (looks, duotone, RGB split, bloom, CRT, pixelate, handheld drift, focus pull, stop motion, …)
   - Many of the designs are adapted from [HyperFrames](https://github.com/heygen-com/hyperframes); see [CREDITS.md](CREDITS.md).
 - **HTML scenes**: see [below](#html-scenes).
+- **Image overlays**: logos, stickers and product shots on any scene, with an entrance (pop, rise, slide, spin, fade), a turn and an optional float. `imagine` draws one with an OpenAI or Gemini key, with a transparent background on OpenAI.
+- **Shot breakdown**: `shots <video>` finds every cut in a reference video (or your own export), gives each shot's length and camera move (static, pan, push in, pull out, handheld) with three keyframes, and writes a page where clicking a shot plays it.
+- **Footage tools**: `reframe` crops a wide image or clip for 9:16 around the part with the most motion and detail; `cut-silence` turns a talking clip into jump cuts without the long pauses; `export --max-mb` fits the file under a size limit.
 - **58 sound effects**: whooshes, risers, booms, hits, clicks, typing, notification dings and digital blips. Listen in the library, drag one onto the Sound FX lane, then drag it to the exact frame.
 - **Captions**: box, outline or plain styles, any position and size, and most text animations; a Screen Studio-style frame for recordings, frosted cards and a chapter bar.
 - **AI voice-over**: pick a voice in Library › Voiceover and press Voice. The built-in voices are free and run offline (100 Chinese, 3 English; a 147 MB model downloads once); OpenAI, Gemini and Qwen voices use your key from Settings › AI. Only lines without current audio are voiced, so editing a line re-voices just that line.
@@ -273,4 +277,4 @@ The e2e, oracle, app and screenshot scripts need the editor running (`npm run ed
 
 ## Credits and license
 
-Cutroom is MIT-licensed. Remotion has its own license: free for individuals and companies with up to three employees, while larger companies need a [company license](https://www.remotion.dev/license). HTML scenes follow the HyperFrames composition conventions (timing attributes, `window.__timelines`, adapter registries, variables) so compositions play unchanged; the runtime that plays them is Cutroom's own. The built-in voices are [Kokoro-82M v1.1-zh](https://huggingface.co/hexgrad/Kokoro-82M-v1.1-zh) (Apache-2.0) run through [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) (Apache-2.0); the model is downloaded on first use, not bundled. Bundled music and sounds, and the HyperFrames designs the effect library adapts (Apache-2.0), are listed in [CREDITS.md](CREDITS.md).
+Cutroom is MIT-licensed. Remotion has its own license: free for individuals and companies with up to three employees, while larger companies need a [company license](https://www.remotion.dev/license). HTML scenes follow the HyperFrames composition conventions (timing attributes, `window.__timelines`, adapter registries, variables) so compositions play unchanged; the runtime that plays them is Cutroom's own. The built-in voices are [Kokoro-82M v1.1-zh](https://huggingface.co/hexgrad/Kokoro-82M-v1.1-zh) (Apache-2.0) run through [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) (Apache-2.0); the model is downloaded on first use, not bundled. The JianyingPro draft writer follows the format of [pyJianYingDraft](https://github.com/GuanYixuan/pyJianYingDraft) (Apache-2.0). Bundled music and sounds, and the HyperFrames designs the effect library adapts (Apache-2.0), are listed in [CREDITS.md](CREDITS.md).

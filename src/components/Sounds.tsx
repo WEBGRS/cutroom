@@ -1,11 +1,10 @@
 import React from 'react';
 import { Audio, Sequence, staticFile, useVideoConfig } from 'remotion';
-import { soundDef, soundSrc } from '../fx/sounds';
+import { SFX_GAIN, soundDef, soundSrc } from '../fx/sounds';
 import { cueFrame, type Timeline } from '../lib/timeline';
 import type { CaptureMeta } from '../lib/types';
 
-// Library sounds peak at -3 dBFS; this sits them under narration and music
-export const SFX_GAIN = 0.45;
+export { SFX_GAIN };
 
 // Sound effects placed on scenes; cues past the end of their scene are dropped
 export const SceneSounds: React.FC<{ tl: Timeline; captures?: Record<string, CaptureMeta>; volume?: number }> = ({ tl, captures, volume = 1 }) => {

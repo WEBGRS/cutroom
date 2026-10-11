@@ -43,12 +43,12 @@ export const BeatMain: React.FC<Props> = (props) => {
       {format === 'tall' && board.header ? (props.lang === 'en' ? <TallHeader title={board.headerEn ?? board.header} theme={theme} /> : <TallHeader title={board.header} en={board.headerEn} theme={theme} />) : null}
       {board.chapterBar ? <ChapterBar tl={tl} layout={layout} theme={theme} /> : null}
       <BeatCaptions tl={tl} layout={layout} theme={theme} period={period} cs={board.captions} />
-      <SceneSounds tl={tl} captures={props.captures} volume={board.sfx?.volume ?? 1} />
-      <Audio
+      {props.parts === 'picture' ? null : <SceneSounds tl={tl} captures={props.captures} volume={board.sfx?.volume ?? 1} />}
+      {props.parts === 'picture' ? null : <Audio
         src={staticFile(board.beat.music)}
         trimBefore={Math.round(t0 * fps)}
         volume={(fr) => vol * Math.min(1, fr / (0.15 * fps)) * Math.min(1, (durationInFrames - fr) / (1.6 * fps))}
-      />
+      />}
     </AbsoluteFill>
   );
 };

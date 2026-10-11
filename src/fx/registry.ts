@@ -75,7 +75,7 @@ export const DIR_LIST: Named[] = [
 
 export interface OverlayItem extends Named {
   group: 'text' | 'callout' | 'draw' | 'ui' | 'data' | 'fx';
-  fields: ('text' | 'sub' | 'x' | 'y' | 'w' | 'h' | 'anim' | 'style' | 'size' | 'color' | 'plate')[];
+  fields: ('text' | 'sub' | 'x' | 'y' | 'w' | 'h' | 'anim' | 'style' | 'size' | 'color' | 'plate' | 'src' | 'enter' | 'rot' | 'float')[];
   init: Partial<Overlay>;
   hint?: { en: string; zh: string };
 }
@@ -123,6 +123,7 @@ export const OVERLAY_LIST: OverlayItem[] = [
   { id: 'sweep', en: 'Light sweep', zh: '光扫过', group: 'fx', src: 'light-sweep-pass', fields: [], init: { text: '', dur: 1.4 } },
   { id: 'scan', en: 'Scan band', zh: '扫描带', group: 'fx', src: 'scan-band', fields: ['color'], init: { text: '', dur: 2.4 } },
   { id: 'flash', en: 'Flash', zh: '闪光', group: 'fx', src: 'beat-accent', fields: ['color'], init: { text: '', dur: 0.5 } },
+  { id: 'image', en: 'Image / logo', zh: '图片 / Logo', group: 'fx', fields: ['src', 'x', 'y', 'w', 'enter', 'rot', 'float'], init: { text: '', x: 0.8, y: 0.25, w: 0.22, enter: 'pop', dur: 3 }, hint: P('src = an image in the project (a PNG with transparency works best; imagine makes one); x/y is its centre, w its width', 'src 是项目里的图片（透明背景的 PNG 最好，可用 imagine 生成）；x/y 是中心，w 是宽度') },
   { id: 'sticker', en: 'Emoji sticker', zh: '表情贴纸', group: 'fx', fields: ['text', 'x', 'y'], init: { text: '🔥', x: 0.8, y: 0.25 }, rule: 'sticker' },
 ];
 

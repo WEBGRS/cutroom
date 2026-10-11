@@ -158,7 +158,7 @@ const RUNTIME = String.raw`(function () {
     for (var k in W.__hf.buildReady) w.push(Promise.resolve(W.__hf.buildReady[k]).catch(function () {}));
     // A timeline registered after fonts load (or another async build) still counts
     var src = '';
-    D.querySelectorAll('script:not([src])').forEach(function (s) { src += s.textContent; });
+    D.querySelectorAll('script:not([src]):not([data-cutroom-runtime])').forEach(function (s) { src += s.textContent; });
     if (/__timelines\s*(\[|\.)/.test(src)) w.push(wait(function () { return Object.keys(W.__timelines).length > 0; }, 6000));
     return Promise.race([Promise.all(w), new Promise(function (ok) { setTimeout(ok, 20000); })]).then(function () {
       layout();
@@ -227,7 +227,7 @@ const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').repl
 // Page HTML plus the runtime, a <base> for its relative links and the variable values
 export function prepareHtml(html: string, base: string, vars: Record<string, unknown> = {}): string {
   const json = JSON.stringify(vars).replace(/</g, '\\u003c');
-  const head = `<base href="${esc(base)}"><style>html,body{margin:0}[data-cr-off]{visibility:hidden!important}</style><script>${RUNTIME.replace('__VARS__', () => json)}</script>`;
+  const head = `<base href="${esc(base)}"><style>html,body{margin:0}[data-cr-off]{visibility:hidden!important}</style><script data-cutroom-runtime>${RUNTIME.replace('__VARS__', () => json)}</script>`;
   if (/<head(\s[^>]*)?>/i.test(html)) return html.replace(/<head(\s[^>]*)?>/i, (m) => m + head);
   if (/<html(\s[^>]*)?>/i.test(html)) return html.replace(/<html(\s[^>]*)?>/i, (m) => `${m}<head>${head}</head>`);
   return `<!doctype html><html><head>${head}</head><body>${html}</body></html>`;

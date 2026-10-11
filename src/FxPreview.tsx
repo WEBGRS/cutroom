@@ -18,7 +18,7 @@ export type PreviewProps = { cat: 'transition' | 'text' | 'overlay' | 'lower' | 
 
 const layout = LAYOUT.wide;
 // Demo positions that land on something in the sample frame
-const PREVIEW_AT: Record<string, Partial<Overlay>> = { blur: { x: 0.56, y: 0.47, w: 0.5, h: 0.13 }, ticker: { y: 0.8 }, feather: { x: 0.5, y: 0.47, w: 0.3, h: 0.3 }, tap: { x: 0.35, y: 0.82 }, spot: { x: 0.6, y: 0.45, w: 0.12 } };
+const PREVIEW_AT: Record<string, Partial<Overlay>> = { image: { src: 'media/badge-new.png', x: 0.5, y: 0.5, w: 0.3, float: true }, blur: { x: 0.56, y: 0.47, w: 0.5, h: 0.13 }, ticker: { y: 0.8 }, feather: { x: 0.5, y: 0.47, w: 0.3, h: 0.3 }, tap: { x: 0.35, y: 0.82 }, spot: { x: 0.6, y: 0.45, w: 0.12 } };
 const BIG = ['lower', 'ticker', 'keys', 'badge', 'tag', 'note', 'pointer', 'chat', 'notify', 'prompt', 'terminal', 'comment', 'quote', 'progress', 'stars', 'hwbox', 'hwarrow', 'cursor', 'check'];
 const theme = DEMO_THEME;
 
@@ -129,7 +129,7 @@ export const FxPreview: React.FC<PreviewProps> = ({ cat, id, dir }) => {
           <MockUI />
         )}
         {/* Larger than in a real cut so small overlays read in a library tile */}
-        <Overlays items={[o]} layout={{ ...layout, zh: layout.zh * (BIG.includes(o.kind) ? 1.7 : 1) }} theme={theme} />
+        <Overlays items={[o]} layout={{ ...layout, zh: layout.zh * (BIG.includes(o.kind) ? 1.7 : 1) }} theme={theme} slug="showcase" />
       </AbsoluteFill>
     );
   }

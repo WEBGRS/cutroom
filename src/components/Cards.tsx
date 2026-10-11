@@ -118,7 +118,18 @@ export const ClipScene: React.FC<{ v: ClipVisual; slug: string; layout: Layout; 
   const { fps } = useVideoConfig();
   const src = staticFile(`${slug}/${v.src}`);
   // @remotion/media takes objectFit as a prop; inside style it is ignored
-  const video = <Video src={src} trimBefore={Math.round((v.from ?? 0) * fps)} playbackRate={v.rate ?? 1} muted={v.muted ?? true} objectFit={v.fit ?? 'cover'} style={{ width: '100%', height: '100%' }} _experimentalInitiallyDrawCachedFrame />;
+  // A crop position needs the clip's shape: lay the video out at cover size and shift it
+  const placed = !v.frame && v.pos && v.ar && (v.fit ?? 'cover') === 'cover';
+  const video = <Video src={src} trimBefore={Math.round((v.from ?? 0) * fps)} playbackRate={v.rate ?? 1} muted={v.muted ?? true} objectFit={placed ? 'fill' : (v.fit ?? 'cover')} style={{ width: '100%', height: '100%' }} _experimentalInitiallyDrawCachedFrame />;
+  if (placed) {
+    const h = Math.max(layout.W / v.ar!, layout.H);
+    const w = v.ar! * h;
+    return (
+      <AbsoluteFill style={{ overflow: 'hidden' }}>
+        <div style={{ position: 'absolute', width: w, height: h, left: (layout.W - w) * v.pos![0], top: (layout.H - h) * v.pos![1] }}>{video}</div>
+      </AbsoluteFill>
+    );
+  }
   if (!v.frame) return <AbsoluteFill>{video}</AbsoluteFill>;
   const bar = v.frame === 'window' ? layout.bar : 0;
   const ar = v.ar ?? 16 / 9;
@@ -134,7 +145,7 @@ export const ClipScene: React.FC<{ v: ClipVisual; slug: string; layout: Layout; 
 
 // Still image, full-bleed or inside a window/phone frame (Ken Burns comes from scene fx)
 export const ImageScene: React.FC<{ v: ImageVisual; slug: string; layout: Layout; imgW: number; imgH: number; look?: FrameStyle }> = ({ v, slug, layout, imgW, imgH, look }) => {
-  const img = <Img src={staticFile(`${slug}/${v.src}`)} style={{ width: '100%', height: '100%', objectFit: v.fit ?? 'cover' }} />;
+  const img = <Img src={staticFile(`${slug}/${v.src}`)} style={{ width: '100%', height: '100%', objectFit: v.fit ?? 'cover', objectPosition: v.pos ? `${v.pos[0] * 100}% ${v.pos[1] * 100}%` : undefined }} />;
   if (!v.frame) return <AbsoluteFill>{img}</AbsoluteFill>;
   const bar = v.frame === 'window' ? layout.bar : 0;
   const { frame } = fit(layout.box, imgW, imgH, bar);

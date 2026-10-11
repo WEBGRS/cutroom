@@ -54,7 +54,27 @@
           "en": "Record it. Cut it with AI.",
           "n": 4
         }
-      ]
+      ],
+      "overlays": [
+        {
+          "kind": "image",
+          "src": "media/badge-new.png",
+          "at": 0.4,
+          "dur": 4,
+          "x": 0.82,
+          "y": 0.24,
+          "w": 0.16,
+          "enter": "spin",
+          "rot": -10,
+          "float": true
+        }
+      ],
+      "tall": {
+        "kind": "title",
+        "kicker": "录下产品",
+        "title": "[[和 AI]] 一起剪",
+        "sub": "改版了就重录，剪辑跟着素材走"
+      }
     },
     {
       "id": "record",

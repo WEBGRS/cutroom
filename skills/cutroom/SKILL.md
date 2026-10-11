@@ -1,6 +1,6 @@
 ---
 name: cutroom
-description: Make or refresh a demo video of software the user is building, with Cutroom. Records the app or website (clicks, typing, auto-zoom), cuts it into a narrated or beat-synced video with captions, voice-over, effects and HTML scenes, re-records it after the UI changes, and exports MP4 in 16:9 and 9:16. Use when the user asks for a demo video, product walkthrough, launch or release video, feature clip, changelog video, README GIF or vertical social clip of something they made, or to update one after a release.
+description: Make or refresh a demo video of software the user is building, with Cutroom. Records the app or website (clicks, typing, auto-zoom), cuts it into a narrated or beat-synced video with captions, voice-over, effects and HTML scenes, re-records it after the UI changes, and exports MP4 in 16:9 and 9:16 or a 剪映 (JianyingPro) draft. Also breaks a reference video into shots to learn its pacing. Use when the user asks for a demo video, product walkthrough, launch or release video, feature clip, changelog video, README GIF or vertical social clip of something they made, or to update one after a release.
 ---
 
 # Cutroom
@@ -57,6 +57,15 @@ Page rules (the same contract as HyperFrames compositions, which also work uncha
 - Declared variables (`data-composition-variables` on the root) can be filled per scene: `CUT my-demo set growth visual.vars.title '"Q3"'`.
 
 `CUT my-demo html check growth` lists problems. `CUT my-demo add html <path>` copies an existing page or composition folder into the project.
+
+## More tools
+
+- **Learn from a reference video.** `CUT my-demo shots <video>` lists every shot with its start, length and camera move (static, pan, push in, handheld…), saves three keyframes per shot and a page that plays any shot when clicked (`ref/<name>/index.html` in the project). Open a few keyframes, then match the reference's average shot length and kinds of shots. Run it on your own export to check the rhythm.
+- **9:16 from wide footage.** `CUT my-demo reframe <scene-id>` crops an image or video scene for 9:16 so the part with the most motion and detail stays in view. It writes a separate 9:16 visual; check it with `look <scene-id> --format tall`.
+- **A person talking.** `CUT my-demo cut-silence <scene-id>` removes pauses of 0.5 s or more (`--min` to change) and splits the scene into jump-cut pieces. Set `visual.muted` to false on the pieces so the speech is heard.
+- **Art that doesn't exist yet.** `CUT my-demo imagine logo "a paper plane logo, flat, blue" --transparent` saves `media/logo.png` (needs an OpenAI or Gemini key in the environment or Cutroom's Settings; transparency needs OpenAI). Put it on a scene as an image overlay: `CUT my-demo set <scene-id> overlays.0 '{"kind":"image","src":"media/logo.png","at":0.3,"dur":3,"x":0.8,"y":0.25,"w":0.2,"enter":"pop"}'`.
+- **File size limits.** `export --max-mb 15` sets the bitrate so the file fits.
+- **Finishing in 剪映 (JianyingPro).** `export --jianying` renders the picture and writes a JianyingPro draft with the narration, music, sound effects and captions on their own tracks and adds it to JianyingPro's draft list. Use it when the user wants to finish the edit there.
 
 ## Rules
 

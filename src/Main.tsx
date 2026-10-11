@@ -13,8 +13,9 @@ import { screenPaths, type ScenePath } from './lib/paths';
 import { BeatMain } from './BeatMain';
 import { SANS } from './lib/fonts';
 import { LAYOUT, withFrame, type Layout } from './lib/layout';
-import { buildTimeline, type TScene, type Timeline } from './lib/timeline';
+import { buildTimeline, type TScene } from './lib/timeline';
 import type { Props, Theme } from './lib/types';
+import { musicEnvelope } from './lib/mix';
 
 export const SceneView: React.FC<{ s: TScene; props: Props; layout: Layout; theme: Theme; bare?: boolean; paths?: Record<string, ScenePath> }> = ({ s, props, layout, theme, bare, paths }) => {
   const clean = props.variant === 'clean';
@@ -43,30 +44,10 @@ export const SceneView: React.FC<{ s: TScene; props: Props; layout: Layout; them
       <FxLayer fx={s.scene.fx} dur={s.dur}>
         {body}
       </FxLayer>
-      {!bare && s.scene.overlays?.length ? <Overlays items={s.scene.overlays.filter(Boolean)} layout={layout} theme={theme} /> : null}
+      {!bare && s.scene.overlays?.length ? <Overlays items={s.scene.overlays.filter(Boolean)} layout={layout} theme={theme} slug={slug} /> : null}
     </AbsoluteFill>
   );
 };
-
-// Music volume: duck under voice, fade in/out
-function musicEnvelope(tl: Timeline, base: number, duck: number, fadeInSec = 1, fadeOutSec = 2): number[] {
-  const n = tl.total;
-  const on = new Float32Array(n);
-  for (const s of tl.scenes) for (const l of s.lines) for (let f = s.start + l.start; f < Math.min(n, s.start + l.start + l.dur); f++) on[f] = 1;
-  const att = 1 / (0.18 * tl.fps);
-  const rel = 1 / (0.6 * tl.fps);
-  const out: number[] = [];
-  let e = 0;
-  for (let f = 0; f < n; f++) {
-    // Look ahead so the dip lands before speech starts
-    const want = on[Math.min(n - 1, f + Math.round(0.12 * tl.fps))];
-    e = want > e ? Math.min(want, e + att) : Math.max(want, e - rel);
-    const fadeIn = fadeInSec > 0 ? Math.min(1, f / (fadeInSec * tl.fps)) : 1;
-    const fadeOut = fadeOutSec > 0 ? Math.min(1, (n - f) / (fadeOutSec * tl.fps)) : 1;
-    out.push(base * (1 - (1 - duck) * e) * fadeIn * fadeOut);
-  }
-  return out;
-}
 
 export const Main: React.FC<Props> = (props) => (props.mode === 'beat' ? <BeatMain {...props} /> : <VoiceMain {...props} />);
 
@@ -81,6 +62,8 @@ const VoiceMain: React.FC<Props> = (props) => {
   const theme = board.theme;
   const sfx = board.sfx ?? {};
   const sv = sfx.volume ?? 1;
+  // Picture only (for editing elsewhere): no captions, narration, music or added sounds; clicks and clip sound stay
+  const picture = props.parts === 'picture';
 
   const seq: React.ReactNode[] = [];
   tl.scenes.forEach((s, i) => {
@@ -99,8 +82,8 @@ const VoiceMain: React.FC<Props> = (props) => {
       <TransitionSeries>{seq}</TransitionSeries>
       {format === 'tall' && board.header ? (props.lang === 'en' ? <TallHeader title={board.headerEn ?? board.header} theme={theme} /> : <TallHeader title={board.header} en={board.headerEn} theme={theme} />) : null}
       {board.chapterBar ? <ChapterBar tl={tl} layout={layout} theme={theme} /> : null}
-      <Captions tl={tl} layout={layout} theme={theme} en={props.lang === 'en'} cs={board.captions} />
-      {tl.scenes.flatMap((s) =>
+      {picture ? null : <Captions tl={tl} layout={layout} theme={theme} en={props.lang === 'en'} cs={board.captions} />}
+      {picture ? null : tl.scenes.flatMap((s) =>
         s.lines
           .filter((l) => l.file)
           .map((l, k) => (
@@ -109,14 +92,14 @@ const VoiceMain: React.FC<Props> = (props) => {
             </Sequence>
           )),
       )}
-      {tl.scenes
+      {picture ? null : tl.scenes
         .filter((s) => s.trans > 0 && sfx.whoosh !== false)
         .map((s) => (
           <Sequence key={`w-${s.scene.id}`} from={Math.max(0, s.start - Math.round(fps * 0.1))} durationInFrames={Math.round(fps * 0.8)}>
             <Audio src={staticFile('sfx/whoosh.wav')} volume={0.22 * sv} />
           </Sequence>
         ))}
-      {tl.scenes.flatMap((s) =>
+      {picture ? null : tl.scenes.flatMap((s) =>
         (s.scene.overlays ?? [])
           .filter((o) => o?.kind === 'punch' && sfx.pop !== false)
           .map((o, k) => (
@@ -125,8 +108,8 @@ const VoiceMain: React.FC<Props> = (props) => {
             </Sequence>
           )),
       )}
-      <SceneSounds tl={tl} captures={props.captures} volume={sv} />
-      {board.music ? <Audio src={staticFile(board.music.src)} loop volume={(f) => env[Math.min(env.length - 1, f)] ?? 0} /> : null}
+      {picture ? null : <SceneSounds tl={tl} captures={props.captures} volume={sv} />}
+      {board.music && !picture ? <Audio src={staticFile(board.music.src)} loop volume={(f) => env[Math.min(env.length - 1, f)] ?? 0} /> : null}
     </AbsoluteFill>
   );
 };

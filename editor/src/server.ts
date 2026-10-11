@@ -258,8 +258,8 @@ function startVoice(run: Parameters<typeof voiceProject>[0]) {
 
 function startRender(o: { slug: string; format: string; mode: string; variant: string; lang: string; voice: string; scale?: number; codec?: string }) {
   if (job?.state === 'running') throw new Error(L('A render is already running', '已有渲染在进行'));
-  const { name, out, args, cleanup } = exportPlan(o);
-  const child = spawn(process.execPath, args, { cwd: ROOT, windowsHide: true });
+  const { name, out, args, cleanup, env } = exportPlan(o);
+  const child = spawn(process.execPath, args, { cwd: ROOT, windowsHide: true, env: { ...process.env, ...env } });
   const j: Job = { slug: o.slug, name, out, state: 'running', done: 0, total: 0, phase: L('Bundling', '打包'), tail: [], started: Date.now(), child };
   job = j;
   let last = 0;

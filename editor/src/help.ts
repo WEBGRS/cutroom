@@ -48,4 +48,18 @@ export const HELP = `node editor/dist/cli.mjs <slug> <command> [args] [--format 
   html check [name|id]     problems that make a page render differently in preview and export
   html vars <scene-id>     the page's declared variables and their values (set <id> visual.vars.<var> <json>)
   export [--format wide|tall] [--mode voice|beat] [--lang zh|en] [--clean] [--silent] [--scale 2] [--codec h264|h265|vp9|prores|gif] [--out file]
-                           render the video to a file (default: the export folder)`;
+                           render the video to a file (default: the export folder). --max-mb N keeps the file under N MB
+  export --jianying [--out <draft folder>] [--name n]
+                           a JianyingPro (剪映专业版) draft instead: the picture per scene, narration, music (with its ducking),
+                           sound effects and captions on their own tracks, added to JianyingPro's draft list
+  shots <video> [--name n] [--sensitivity 0..1]
+                           break a video (a reference to learn from, or your own export) into shots: cut points, lengths,
+                           camera moves and three keyframes each, plus a page that plays any shot (ref/<name>/index.html)
+  reframe <id> [--format wide]
+                           crop an image or video scene for 9:16 (default) or 16:9 so the part with the most motion and detail
+                           stays in view; sets tall.pos (a separate 9:16 visual, so the 16:9 cut is untouched)
+  cut-silence <id> [--min 0.5]
+                           cut pauses of --min seconds or more out of a talking video scene; it becomes jump-cut pieces
+  imagine <name> "<prompt>" [--transparent] [--shape square|wide|tall] [--engine openai|gemini]
+                           AI image into media/<name>.png (needs an OpenAI or Gemini key; --transparent needs OpenAI);
+                           use it as an image scene or an image overlay ({"kind":"image","src":"media/<name>.png",...})`;

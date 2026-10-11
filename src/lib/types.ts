@@ -41,6 +41,11 @@ export interface Overlay {
   value?: number;
   // Dark backing behind text, for text over bright footage
   plate?: boolean;
+  // Image overlay: project file, entrance, rotation in degrees, gentle bob after landing
+  src?: string;
+  enter?: 'pop' | 'rise' | 'slide' | 'spin' | 'fade';
+  rot?: number;
+  float?: boolean;
 }
 
 export type Look = 'warm' | 'cool' | 'mono' | 'vintage' | 'vivid' | 'fade' | 'noir' | 'teal';
@@ -161,6 +166,8 @@ export interface ClipVisual {
   ar?: number;
   url?: string;
   muted?: boolean;
+  // Which part stays in view when cropped to fill (0..1 from the left / top; reframe sets it)
+  pos?: [number, number];
 }
 
 export interface OutroVisual {
@@ -183,6 +190,7 @@ export interface ImageVisual {
   fit?: 'contain' | 'cover';
   frame?: Frame;
   url?: string;
+  pos?: [number, number];
 }
 
 // Card scenes from src/fx/cards.tsx
@@ -377,4 +385,6 @@ export type Props = {
   images?: Record<string, { w: number; h: number }>;
   // Bumped by the editor when project files change, so HTML scenes reload
   rev?: number;
+  // 'picture': the image and the sound inside it only, for finishing in another editor
+  parts?: 'all' | 'picture';
 };

@@ -7,6 +7,7 @@ import type { CaptionStyle, Overlay, Theme } from '../lib/types';
 import { Rich } from './Cards';
 import { fxOverlay } from '../fx/overlays';
 import { AnimText, textAnim } from '../fx/text';
+import { ImageOverlay } from './ImageOverlay';
 
 // Caption animations handled by animToks; any other id is a text animation
 const TOK_ANIMS = ['fade', 'pop', 'word', 'karaoke', 'typewriter'];
@@ -182,7 +183,7 @@ function extraOverlay(o: Overlay, key: number, age: number, d: number, out: numb
   }
 }
 
-export const Overlays: React.FC<{ items: Overlay[]; layout: Layout; theme: Theme }> = ({ items, layout, theme }) => {
+export const Overlays: React.FC<{ items: Overlay[]; layout: Layout; theme: Theme; slug?: string }> = ({ items, layout, theme, slug }) => {
   const f = useCurrentFrame();
   const { fps } = useVideoConfig();
   return (
@@ -194,6 +195,7 @@ export const Overlays: React.FC<{ items: Overlay[]; layout: Layout; theme: Theme
         if (f < a || f > a + d) return null;
         const p = spring({ frame: f - a, fps, config: { damping: 200 }, durationInFrames: 10 });
         const out = interpolate(f, [a + d - 8, a + d], [1, 0], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
+        if (o.kind === 'image') return slug ? <ImageOverlay key={i} o={o} slug={slug} layout={layout} at={a} dur={d} /> : null;
         if (o.kind === 'punch') {
           return (
             <AbsoluteFill key={i} style={{ justifyContent: 'center', alignItems: 'center' }}>

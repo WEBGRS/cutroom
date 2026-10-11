@@ -72,4 +72,6 @@ export const SOUNDS: SoundDef[] = [
 ];
 
 export const soundSrc = (id: string) => `sfx/lib/${id}.ogg`;
+// Library sounds peak at -3 dBFS; this sits them under narration and music
+export const SFX_GAIN = 0.45;
 export const soundDef = (id: string) => SOUNDS.find((s) => s.id === id);
