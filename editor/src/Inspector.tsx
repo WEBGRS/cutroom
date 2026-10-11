@@ -7,6 +7,7 @@ import { BOARD_FX, CARD_LIST, DIR_LIST, DIR_TRANSITIONS, LOWER_LIST, OVERLAY_LIS
 import { Field, FieldControl, JsonEdit, Row, asRef, isNum, num, refOk } from './Fields';
 import { Icon } from './icons';
 import { nm, tr } from './i18n';
+import { getPrefs, usePrefs } from './prefs';
 
 const BASE_KINDS: Record<string, { en: string; zh: string }> = {
   screen: { en: 'Recording', zh: '录屏' },
@@ -267,7 +268,7 @@ export function Inspector(p: Props) {
               const def = OVERLAY_LIST.find((o) => o.id === ev.target.value);
               if (!def) return;
               const at = Math.max(0, Math.round(p.playheadIn(scene.id) * 10) / 10);
-              set(`overlays.${scene.overlays?.length ?? 0}`, { kind: def.id, at, dur: 1.6, ...def.init });
+              set(`overlays.${scene.overlays?.length ?? 0}`, { kind: def.id, at, dur: getPrefs().overlaySec, ...def.init });
             }}
           >
             <option value="">{tr('+ Add at the playhead…', '+ 在播放头添加…')}</option>
@@ -800,6 +801,7 @@ function StatsFields({ v, k, set }: { v: StatsVisual; k: string; set: (path: str
 const fieldsOf = (paths: string[]) => allFields(BOARD_FX).filter((f) => paths.includes(f.path));
 
 function BoardPanel(p: Props) {
+  const { hints } = usePrefs();
   const b = p.doc.board;
   const [tab, setTab] = useTab<BTab>('vs-btab', ['basic', 'audio', 'caps', 'look'], 'basic');
   const set = (path: string, value: unknown) => p.commit((d) => setPath(d, null, path, value), { coalesce: `board.${path}` });
@@ -937,7 +939,7 @@ function BoardPanel(p: Props) {
           <span className="kdot board" />
           <h2>{tr('Project settings', '项目设置')}</h2>
         </div>
-        <div className="meta">{tr('These apply to the whole video. Click a scene on the timeline to edit it.', '影响整条片子。点时间线上的段落，改那一段。')}</div>
+        {hints ? <div className="meta">{tr('These apply to the whole video. Click a scene on the timeline to edit it.', '影响整条片子。点时间线上的段落，改那一段。')}</div> : null}
       </div>
       <Tabs<BTab>
         value={tab}

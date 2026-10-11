@@ -14,10 +14,12 @@ import { Library, type LibTab } from './Library';
 import { ADDABLE, sceneTemplate } from './templates';
 import { Icon, Logo } from './icons';
 import { OVERLAY_LIST } from './catalog';
-import { LANG, nm, setLang, tr } from './i18n';
+import { LANG, nm, tr } from './i18n';
 import { textSample } from '../../src/fx/demo';
 import { resolvePick, type AiRef } from './pick';
 import { soundDef } from '../../src/fx/sounds';
+import { SettingsPage, type SettingsTab } from './SettingsPage';
+import { getPrefs, usePrefs } from './prefs';
 import type { Fx } from '../../src/lib/types';
 
 const isImg = (a: string) => /\.(png|jpe?g|webp|gif)$/i.test(a);
@@ -106,6 +108,9 @@ function writeSettings(s: Settings) {
 }
 
 const clamp = (x: number, a: number, b: number) => Math.min(b, Math.max(a, x));
+
+// What the main Export button makes (Settings › Export)
+const EXPORT_PRESET: Record<string, Record<string, string>> = { mp4: {}, '2x': { scale: '2' }, gif: { codec: 'gif', scale: '0.5' }, prores: { codec: 'prores' } };
 
 function Seg<T extends string>({ value, options, onChange, className }: { value: T; options: [T, string, string?, string?, string?][]; onChange: (v: T) => void; className?: string }) {
   return (
@@ -202,6 +207,12 @@ function App() {
   const [err, setErr] = useState('');
   const [sel, setSel] = useState<string | null>(null);
   const [focusLine, setFocusLine] = useState<number | null>(null);
+  // Settings window: open page, and a counter that tells the AI panel to re-read its connection
+  const [settingsTab, setSettingsTab] = useState<SettingsTab | null>(null);
+  const [aiKey, setAiKey] = useState(0);
+  const prefs = usePrefs();
+  const settingsOpen = useRef(false);
+  settingsOpen.current = settingsTab !== null;
   // Selected sound cue ("scene:i") and the cue the inspector should open
   // Selected sound or overlay on the timeline ("sound:scene:i" / "overlay:scene:i") and the inspector page to open
   const [selCue, setSelCue] = useState<string | null>(null);
@@ -667,7 +678,19 @@ function App() {
     const after = sel ?? sceneAtPlayhead()?.id ?? null;
     const id = uniqueId(docRef.current.board, `${kind}-1`);
     const img = kind === 'compare' && !src ? assets.find((a) => /\.(png|jpe?g|webp)$/i.test(a)) : src;
-    commit((d) => addScene(d, sceneTemplate(kind, id, img, LANG), after));
+    const sc = sceneTemplate(kind, id, img, LANG);
+    // Settings › Editing: image length, push-in, transition into new scenes
+    const pf = getPrefs();
+    if (kind === 'image') {
+      sc.minSec = pf.imageSec;
+      if (!pf.imagePush && sc.fx) {
+        delete sc.fx.kenburns;
+        delete sc.fx.kbAmount;
+        if (!Object.keys(sc.fx).length) delete sc.fx;
+      }
+    }
+    if (sc.transition !== undefined) sc.transition = pf.newTransition || 'fade';
+    commit((d) => addScene(d, sc, after));
     setSel(id);
   };
 
@@ -765,6 +788,10 @@ function App() {
     }
   };
 
+  useEffect(() => {
+    player?.setVolume(prefs.volume);
+  }, [player, prefs.volume]);
+
   // ---- pointing at things for the AI (hold Ctrl, or arm from the AI panel) ----
   const pickCtx = () => ({ etl, scenes: docRef.current?.board.scenes ?? [], frame: player?.getCurrentFrame() ?? 0, fps, size: { w: loaded?.width ?? 1920, h: loaded?.height ?? 1080 }, sel });
   const pickRef = useRef({ pickCtx, armed: pickArmed, held: pickHeld });
@@ -832,6 +859,12 @@ function App() {
   useEffect(() => {
     const onKey = (ev: KeyboardEvent) => {
       const t = ev.target as HTMLElement;
+      if ((ev.ctrlKey || ev.metaKey) && ev.key === ',') {
+        ev.preventDefault();
+        return setSettingsTab((x) => (x ? null : 'general'));
+      }
+      // The settings window handles its own keys
+      if (settingsOpen.current) return;
       if (t.closest('input, textarea, select')) {
         if (ev.key === 'Escape') t.blur();
         return;
@@ -926,7 +959,7 @@ function App() {
     const at = Math.max(0, Math.round(playheadIn(t.id) * 10) / 10);
     // Text animations start with sample text that shows the effect off
     const text = kind === 'text' && typeof extra.anim === 'string' ? { text: textSample(extra.anim) } : {};
-    commit((d) => setPath(d, t.id, `overlays.${t.overlays?.length ?? 0}`, { kind, at, dur: 1.6, ...def.init, ...text, ...extra }));
+    commit((d) => setPath(d, t.id, `overlays.${t.overlays?.length ?? 0}`, { kind, at, dur: getPrefs().overlaySec, ...def.init, ...text, ...extra }));
     select(t.id);
     flash(tr(`Added "${def.en}" to ${t.id}`, `已在 ${t.id} 加上「${def.zh}」`));
   };
@@ -1054,17 +1087,11 @@ function App() {
             </button>
           </span>
         ) : null}
-        <Menu label={LANG === 'zh' ? '中文' : 'EN'} icon="globe" className="ghost lang">
-          {(close) => (
-            <>
-              <div className="menu-h">{tr('Interface language', '界面语言')}</div>
-              <button onClick={() => (close(), setLang('en'))}>English{LANG === 'en' ? '  ✓' : ''}</button>
-              <button onClick={() => (close(), setLang('zh'))}>中文{LANG === 'zh' ? '  ✓' : ''}</button>
-            </>
-          )}
-        </Menu>
+        <button className="icon gear" onClick={() => setSettingsTab('general')} title={tr('Settings (Ctrl+,)', '设置 (Ctrl+,)')} aria-label={tr('Settings', '设置')}>
+          <Icon name="gear" size={17} />
+        </button>
         <div className="split-btn">
-          <button className="primary" onClick={() => doRender()} disabled={job?.state === 'running' || !ready} title={tr(`Export ${versionText}`, `导出 ${versionText}`)}>
+          <button className="primary" onClick={() => doRender(EXPORT_PRESET[prefs.exportPreset])} disabled={job?.state === 'running' || !ready} title={tr(`Export ${versionText}`, `导出 ${versionText}`)}>
             <Icon name="export" />
             {tr('Export', '导出')}
           </button>
@@ -1165,6 +1192,7 @@ function App() {
                     doubleClickToFullscreen={false}
                     spaceKeyToPlayOrPause={false}
                     numberOfSharedAudioTags={16}
+                    loop={prefs.loop}
                     errorFallback={({ error }) => <div style={{ padding: 20, color: '#ffb4ab', background: '#1a1012', font: '14px sans-serif' }}>{error.message}</div>}
                     acknowledgeRemotionLicense
                   />
@@ -1194,10 +1222,6 @@ function App() {
               <select className="vsel" value={st.lang} title={tr('Video language: captions and narration switch together', '视频语言：字幕和旁白一起切换')} aria-label={tr('Video language', '视频语言')} onChange={(e) => update({ lang: e.target.value as Settings['lang'] })}>
                 <option value="zh">{tr('Chinese', '中文版')}</option>
                 <option value="en">{tr('English', '英文版')}</option>
-              </select>
-              <select className="vsel" value={st.variant} title={tr('Xiaohongshu bans URLs in videos: “Hide URLs” removes them from preview and export', '小红书不允许画面里出现网址：选「隐藏网址」后预览和导出都去掉网址')} aria-label={tr('URLs', '网址')} onChange={(e) => update({ variant: e.target.value as Settings['variant'] })}>
-                <option value="default">{tr('Show URLs', '显示网址')}</option>
-                <option value="clean">{tr('Hide URLs (Xiaohongshu)', '隐藏网址（小红书）')}</option>
               </select>
               <Seg
                 className="ratio"
@@ -1234,6 +1258,8 @@ function App() {
               armed={pickArmed}
               onArm={() => setPickArmed((a) => !a)}
               focusKey={chatFocus}
+              onSettings={() => setSettingsTab('ai')}
+              statusKey={aiKey}
             />
           ) : doc ? (
             <Inspector
@@ -1286,6 +1312,8 @@ function App() {
           canTrim={canTrim}
           onTrim={onTrim}
           missing={missing}
+          followPlayhead={prefs.followPlayhead}
+          lanes={prefs.lanes}
           selCue={selCue}
           onCuePick={focusCue}
           onOverlayEdit={onOverlayEdit}
@@ -1380,6 +1408,18 @@ function App() {
         <div className="tl panel" />
       )}
 
+      {settingsTab ? (
+        <SettingsPage
+          tab={settingsTab}
+          setTab={setSettingsTab}
+          onClose={() => {
+            setSettingsTab(null);
+            setAiKey((k) => k + 1);
+          }}
+          variant={st.variant}
+          setVariant={(v) => update({ variant: v })}
+        />
+      ) : null}
       {pickHl ? (
         <div className="pick-hl" style={{ left: pickHl.x - 2, top: pickHl.y - 2, width: pickHl.w + 4, height: pickHl.h + 4 }}>
           <span>{pickHl.label}</span>

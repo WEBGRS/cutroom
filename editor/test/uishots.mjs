@@ -129,10 +129,17 @@ try {
   await p.waitForTimeout(250);
   await crop(p, 'body', '12-export-menu', { x: 1000, y: 0, width: 600, height: 420 });
   await p.mouse.click(800, 400);
-  await p.locator('.ghost.lang').click();
-  await p.waitForTimeout(250);
-  await crop(p, 'body', '12b-lang-menu', { x: 1000, y: 0, width: 600, height: 300 });
-  await p.mouse.click(800, 400);
+  // Settings window, every page
+  await p.locator('.top .gear').click();
+  await p.waitForSelector('.settings');
+  const pages = await p.locator('.set-nav button').count();
+  for (let i = 0; i < pages; i++) {
+    await p.locator('.set-nav button').nth(i).click();
+    await p.waitForTimeout(i === 4 ? 1200 : 250);
+    await crop(p, '.settings', `12b-settings-${i + 1}`);
+  }
+  await p.keyboard.press('Escape');
+  await p.waitForTimeout(200);
   await p.evaluate(() => {
     const s = document.querySelector('.proj select');
     s.value = '__new';
@@ -179,8 +186,9 @@ try {
   await p.waitForTimeout(800);
   await shot(p, '17-ai-chat');
   await p.locator('.conn').click();
-  await p.waitForTimeout(400);
-  await crop(p, '.side', '18-ai-settings');
+  await p.waitForSelector('.settings');
+  await p.waitForTimeout(1200);
+  await crop(p, '.settings', '18-ai-settings');
   await p.close();
 
   // tall + beat on a voiced project

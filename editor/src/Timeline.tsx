@@ -32,6 +32,9 @@ interface Props {
   onTrim: (e: EScene, edge: Edge, dSec: number, done: boolean) => void;
   tools: React.ReactNode;
   missing: Map<string, string>;
+  // Settings › Editing
+  followPlayhead?: boolean;
+  lanes?: { overlays: boolean; effects: boolean; camera: boolean; sfx: boolean };
   // Selected sound or overlay ("sound:scene:i" / "overlay:scene:i")
   selCue: string | null;
   onCuePick: (kind: 'sound' | 'overlay', scene: string, i: number) => void;
@@ -280,7 +283,8 @@ export function Timeline(p: Props) {
   const camItems = etl.scenes.flatMap((s, i) => s.camera.map((c) => ({ s, c, ...inScene(i, s.start + c.f, s.start + c.f + c.dur) })));
   const ovStack = stack(ovItems);
   const camStack = stack(camItems);
-  const anyFx = etl.scenes.some((s) => s.fx.length);
+  const show = p.lanes ?? { overlays: true, effects: true, camera: true, sfx: true };
+  const anyFx = show.effects && etl.scenes.some((s) => s.fx.length);
   const [dropAt, setDropAt] = useState<number | null>(null);
   const isSound = (e: React.DragEvent) => [...e.dataTransfer.types].includes(SOUND_MIME);
 
@@ -328,7 +332,7 @@ export function Timeline(p: Props) {
             {beats}
             {ticks}
           </div>
-          {ovItems.length ? (
+          {show.overlays && ovItems.length ? (
             <div className="row lane-o" style={{ height: laneH(ovStack.rows) }}>
               <div className="lab">
                 <Icon name="layers" size={14} />
@@ -391,7 +395,7 @@ export function Timeline(p: Props) {
                 ))}
             </div>
           ) : null}
-          {camItems.length ? (
+          {show.camera && camItems.length ? (
             <div className="row lane-c" style={{ height: laneH(camStack.rows) }}>
               <div className="lab">
                 <Icon name="cam" size={14} />
@@ -525,6 +529,7 @@ export function Timeline(p: Props) {
               )}
             </div>
           ) : null}
+          {show.sfx ? (
           <div
             className={`row lane-s${dropAt !== null ? ' dropping' : ''}`}
             onDragOver={(e) => {
@@ -575,6 +580,7 @@ export function Timeline(p: Props) {
             )}
             {dropAt !== null ? <div className="drop" style={{ left: LAB + X(dropAt) }} /> : null}
           </div>
+          ) : null}
           {etl.music ? (
             <div className="row lane-m">
               <div className="lab">
@@ -587,6 +593,7 @@ export function Timeline(p: Props) {
             </div>
           ) : null}
           <Playhead
+            follow={p.followPlayhead !== false}
             player={p.player}
             x={(f) => LAB + X(f)}
             scroller={scroller}
@@ -605,16 +612,18 @@ export function Timeline(p: Props) {
 
 // Red line that follows the player without re-rendering the timeline
 // Draggable: the head and a thin strip along the line scrub like the ruler
-function Playhead({ player, x, scroller, onGrab }: { player: PlayerRef | null; x: (f: number) => number; scroller: React.RefObject<HTMLDivElement | null>; onGrab: (ev: React.PointerEvent) => void }) {
+function Playhead({ player, x, scroller, onGrab, follow }: { player: PlayerRef | null; x: (f: number) => number; scroller: React.RefObject<HTMLDivElement | null>; onGrab: (ev: React.PointerEvent) => void; follow: boolean }) {
   const ref = useRef<HTMLDivElement>(null);
   const xr = useRef(x);
   xr.current = x;
+  const fr = useRef(follow);
+  fr.current = follow;
   useEffect(() => {
     const upd = (f: number) => {
       const px = xr.current(f);
       if (ref.current) ref.current.style.transform = `translateX(${px}px)`;
       const el = scroller.current;
-      if (el && player?.isPlaying() && (px > el.scrollLeft + el.clientWidth - 40 || px < el.scrollLeft + LAB)) el.scrollLeft = px - 120;
+      if (el && fr.current && player?.isPlaying() && (px > el.scrollLeft + el.clientWidth - 40 || px < el.scrollLeft + LAB)) el.scrollLeft = px - 120;
     };
     if (!player) return;
     const h = (e: { detail: { frame: number } }) => upd(e.detail.frame);

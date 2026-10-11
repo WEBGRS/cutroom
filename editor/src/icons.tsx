@@ -101,6 +101,18 @@ const P: Record<string, React.ReactNode> = {
       <path d="m10.5 7 4-2.2v6.4l-4-2.2" />
     </>
   ),
+  keyboard: (
+    <>
+      <rect x="1.5" y="4" width="13" height="8.5" rx="1.5" />
+      <path d="M4 6.8h.01M6.3 6.8h.01M8.6 6.8h.01M10.9 6.8h.01M4.5 9.6h7" strokeLinecap="round" />
+    </>
+  ),
+  info: (
+    <>
+      <circle cx="8" cy="8" r="6.2" />
+      <path d="M8 7.2v4M8 4.9v.01" strokeLinecap="round" />
+    </>
+  ),
   mic: (
     <>
       <rect x="5.5" y="2" width="5" height="8" rx="2.5" />

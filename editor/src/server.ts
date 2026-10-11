@@ -184,13 +184,43 @@ const jobView = () => (job ? { ...job, child: undefined, out: path.relative(DATA
 
 const CODECS: Record<string, string> = { h264: 'mp4', h265: 'mp4', vp9: 'webm', prores: 'mov', gif: 'gif' };
 
+// Where exports go: the folder chosen in Settings, else out/editor (app: Documents\Cutroom\exports\editor)
+const DEFAULT_EXPORTS = path.join(OUT, 'editor');
+function exportDir(): string {
+  const d = readSettings().exportDir;
+  return typeof d === 'string' && path.isAbsolute(d) ? d : DEFAULT_EXPORTS;
+}
+const within = (dir: string, f: string) => {
+  const r = path.relative(path.resolve(dir), path.resolve(f));
+  return !!r && !r.startsWith('..') && !path.isAbsolute(r);
+};
+const openFolder = (dir: string) => spawn(process.platform === 'win32' ? 'explorer.exe' : process.platform === 'darwin' ? 'open' : 'xdg-open', [dir], { detached: true, stdio: 'ignore' }).unref();
+const VERSION = (() => {
+  try {
+    return JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8')).version as string;
+  } catch {
+    return '';
+  }
+})();
+function cacheBytes(): number {
+  if (!fs.existsSync(CACHE)) return 0;
+  return fs.readdirSync(CACHE).reduce((a, f) => {
+    try {
+      return a + fs.statSync(path.join(CACHE, f)).size;
+    } catch {
+      return a;
+    }
+  }, 0);
+}
+const appInfo = () => ({ version: VERSION, exportDir: exportDir(), exportDefault: DEFAULT_EXPORTS, projectsDir: PUBLIC, cache: { dir: CACHE, bytes: cacheBytes() } });
+
 function startRender(o: { slug: string; format: string; mode: string; variant: string; lang: string; voice: string; scale?: number; codec?: string }) {
   if (job?.state === 'running') throw new Error(L('A render is already running', '已有渲染在进行'));
   checkSlug(o.slug);
   const codec = o.codec && CODECS[o.codec] ? o.codec : 'h264';
   const scale = [0.5, 1, 1.5, 2].includes(Number(o.scale)) ? Number(o.scale) : 1;
   const name = [o.slug, o.format, o.mode === 'beat' ? 'beat' : null, o.variant === 'clean' ? 'clean' : null, o.lang === 'en' ? 'en' : null, o.voice === 'off' && o.mode !== 'beat' ? 'silent' : null, scale !== 1 ? `x${scale}` : null].filter(Boolean).join('-');
-  const out = path.join(OUT, 'editor', `${name}.${CODECS[codec]}`);
+  const out = path.join(exportDir(), `${name}.${CODECS[codec]}`);
   fs.mkdirSync(path.dirname(out), { recursive: true });
   fs.mkdirSync(STATE, { recursive: true });
   const propsFile = path.join(STATE, `render-props.json`);
@@ -433,24 +463,57 @@ const server = http.createServer(async (req, res) => {
     }
     if (p === '/api/reveal' && req.method === 'POST') {
       const b = await body(req);
-      const f = inside(OUT, String(b.file ?? '').replace(/^(out|exports)[\\/]/, ''));
-      if (!f || !fs.existsSync(f)) return send(res, 404, { error: 'no file' });
+      // Relative to the data folder (as the render job reports it) or absolute; only inside an export folder
+      const raw = String(b.file ?? '');
+      const f = path.isAbsolute(raw) ? raw : path.join(DATA, raw);
+      if (!(within(exportDir(), f) || within(OUT, f)) || !fs.existsSync(f)) return send(res, 404, { error: 'no file' });
       // open: play it in the default app; otherwise show it selected in its folder
       const args = process.platform === 'win32' ? (b.open ? [f] : [`/select,${f}`]) : [b.open ? f : path.dirname(f)];
       spawn(process.platform === 'win32' ? 'explorer.exe' : process.platform === 'darwin' ? 'open' : 'xdg-open', args, { detached: true, stdio: 'ignore' }).unref();
       return send(res, 200, { ok: true });
     }
     if (p === '/api/exports' && req.method === 'GET') {
-      const dir = path.join(OUT, 'editor');
+      const dir = exportDir();
       const files = fs.existsSync(dir)
         ? fs.readdirSync(dir).filter((f) => /\.(mp4|mov|gif|webm)$/i.test(f)).map((f) => ({ name: f, size: fs.statSync(path.join(dir, f)).size, mtime: fs.statSync(path.join(dir, f)).mtimeMs }))
         : [];
       return send(res, 200, { dir, files: files.sort((a, b) => b.mtime - a.mtime).slice(0, 8) });
     }
     if (p === '/api/exports/open' && req.method === 'POST') {
-      const dir = path.join(OUT, 'editor');
+      const dir = exportDir();
       fs.mkdirSync(dir, { recursive: true });
-      spawn(process.platform === 'win32' ? 'explorer.exe' : process.platform === 'darwin' ? 'open' : 'xdg-open', [dir], { detached: true, stdio: 'ignore' }).unref();
+      openFolder(dir);
+      return send(res, 200, { ok: true });
+    }
+    // Settings page: folders, cache, version
+    if (p === '/api/app' && req.method === 'GET') return send(res, 200, appInfo());
+    if (p === '/api/app' && req.method === 'POST') {
+      const b = await body(req);
+      if (b.exportDir === null || b.exportDir === '') {
+        writeSettings({ exportDir: undefined });
+      } else if (typeof b.exportDir === 'string') {
+        const d = b.exportDir.trim();
+        if (!path.isAbsolute(d)) return send(res, 400, { error: L('Use a full folder path, e.g. D:\\Videos\\Exports', '请填完整的文件夹路径，比如 D:\\视频\\导出') });
+        try {
+          fs.mkdirSync(d, { recursive: true });
+          fs.accessSync(d, fs.constants.W_OK);
+        } catch {
+          return send(res, 400, { error: L(`Can't write to ${d}`, `没法写入 ${d}`) });
+        }
+        writeSettings({ exportDir: path.resolve(d) });
+      }
+      return send(res, 200, appInfo());
+    }
+    if (p === '/api/app/cache/clear' && req.method === 'POST') {
+      // Thumbnails and waveforms; rebuilt on demand
+      if (fs.existsSync(CACHE)) for (const f of fs.readdirSync(CACHE)) fs.rmSync(path.join(CACHE, f), { force: true, recursive: true });
+      return send(res, 200, appInfo());
+    }
+    if (p === '/api/app/open' && req.method === 'POST') {
+      const what = (await body(req)).what;
+      const dir = what === 'projects' ? PUBLIC : what === 'cache' ? CACHE : exportDir();
+      fs.mkdirSync(dir, { recursive: true });
+      openFolder(dir);
       return send(res, 200, { ok: true });
     }
     if (p.startsWith('/api/')) return send(res, 404, { error: 'unknown api' });

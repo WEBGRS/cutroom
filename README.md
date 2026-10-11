@@ -20,7 +20,7 @@ Most editors store a project as an opaque binary or database. Cutroom stores it 
 ## Features
 
 - **Timeline**: filmstrip thumbnails, waveforms, drag to reorder, drag edges to trim, split at the playhead, undo/redo, beat grid for music-cut versions.
-- **Two cuts from one storyboard**: a narrated cut and a beat-synced music cut, each in 16:9 and 9:16. Switch between them under the preview (aspect ratio, language, URLs shown or hidden) and above the timeline (narrated or beat cut).
+- **Two cuts from one storyboard**: a narrated cut and a beat-synced music cut, each in 16:9 and 9:16. Switch between them under the preview (aspect ratio and language) and above the timeline (narrated or beat cut).
 - **Library panel**: nine sections (media, cards, text, overlays, transitions, effects, backdrops, sound effects, music). Every effect has a rendered preview that plays on hover; one click applies it to the selected scene.
 - **182 effects**:
   - 39 transitions (whip pan, glitch, film burn, 3D cube, light leak, tile grid, …)
@@ -35,9 +35,10 @@ Most editors store a project as an opaque binary or database. Cutroom stores it 
 - **Screen recordings**: a deterministic browser recorder logs clicks and cursor moves; the editor adds smooth auto-zoom, a synthetic cursor and click ripples afterwards.
 - **Point, then ask**: hold Ctrl and click anything (a spot in the preview, a scene, a caption, a sound, an effect tile, a setting) to attach it to the AI chat, then say what you think of it. The AI is told exactly what you pointed at, including the x/y position and time of a point in the preview.
 - **AI chat**: uses your [Claude Code](https://docs.anthropic.com/en/docs/claude-code) login, a Claude API key, or another provider through its OpenAI-compatible API (OpenAI, Gemini, DeepSeek, Qwen, Kimi, GLM, OpenRouter, a local Ollama, or any compatible server). See [Connecting the AI](#connecting-the-ai).
-- **Export**: MP4, 2× resolution, GIF, ProRes, SRT subtitles and a chapter list. Files go to `out/editor/` (desktop app: `Documents\Cutroom\exports\editor`); the export menu shows the folder, and a finished export offers Play and Show in folder.
+- **Export**: MP4, 2× resolution, GIF, ProRes, SRT subtitles and a chapter list. Files go to `out/editor/` (desktop app: `Documents\Cutroom\exports\editor`); the export menu shows the folder and Settings › Export changes it; and a finished export offers Play and Show in folder.
 - **Desktop app**: the same editor in its own window, with a Windows installer.
-- **English and Chinese**: the interface starts in English; pick Chinese in the installer or from the globe menu in the top bar.
+- **English and Chinese**: the interface starts in English; pick Chinese in the installer or in Settings.
+- **Settings** (gear in the top bar, or Ctrl+,): interface language, help hints, default lengths and transition for new scenes and overlays, which timeline lanes to show, loop and preview volume, hiding URLs for Xiaohongshu, the export folder and what the Export button makes, the AI connection, a shortcut list, and the thumbnail cache.
 
 ![Sound FX library, the scene's Sound tab and the Sound FX lane on the timeline](docs/sound-fx.png)
 

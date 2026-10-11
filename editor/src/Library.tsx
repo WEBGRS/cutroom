@@ -9,6 +9,7 @@ import { Icon } from './icons';
 import { nm, tr } from './i18n';
 import { SOUNDS, SOUND_CATS, soundSrc } from '../../src/fx/sounds';
 import { SOUND_MIME } from './Timeline';
+import { usePrefs } from './prefs';
 
 export type LibTab = 'media' | 'cards' | 'text' | 'overlay' | 'trans' | 'fx' | 'bg' | 'sfx' | 'audio';
 
@@ -189,9 +190,10 @@ function useSoundPreview(): [string | null, (id: string) => void] {
 
 function SoundList({ onAdd }: { onAdd: (id: string) => void }) {
   const [playing, play] = useSoundPreview();
+  const { hints } = usePrefs();
   return (
     <>
-      <div className="lib-note pad0">{tr('Click a name to listen. Drag it onto the Sound FX lane of the timeline, or press + to add it at the playhead.', '点名字试听。拖到时间线的「音效」轨上，或按 + 加在播放头的位置。')}</div>
+      {hints ? <div className="lib-note pad0">{tr('Click a name to listen. Drag it onto the Sound FX lane of the timeline, or press + to add it at the playhead.', '点名字试听。拖到时间线的「音效」轨上，或按 + 加在播放头的位置。')}</div> : null}
       {SOUND_CATS.map((c) => {
         const list = SOUNDS.filter((s) => s.cat === c.id);
         return (
@@ -226,7 +228,6 @@ function SoundList({ onAdd }: { onAdd: (id: string) => void }) {
           </section>
         );
       })}
-      <div className="lib-note pad">{tr('Interface and impact sounds by Kenney (kenney.nl, CC0). Whooshes, risers, booms and the rest are generated for Cutroom.', '界面音和撞击音来自 Kenney（kenney.nl，CC0）；嗖声、上升铺垫、低频轰等由 Cutroom 合成。')}</div>
     </>
   );
 }
@@ -300,6 +301,7 @@ const pick = <T extends { id: string }>(list: T[], ids: string[]) => ids.map((id
 const CARD_GROUPS = { basic: { en: 'Basics', zh: '基础' }, data: { en: 'Numbers', zh: '数据' }, ui: { en: 'Interface', zh: '界面' } };
 
 export function Library(p: Props & { tab: LibTab; setTab: (t: LibTab) => void }) {
+  const { hints } = usePrefs();
   const { slug, assets, target } = p;
   const caps = assets.filter((a) => a.startsWith('cap/') && isVid(a));
   const vids = assets.filter((a) => isVid(a) && !a.startsWith('cap/'));
@@ -330,7 +332,7 @@ export function Library(p: Props & { tab: LibTab; setTab: (t: LibTab) => void })
               <Icon name="import" />
               {tr('Import', '导入素材')}
             </button>
-            <span className="lib-note">{tr('or drop files on the window', '或直接拖进窗口')}</span>
+            {hints ? <span className="lib-note">{tr('or drop files on the window', '或直接拖进窗口')}</span> : null}
           </div>
           {caps.length + vids.length + imgs.length ? (
             <>
@@ -350,7 +352,7 @@ export function Library(p: Props & { tab: LibTab; setTab: (t: LibTab) => void })
     case 'cards':
       body = (
         <>
-          <div className="lib-note pad0">{tr('Click to add after the selected scene', '点一下加在选中段落后面')}</div>
+          {hints ? <div className="lib-note pad0">{tr('Click to add after the selected scene', '点一下加在选中段落后面')}</div> : null}
           {(['basic', 'data', 'ui'] as const).map((g) => (
             <Section key={g} title={nm(CARD_GROUPS[g])}>
               {CARD_LIST.filter((c) => c.group === g).map((c) => (
@@ -447,7 +449,7 @@ export function Library(p: Props & { tab: LibTab; setTab: (t: LibTab) => void })
     case 'bg':
       body = (
         <>
-          <div className="lib-note pad0">{tr('Plays behind every scene of this video', '整条片子的背景动画')}</div>
+          {hints ? <div className="lib-note pad0">{tr('Plays behind every scene of this video', '整条片子的背景动画')}</div> : null}
           <Section>
             {BG_LIST.map((b) => (
               <Tile key={b.id || 'none'} label={nm(b)} on={(p.theme.bgFx ?? '') === b.id} prev={['bg', b.id]} onClick={() => p.onBg(b.id)} />
@@ -468,7 +470,7 @@ export function Library(p: Props & { tab: LibTab; setTab: (t: LibTab) => void })
               <Icon name="import" />
               {tr('Import music', '导入音乐')}
             </button>
-            <span className="lib-note">{p.mode === 'beat' ? tr('Beat cut needs a track with beat data', '卡点版只能用分析过节拍的曲子') : tr('Background music for the narrated cut', '旁白版的背景音乐')}</span>
+            {hints ? <span className="lib-note">{p.mode === 'beat' ? tr('Beat cut needs a track with beat data', '卡点版只能用分析过节拍的曲子') : tr('Background music for the narrated cut', '旁白版的背景音乐')}</span> : null}
           </div>
           {tracks.length ? (
             tracks.map((t) => (

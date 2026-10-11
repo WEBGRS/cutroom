@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Icon } from './icons';
 import { nm, tr } from './i18n';
 import type { AiRef } from './pick';
+import { getPrefs, usePrefs } from './prefs';
 
 export interface ChatContext {
   format: string;
@@ -38,7 +39,7 @@ interface Preset {
   noKey?: boolean;
 }
 
-interface AiStatus {
+export interface AiStatus {
   provider: 'claude-code' | 'anthropic' | 'compat' | null;
   pref: 'auto' | 'claude-code' | 'anthropic' | 'compat';
   claude: { path: string; version: string | null; loggedIn: boolean | null; method: string | null; plan: string | null } | null;
@@ -46,13 +47,6 @@ interface AiStatus {
   compat: { preset: string; base: string; model: string; key: { source: 'env' | 'file'; masked: string } | null; ready: boolean } | null;
   presets: Preset[];
 }
-
-const MODELS: [string, string][] = [
-  ['', tr('Default model', '默认模型')],
-  ['opus', 'Opus'],
-  ['sonnet', 'Sonnet'],
-  ['haiku', 'Haiku'],
-];
 
 const SUGGEST = [tr('Make the selected scene a bit shorter', '把选中这段缩短一点'), tr('Add a slow push-in to every image', '给所有图片加慢推效果'), tr('Use outlined captions, a little bigger', '字幕改成描边样式，放大一点'), tr('Add a title card at the start', '在最前面加一个标题卡')];
 
@@ -234,7 +228,7 @@ function CompatSection({ st, save, refresh }: { st: AiStatus; save: (body: objec
   );
 }
 
-function Connection({ st, onChange, onClose }: { st: AiStatus | null; onChange: (s: AiStatus) => void; onClose: () => void }) {
+export function Connection({ st, onChange, onClose }: { st: AiStatus | null; onChange: (s: AiStatus) => void; onClose: () => void }) {
   const [key, setKey] = useState('');
   const [test, setTest] = useState<{ ok: boolean; message: string; ms: number } | 'run' | null>(null);
   const [err, setErr] = useState('');
@@ -387,13 +381,13 @@ interface Pointing {
   focusKey: number;
 }
 
-export function ChatPanel({ slug, context, where, refs, onRemoveRef, onClearRefs, armed, onArm, focusKey }: { slug: string; context: () => ChatContext; where: string } & Pointing) {
+// Connection setup lives in Settings › AI; statusKey changes when that window closes
+export function ChatPanel({ slug, context, where, refs, onRemoveRef, onClearRefs, armed, onArm, focusKey, onSettings, statusKey }: { slug: string; context: () => ChatContext; where: string; onSettings: () => void; statusKey: number } & Pointing) {
   const [items, setItems] = useState<Item[]>([]);
   const [status, setStatus] = useState<AiStatus | null>(null);
-  const [settings, setSettings] = useState(false);
   const [running, setRunning] = useState(false);
   const [input, setInput] = useState('');
-  const [model, setModel] = useState(() => store.get('vs-chat-model'));
+  const { hints } = usePrefs();
   const list = useRef<HTMLDivElement>(null);
   const ta = useRef<HTMLTextAreaElement>(null);
   const provider = status?.provider;
@@ -401,12 +395,9 @@ export function ChatPanel({ slug, context, where, refs, onRemoveRef, onClearRefs
   useEffect(() => {
     fetch('/api/ai')
       .then((r) => r.json())
-      .then((s: AiStatus) => {
-        setStatus(s);
-        if (!s.provider) setSettings(true);
-      })
+      .then(setStatus)
       .catch(() => undefined);
-  }, []);
+  }, [statusKey]);
 
   useEffect(() => {
     let alive = true;
@@ -424,10 +415,10 @@ export function ChatPanel({ slug, context, where, refs, onRemoveRef, onClearRefs
     };
   }, [slug]);
 
-  // Conversation sticks to the newest message; settings open at the top
+  // Conversation sticks to the newest message
   useEffect(() => {
-    list.current?.scrollTo({ top: settings ? 0 : list.current.scrollHeight });
-  }, [items, settings]);
+    list.current?.scrollTo({ top: list.current.scrollHeight });
+  }, [items]);
 
   // A new pointed-at reference puts the cursor in the input
   useEffect(() => {
@@ -445,7 +436,7 @@ export function ChatPanel({ slug, context, where, refs, onRemoveRef, onClearRefs
     setRunning(true);
     setItems((xs) => [...xs, { role: 'user', text: msg, refs: sent.map((r) => r.label), tools: [] }, { role: 'assistant', text: '', tools: [], pending: true }]);
     try {
-      const r = await post('/api/chat', { slug, message: msg, refs: sent.map(({ label, detail }) => ({ label, detail })), context: context(), model });
+      const r = await post('/api/chat', { slug, message: msg, refs: sent.map(({ label, detail }) => ({ label, detail })), context: context(), model: getPrefs().claudeModel || undefined });
       const reader = r.body!.getReader();
       const dec = new TextDecoder();
       let buf = '';
@@ -481,55 +472,48 @@ export function ChatPanel({ slug, context, where, refs, onRemoveRef, onClearRefs
   return (
     <div className="chat">
       <div className="chat-head">
-        <button className={`conn${provider ? ' ok' : ' off'}${settings ? ' open' : ''}`} onClick={() => setSettings((x) => !x)} title={tr('Connection settings', '连接设置')}>
+        <button className={`conn${provider ? ' ok' : ' off'}`} onClick={onSettings} title={tr('AI connection (Settings)', 'AI 连接（设置）')}>
           <i />
           {status ? providerName(status) : tr('Checking', '检查中')}
           <Icon name="gear" size={13} />
         </button>
         <span className="grow" />
-        {provider === 'claude-code' && !settings ? (
-          <select
-            className="model"
-            value={model}
-            onChange={(e) => {
-              setModel(e.target.value);
-              store.set('vs-chat-model', e.target.value);
-            }}
-            title={tr('Model', '模型')}
-          >
-            {MODELS.map(([v, l]) => (
-              <option key={v} value={v}>
-                {l}
-              </option>
-            ))}
-          </select>
-        ) : null}
-        {!settings ? (
-          <button className="mini" onClick={fresh} disabled={running || !items.length} title={tr('Clear the conversation and start fresh', '清空对话，开始新的上下文')}>
-            {tr('New chat', '新对话')}
-          </button>
-        ) : null}
+        <button className="mini" onClick={fresh} disabled={running || !items.length} title={tr('Clear the conversation and start fresh', '清空对话，开始新的上下文')}>
+          {tr('New chat', '新对话')}
+        </button>
       </div>
       <div className="chat-list" ref={list}>
-        {settings ? (
-          <Connection st={status} onChange={setStatus} onClose={() => setSettings(false)} />
+        {status && !provider ? (
+          <div className="chat-empty">
+            <div className="chat-hello">
+              <Icon name="sparkle" size={22} />
+              <p>{tr('The AI isn’t connected yet. Use your Claude Code login, a Claude API key, or another model such as OpenAI, Gemini or DeepSeek.', 'AI 还没连接。可以用 Claude Code 登录、Claude API Key，或者 OpenAI、Gemini、DeepSeek 等其他模型。')}</p>
+            </div>
+            <button className="primary" onClick={onSettings}>
+              {tr('Connect the AI', '连接 AI')}
+            </button>
+          </div>
         ) : !items.length ? (
           <div className="chat-empty">
             <div className="chat-hello">
               <Icon name="sparkle" size={22} />
               <p>{tr('Say what to change. Edits show up in the preview right away, and you can undo them.', '直接说要怎么改。改动马上出现在预览里，也能撤销。')}</p>
             </div>
-            <div className="chat-tip">
-              <kbd>Ctrl</kbd>
-              <span>{tr('+ click anything (a scene, a caption, a spot in the preview, an effect, a setting) to point the AI at it, then say what you think.', '+ 点任何东西（段落、字幕、画面上某一点、特效、某个设置），就把它指给 AI，再说你的意见。')}</span>
-            </div>
-            <div className="sugg">
-              {SUGGEST.map((s) => (
-                <button key={s} className="sugg-btn" onClick={() => send(s)} disabled={!provider}>
-                  {s}
-                </button>
-              ))}
-            </div>
+            {hints ? (
+              <>
+                <div className="chat-tip">
+                  <kbd>Ctrl</kbd>
+                  <span>{tr('+ click anything (a scene, a caption, a spot in the preview, an effect, a setting) to point the AI at it, then say what you think.', '+ 点任何东西（段落、字幕、画面上某一点、特效、某个设置），就把它指给 AI，再说你的意见。')}</span>
+                </div>
+                <div className="sugg">
+                  {SUGGEST.map((s) => (
+                    <button key={s} className="sugg-btn" onClick={() => send(s)} disabled={!provider}>
+                      {s}
+                    </button>
+                  ))}
+                </div>
+              </>
+            ) : null}
           </div>
         ) : (
           items.map((it, i) =>
@@ -571,9 +555,9 @@ export function ChatPanel({ slug, context, where, refs, onRemoveRef, onClearRefs
           )
         )}
       </div>
-      {!settings ? (
+      {provider || !status ? (
         <div className="chat-input">
-          <div className="ctx">{where}</div>
+          {hints ? <div className="ctx">{where}</div> : null}
           {refs.length ? (
             <div className="chat-refs">
               {refs.map((r) => (
@@ -592,7 +576,7 @@ export function ChatPanel({ slug, context, where, refs, onRemoveRef, onClearRefs
               ref={ta}
               value={input}
               rows={2}
-              placeholder={!provider ? tr('Connect the AI above first', '先在上面连接 AI') : refs.length ? tr('What do you think about this?', '你觉得这里怎么样？要怎么改？') : tr('e.g. make the selected scene 3 s long and give it a warm look', '比如：把选中这段缩短到 3 秒，加个暖色滤镜')}
+              placeholder={!provider ? tr('Checking the AI connection…', '正在检查 AI 连接…') : refs.length ? tr('What do you think about this?', '你觉得这里怎么样？要怎么改？') : tr('e.g. make the selected scene 3 s long and give it a warm look', '比如：把选中这段缩短到 3 秒，加个暖色滤镜')}
               disabled={!provider}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => {
