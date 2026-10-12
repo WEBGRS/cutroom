@@ -129,6 +129,8 @@ export class Draft {
 
 // JianyingPro's draft folder on this computer, if it is installed
 export function jianyingRoot(): string | null {
+  // Tests and sandboxes point this elsewhere
+  if (process.env.CUTROOM_JIANYING_ROOT) return process.env.CUTROOM_JIANYING_ROOT;
   const c =
     process.platform === 'win32'
       ? path.join(process.env.LOCALAPPDATA ?? path.join(os.homedir(), 'AppData', 'Local'), 'JianyingPro', 'User Data', 'Projects', 'com.lveditor.draft')

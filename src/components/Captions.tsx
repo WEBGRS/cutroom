@@ -256,12 +256,15 @@ export const ChapterBar: React.FC<{ tl: Timeline; layout: Layout; theme: Theme }
   );
 };
 
+// Thin dark outline: small text stays readable over bright footage
+const OUTLINE_SM = [[2, 0], [-2, 0], [0, 2], [0, -2], [1.5, 1.5], [-1.5, 1.5], [1.5, -1.5], [-1.5, -1.5]].map(([x, y]) => `${x}px ${y}px 0 rgba(0,0,0,.7)`).join(', ');
+
 export const TallHeader: React.FC<{ title: string; en?: string; theme: Theme }> = ({ title, en, theme }) => (
   <div style={{ position: 'absolute', left: 0, right: 0, top: 150, textAlign: 'center', fontFamily: SANS, padding: '0 50px' }}>
     <div style={{ fontSize: 68, fontWeight: 900, color: '#fff', lineHeight: 1.15, textShadow: '0 0 4px rgba(0,0,0,.85), 0 6px 30px rgba(0,0,0,.5)' }}>
       <Rich text={title} color={theme.accent2 ?? theme.accent} />
     </div>
-    {en ? <div style={{ fontSize: 26, fontWeight: 700, color: 'rgba(255,255,255,.92)', marginTop: 4, textShadow: '0 0 3px rgba(0,0,0,.9), 0 2px 10px rgba(0,0,0,.6)' }}>{en}</div> : null}
+    {en ? <div style={{ fontSize: 26, fontWeight: 700, color: 'rgba(255,255,255,.92)', marginTop: 4, textShadow: `${OUTLINE_SM}, 0 2px 10px rgba(0,0,0,.6)` }}>{en}</div> : null}
   </div>
 );
 

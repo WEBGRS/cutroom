@@ -102,6 +102,59 @@ export function halve(f: Uint8Array, w: number, h: number): Uint8Array {
   return out;
 }
 
+// Share of a 6×4 grid whose picture structure changed between a and b. Zero-mean correlation ignores light and
+// exposure, so a time-lapse sky changing over a still landscape stays low while a real cut changes nearly every cell.
+// Cells that are empty in both frames (a dark background around a small logo) don't count either way.
+export function structureChange(a: Uint8Array, b: Uint8Array, w: number, h: number): number {
+  const gx = 6;
+  const gy = 4;
+  let changed = 0;
+  let counted = 0;
+  for (let j = 0; j < gy; j++)
+    for (let i = 0; i < gx; i++) {
+      const x0 = Math.floor((i * w) / gx);
+      const x1 = Math.floor(((i + 1) * w) / gx);
+      const y0 = Math.floor((j * h) / gy);
+      const y1 = Math.floor(((j + 1) * h) / gy);
+      let sa = 0;
+      let sb = 0;
+      let n = 0;
+      for (let y = y0; y < y1; y++)
+        for (let x = x0; x < x1; x++) {
+          sa += a[y * w + x];
+          sb += b[y * w + x];
+          n++;
+        }
+      const ma = sa / n;
+      const mb = sb / n;
+      let cov = 0;
+      let va = 0;
+      let vb = 0;
+      for (let y = y0; y < y1; y++)
+        for (let x = x0; x < x1; x++) {
+          const da = a[y * w + x] - ma;
+          const db = b[y * w + x] - mb;
+          cov += da * db;
+          va += da * da;
+          vb += db * db;
+        }
+      const fa = va / n < 25;
+      const fb = vb / n < 25;
+      // Empty in both: only a big change of level counts
+      if (fa && fb) {
+        if (Math.abs(ma - mb) > 40) {
+          changed++;
+          counted++;
+        }
+        continue;
+      }
+      counted++;
+      // Detail appearing or vanishing, or different detail
+      if (fa || fb || cov / Math.sqrt(va * vb) < 0.5) changed++;
+    }
+  return counted ? changed / counted : 0;
+}
+
 const median = (xs: number[]) => {
   if (!xs.length) return 0;
   const s = [...xs].sort((p, q) => p - q);
@@ -127,6 +180,9 @@ export function detectCuts(frames: Uint8Array[], w: number, h: number, fps: numb
   for (let t = 1; t < n; t++) d.push(frameDiff(small[t - 1], small[t]));
   const hardAbs = 0.11 - 0.05 * sens;
   const residualMin = 0.06 - 0.025 * sens;
+  // A cut changes the structure of most of the frame, not just the sky or one panel
+  // (measured: real cuts 0.63–1.0, a time-lapse sky 0.13–0.21)
+  const structMin = 0.6 - 0.35 * sens;
   const cuts: { t: number; score: number }[] = [];
   // Hard cuts: a jump well above the local level that motion compensation can't explain
   for (let t = 1; t < n; t++) {
@@ -135,7 +191,7 @@ export function detectCuts(frames: Uint8Array[], w: number, h: number, fps: numb
     for (let k = Math.max(1, t - 10); k <= Math.min(n - 1, t + 10); k++) if (k !== t) around.push(d[k]);
     if (d[t] < 2.5 * median(around) + 0.02) continue;
     const r = estimateMotion(frames[t - 1], frames[t], w, h, 6).residual;
-    if (r >= residualMin) cuts.push({ t, score: r });
+    if (r >= residualMin && structureChange(frames[t - 1], frames[t], w, h) >= structMin) cuts.push({ t, score: r });
   }
   // Soft cuts (dissolves, wipes): frames g apart differ a lot after compensation, each side is steady
   const g = Math.max(2, Math.round(0.25 * fps));
@@ -152,6 +208,7 @@ export function detectCuts(frames: Uint8Array[], w: number, h: number, fps: numb
     const before = t - 2 * g >= 0 ? frameDiff(small[t - 2 * g], small[t - g]) : 0;
     const after = t + 2 * g < n ? frameDiff(small[t + g], small[t + 2 * g]) : 0;
     if (before > far[t] * 0.5 || after > far[t] * 0.5) continue;
+    if (structureChange(frames[t - g], frames[t + g], w, h) < structMin) continue;
     cuts.push({ t, score: r });
   }
   // Keep the stronger of cuts closer than the shortest shot

@@ -55,7 +55,11 @@ export function exportPlan(o: ExportOpts) {
   const env: Record<string, string> = {};
   if (o.maxMb && o.seconds && codec !== 'gif' && codec !== 'prores') {
     const v = videoBitrate(o.maxMb, o.seconds);
-    if (v < 150) throw new Error(`${o.maxMb} MB is too small for ${o.seconds.toFixed(0)} s of video (it leaves ${v} kbit/s); allow more, or export a shorter cut`);
+    if (v < 150) {
+      // The smallest size that still leaves a watchable 150 kbit/s of video
+      const need = Math.ceil((((150 + AUDIO_KBPS) * 1000 * o.seconds) / (8 * 1024 * 1024 * 0.94)) * 10) / 10;
+      throw new Error(`${o.maxMb} MB is too small for ${o.seconds.toFixed(0)} s of video: allow at least ${need} MB, or export a shorter cut`);
+    }
     args.push(`--video-bitrate=${v}k`, `--audio-bitrate=${AUDIO_KBPS}k`);
     env.CUTROOM_BITRATE = '1';
   }

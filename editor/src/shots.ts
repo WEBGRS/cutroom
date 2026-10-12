@@ -100,7 +100,7 @@ export async function analyzeShots(o: { slug: string; file: string; name?: strin
     const text = subs.filter((s) => s.b > start + 0.05 && s.a < end - 0.05).map((s) => s.text).join(' ');
     return { i: i + 1, start, end, dur: end - start, move: mv.move, pan: mv.pan, tilt: mv.tilt, zoom: mv.zoom, activity: mv.activity, keys: [], ...(text ? { text } : {}) };
   });
-  log(`${shots.length} shots; grabbing keyframes …`);
+  log(`${shots.length} shot${shots.length === 1 ? '' : 's'}; grabbing keyframes …`);
   await inBatches(shots, 4, async (s) => {
     for (const [k, f] of [0.1, 0.5, 0.9].entries()) {
       const rel = `k/${String(s.i).padStart(3, '0')}-${'abc'[k]}.jpg`;
@@ -135,7 +135,7 @@ export function summary(r: ShotReport, dir: string, lang: 'en' | 'zh' = 'en'): s
   const zh = lang === 'zh';
   const mv = (m: CameraMove) => MOVE_NAMES[m][zh ? 1 : 0];
   const lines = [
-    `${r.name}: ${fmt(r.duration)}, ${s.count} shots; average ${s.mean.toFixed(2)} s, median ${s.median.toFixed(2)} s, shortest ${s.min.toFixed(2)} s, longest ${s.max.toFixed(2)} s; ${s.perMinute.toFixed(1)} cuts a minute`,
+    `${r.name}: ${fmt(r.duration)}, ${s.count} shot${s.count === 1 ? '' : 's'}; average ${s.mean.toFixed(2)} s, median ${s.median.toFixed(2)} s, shortest ${s.min.toFixed(2)} s, longest ${s.max.toFixed(2)} s; ${s.perMinute.toFixed(1)} cuts a minute`,
     `camera: ${Object.entries(s.moves).sort((a, b) => b[1] - a[1]).map(([m, n]) => `${mv(m as CameraMove)} ${n}`).join(', ')}`,
     ...r.shots.map((x) => `#${String(x.i).padEnd(3)} ${fmt(x.start)}  ${x.dur.toFixed(2).padStart(5)} s  ${mv(x.move).padEnd(12)}  ${path.resolve(dir, '..', '..', x.keys[1])}${x.text ? `  "${x.text.slice(0, 60)}"` : ''}`),
     `page: ${path.join(dir, 'index.html')}; with the editor running it is at /${path.basename(path.resolve(dir, '..', '..'))}/ref/${r.name}/index.html (click a shot to play it)`,
@@ -197,7 +197,7 @@ const name = (m) => R.names[m][zh ? 1 : 0];
 const fmt = (t) => Math.floor(t / 60) + ':' + (t % 60).toFixed(2).padStart(5, '0');
 const s = R.stats;
 document.querySelector('header').innerHTML = '<h1>' + R.name + '</h1>' + [
-  [s.count, T('shots', '个镜头')], [fmt(R.duration), T('long', '总长')], [s.mean.toFixed(2) + ' s', T('average', '平均')], [s.median.toFixed(2) + ' s', T('median', '中位')],
+  [s.count, T(s.count === 1 ? 'shot' : 'shots', '个镜头')], [fmt(R.duration), T('long', '总长')], [s.mean.toFixed(2) + ' s', T('average', '平均')], [s.median.toFixed(2) + ' s', T('median', '中位')],
   [s.min.toFixed(2) + ' / ' + s.max.toFixed(2) + ' s', T('shortest / longest', '最短 / 最长')], [s.perMinute.toFixed(1), T('cuts a minute', '次切换/分钟')],
 ].map(([v, l]) => '<span class="stat"><b>' + v + '</b>' + l + '</span>').join('');
 const video = document.querySelector('video');

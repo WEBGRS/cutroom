@@ -149,6 +149,22 @@ test('silences: long pauses are cut with padding, short ones and quiet recording
   assert.deepEqual(speechRanges(new Int16Array(rate).fill(5), rate).keep, [[0, 1]]);
 });
 
+test('time-lapse: a sky that changes every frame over still ground is not a cut; a real cut still is', () => {
+  const ground = texture(11);
+  const frames: Uint8Array[] = [];
+  for (let i = 0; i < 90; i++) {
+    const sky = view(texture(100 + i), 50, 40);
+    const land = view(ground, 120, 90);
+    const flicker = (i % 3) * 14;
+    // Top half: a different sky (and exposure) every frame; bottom half: the same landscape
+    frames.push(Uint8Array.from(land, (v, j) => (j < (H / 2) * W ? Math.min(255, sky[j] + flicker) : v)));
+  }
+  assert.deepEqual(detectCuts(frames, W, H, 30), [0], 'no cuts in the time-lapse');
+  const other = texture(77);
+  const withCut = [...frames.slice(0, 45), ...Array.from({ length: 45 }, () => view(other, 140, 60))];
+  assert.ok(detectCuts(withCut, W, H, 30).includes(45), 'the real cut is found');
+});
+
 test('a single shot gives one start and no cuts', () => {
   const t = texture(5);
   const frames = Array.from({ length: 60 }, (_, i) => view(t, 100, 70 + i * 0.5));

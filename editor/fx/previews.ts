@@ -44,6 +44,8 @@ const todo = jobs.filter(want).filter((j) => force || !fs.existsSync(path.join(O
 console.log(`${todo.length} of ${jobs.length} previews to render`);
 if (!todo.length) process.exit(0);
 const serveUrl = await bundle({ entryPoint: path.resolve('src/index.ts') });
+// Each bundle is a full copy of public/ in the temp folder; never leave one behind
+process.on('exit', () => fs.rmSync(serveUrl, { recursive: true, force: true }));
 let n = 0;
 for (const j of todo) {
   const dir = path.join(OUT, j.cat);
@@ -60,3 +62,5 @@ for (const j of todo) {
     console.log(`FAIL ${j.cat}/${fileId(j.id)}: ${(e as Error).message.split('\n')[0]}`);
   }
 }
+// The renderer's browser keeps the process alive; leave (and clean up) explicitly
+process.exit(0);

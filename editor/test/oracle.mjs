@@ -45,6 +45,8 @@ const SHELL = path.resolve('node_modules/.remotion/chrome-headless-shell/win64/c
 // A fresh install has no headless shell until the first render; fetch it now
 await ensureBrowser();
 const serveUrl = await bundle({ entryPoint: path.resolve('src/index.ts'), ...(process.env.VS_DATA ? { publicDir: process.env.VS_DATA } : {}) });
+// Each bundle is a full copy of public/ in the temp folder (about 700 MB); never leave one behind
+process.on('exit', () => fs.rmSync(serveUrl, { recursive: true, force: true }));
 // Same text/colour flags Remotion's renderer launches with
 const FLAGS = ['--font-render-hinting=none', '--force-color-profile=srgb', '--hide-scrollbars'];
 const browser = await chromium.launch({ ...(system ? { channel: 'chrome' } : { executablePath: SHELL }), headless: true, args: ['--autoplay-policy=no-user-gesture-required', ...(system ? [] : FLAGS)] });
