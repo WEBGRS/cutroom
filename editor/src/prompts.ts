@@ -20,6 +20,8 @@ export const PROMPTS: PromptGroup[] = [
       { en: 'Watch the whole video and name the 3 changes that would help most, with reasons. Don’t edit yet.', zh: '看一遍整条片子，挑出最该改的 3 处并说明原因，先别动手。' },
       { en: 'Check before export: captions that are too long, lines without voice-over, empty scenes, sound effects that overlap. List them, then fix them one by one.', zh: '导出前检查：字幕太长、没配音的句子、空段落、互相重叠的音效，先列出来，再逐个修。' },
       { en: 'Make the first 3 seconds grab attention: open on the finished result, no build-up.', zh: '把开头 3 秒改得更抓人：一上来就给成品画面或结果，不要铺垫。' },
+      { en: 'Go through the video scene by scene: what the narration says, what the picture adds. Where the picture only repeats the words, propose something better.', zh: '逐段过一遍：旁白说了什么、画面补充了什么。画面只是在重复旁白的地方，给出更好的画面方案。' },
+      { en: 'Export for video platforms at -14 LUFS.', zh: '按视频平台的响度（-14 LUFS）导出。' },
     ],
   },
   {
@@ -63,6 +65,9 @@ export const PROMPTS: PromptGroup[] = [
     items: [
       { en: 'Record 【web address】: 【what to show, e.g. search for something and open the first result】. Add it after the selected scene and caption each step.', zh: '录一段 【网址】：【要演示的操作，比如搜索某个词再打开第一个结果】。加到选中这段后面，每一步配一句字幕。' },
       { en: 'Record a demo of this editor: 【what to show, e.g. pick a transition, preview it, then play】.', zh: '录一段这个软件的使用演示：【要演示的操作，比如选一个转场、预览、再播放】。' },
+      { en: 'Record me using 【app, e.g. JianyingPro】: 【what I will do】. Put it into 【scene】 and align the captions to the steps.', zh: '录我操作 【软件，比如剪映】：【我要演示的操作】。替换到 【段落】 里，字幕对齐到每一步。' },
+      { en: 'Turn the cards that only repeat the narration into screen recordings, and tell me what I need to record.', zh: '把只是在重复旁白的卡片换成录屏，告诉我需要录什么。' },
+      { en: 'I recorded 【path to the video】 myself. Import it, find the key moments and put it after the selected scene.', zh: '我自己录了 【视频文件路径】，导入进来，找出关键时刻，加到选中这段后面。' },
       { en: 'Record 【web address】 at phone size for the 9:16 version.', zh: '把 【网址】 录成手机竖屏版，用在 9:16 版本里。' },
       { en: 'Add a hand-drawn circle or arrow at each key step of the recordings.', zh: '在录屏的每个关键步骤上加手绘圈或箭头。' },
     ],

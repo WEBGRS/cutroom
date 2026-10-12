@@ -6,6 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { ROOT } from './store';
 import { killTree } from './proc';
+import { captureFfmpeg, desktopSupported } from './desktop';
 import { lookDir } from './look';
 import { L } from './settings';
 
@@ -127,7 +128,13 @@ export async function agentState(id: AgentId): Promise<AgentState> {
 const toml = (s: string) => JSON.stringify(s);
 const MCP = () => path.join(ROOT, 'editor', 'dist', 'mcp.mjs');
 // The CLIs start the MCP server with a trimmed environment: where the projects live, and (desktop app) run Electron as Node
-const mcpEnv = (): Record<string, string> => Object.fromEntries(['VS_DATA', 'VS_ROOT', 'ELECTRON_RUN_AS_NODE'].filter((k) => process.env[k]).map((k) => [k, process.env[k]!]));
+// Some agents start MCP servers with a trimmed environment; desktop recording needs Windows' folders and its FFmpeg
+const mcpEnv = (): Record<string, string> => {
+  const env = Object.fromEntries(['VS_DATA', 'VS_ROOT', 'ELECTRON_RUN_AS_NODE', 'SystemRoot', 'LOCALAPPDATA', 'CUTROOM_APPDIR', 'CUTROOM_DESK_FAKE'].filter((k) => process.env[k]).map((k) => [k, process.env[k]!]));
+  const ff = desktopSupported() ? captureFfmpeg() : null;
+  if (ff) env.CUTROOM_FFMPEG = ff;
+  return env;
+};
 
 // Gemini CLI reads MCP servers from <workspace>/.gemini/settings.json; the workspace must sit outside any git repo
 function geminiWorkspace(slug: string): string {

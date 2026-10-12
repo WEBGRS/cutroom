@@ -7,6 +7,7 @@ import { killTree } from './proc';
 import { engineStatus, installModel, lineStates, modelStatus, sample, voiceProject, voiceSettings, writeVoiceSettings, type Lang, type VoiceProgress } from './voice';
 import type { EngineId } from './voices';
 import { findBrowser, recordPage } from './record';
+import { cleanName, desktopSupported, ffmpegStatus, listMonitors, listWindows, recordDesktop, stopActive } from './desktop';
 import type { Doc } from './ops';
 import { aiStatus, aiTest, chat, compatModels, history, isRunning, provider, reset, stop, writeAi } from './chat';
 import { agentDef, installAgent, openSignIn, forgetAgents, type AgentId } from './agents';
@@ -223,6 +224,20 @@ interface RecordJob {
   error?: string;
 }
 let recordJob: RecordJob | null = null;
+
+// A desktop recording started from the editor; the person stops it on the record bar (or here)
+interface DeskJob {
+  slug: string;
+  mode: 'window' | 'area' | 'screen';
+  title?: string;
+  state: 'starting' | 'waiting' | 'recording' | 'saving' | 'done' | 'error';
+  note?: string;
+  file?: string;
+  duration?: number;
+  clicks?: number;
+  error?: string;
+}
+let deskJob: DeskJob | null = null;
 
 // One voice-over job at a time; progress goes out as server-sent events
 interface VoiceJob extends VoiceProgress {
@@ -459,6 +474,56 @@ const server = http.createServer(async (req, res) => {
       return send(res, 200, { job });
     }
     if (p === '/api/record' && req.method === 'GET') return send(res, 200, { job: recordJob, browser: !!findBrowser() });
+    // ---- desktop recording (Windows): an app window or a screen, with the person at the controls ----
+    if (p === '/api/desktop' && req.method === 'GET') {
+      if (!desktopSupported()) return send(res, 200, { supported: false });
+      try {
+        const [wins, monitors] = await Promise.all([listWindows(), listMonitors()]);
+        const windows = wins.filter((w) => !w.minimized).map((w) => ({ hwnd: w.hwnd, title: w.title, exe: w.exe, w: w.client.w, h: w.client.h, foreground: w.foreground }));
+        return send(res, 200, { supported: true, ffmpeg: ffmpegStatus(), windows, monitors, job: deskJob });
+      } catch (e) {
+        return send(res, 200, { supported: true, error: (e as Error).message, job: deskJob });
+      }
+    }
+    if (p === '/api/desktop/record' && req.method === 'POST') {
+      const b = await body(req);
+      checkSlug(b.slug);
+      if (deskJob && !['done', 'error'].includes(deskJob.state)) return send(res, 409, { error: L('A recording is already running', '已经在录了') });
+      const mode = (['window', 'area', 'screen'] as const).find((m) => m === b.mode) ?? 'window';
+      if (mode !== 'screen' && !(Number(b.hwnd) > 0)) return send(res, 400, { error: L('Pick a window to record', '选一个要录的窗口') });
+      const stem = mode === 'screen' ? 'screen' : cleanName(String(b.exe ?? 'app').replace(/\.exe$/i, ''));
+      const job: DeskJob = { slug: b.slug, mode, title: b.title, state: 'starting' };
+      deskJob = job;
+      broadcast({ type: 'desk', job });
+      recordDesktop({
+        slug: b.slug,
+        name: stem,
+        hwnd: mode === 'screen' ? undefined : Number(b.hwnd),
+        mode,
+        monitor: mode === 'screen' && Number.isInteger(b.monitor) ? b.monitor : undefined,
+        now: true,
+        onState: (st) => {
+          job.state = st;
+          job.note = undefined;
+          broadcast({ type: 'desk', job });
+        },
+        // Download progress of the capture FFmpeg (first recording only)
+        log: (line) => {
+          if (/%|FFmpeg/.test(line)) {
+            job.note = line.trim();
+            broadcast({ type: 'desk', job });
+          }
+        },
+      })
+        .then((r) => Object.assign(job, { state: 'done', file: r.file, duration: r.duration, clicks: r.clicks, note: undefined }))
+        .catch((e) => Object.assign(job, { state: 'error', error: (e as Error).message.split(/\r?\n/)[0].slice(0, 300) }))
+        .finally(() => broadcast({ type: 'desk', job }));
+      return send(res, 200, { job });
+    }
+    if (p === '/api/desktop/stop' && req.method === 'POST') {
+      const b = await body(req);
+      return send(res, 200, { ok: stopActive(b.cancel ? 'cancel' : 'stop') });
+    }
     // ---- AI voice-over ----
     if (p === '/api/voice' && req.method === 'GET') {
       const lang: Lang = url.searchParams.get('lang') === 'en' ? 'en' : 'zh';

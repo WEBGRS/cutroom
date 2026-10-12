@@ -23,6 +23,7 @@ files:
   - public/_fx/**
   - public/showcase/**
   - tools/vclock.js
+  - tools/deskrec.cs
   - remotion.config.ts
   - tsconfig.json
   - package.json

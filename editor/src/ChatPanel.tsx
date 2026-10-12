@@ -100,7 +100,11 @@ const store = {
 const post = (url: string, body: object) => fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
 
 // Inline `code` spans; the rest stays plain text
-function Rich({ text }: { text: string }) {
+// Some agents decorate replies with Markdown: links to their own work folder ([intro](file:///…)) and **bold**
+export const plainReply = (t: string) => t.replace(/\[([^\]\n]+)\]\((?:file:|\/|[A-Za-z]:\\)[^)\s]*\)/g, '$1').replace(/\*\*([^*\n]+)\*\*/g, '$1');
+
+function Rich({ text: raw }: { text: string }) {
+  const text = plainReply(raw);
   const parts = text.split(/(`[^`\n]+`)/g);
   return (
     <>

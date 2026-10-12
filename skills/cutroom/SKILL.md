@@ -33,9 +33,25 @@ Every command is `CUT <project> <command> [args]`. `CUT help` prints all of them
 
 Tell the user they can open the project in the Cutroom editor to adjust it by hand.
 
+## Desktop apps (Windows)
+
+You can't click in desktop apps, but the user can, and Cutroom records them while they do:
+
+1. `CUT my-demo windows excel` lists the open windows whose title or program matches (and the screens).
+2. `CUT my-demo record-window sheet "EXCEL.EXE" --note "Type the totals, then press Stop" --marks typed,chart` puts a record bar on the user's screen with your note. They press Start (F9), do it, press Mark (F9) at each beat, then Stop (F10). The command returns when they stop and saves `cap/sheet.mp4`; pointer moves and clicks are logged, so the camera zooms in on clicks like in a web recording, and Mark presses become `@typed`, `@chart`. `--area` records the window's place on screen, so its menus and pop-ups show. `record-screen <name> [n]` records a whole screen.
+3. Use it like any recording: `add screen cap/sheet.mp4 <after-id>`, or `swap <scene-id> cap/sheet.mp4` to put it into an existing scene (lines and sounds stay).
+
+Ask before starting one: it needs the user's time. A video the user already made (OBS, Game Bar, a phone) comes in with `CUT my-demo import <file>`; name its moments with `mark <recording> <name> <seconds>`.
+
+## Plan, rules and delivery
+
+- `CUT my-demo plan` prints, per scene, what the narration says, what the picture shows and the text on screen, and notes where the picture only repeats the words or the words describe an action that no footage shows.
+- `CUT my-demo rules` lists the user's standing preferences (`<project>/RULES.md`, and `--all` for every project). When the user corrects something meant to last, `rules add "…"`.
+- `export --lufs -14` sets the loudness video platforms expect; every export reports its loudness.
+
 ## When the product changes
 
-`CUT my-demo rerecord all` records every website again from its saved steps. Captions, cuts and sounds anchored to marks follow the new footage. Run `check`: it names anything anchored to a mark the new recording no longer has. Then `look` and `export`.
+`CUT my-demo rerecord all` records every website again from its saved steps (desktop recordings are made again with `record-window <name> … --replace`). Captions, cuts and sounds anchored to marks follow the new footage. Run `check`: it names anything anchored to a mark the new recording no longer has. Then `look` and `export`.
 
 ## Things the library doesn't have: HTML scenes
 

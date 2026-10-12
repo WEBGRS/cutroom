@@ -11,6 +11,7 @@ A video editor for demos of the software you build. Record your app, cut it with
 ## What it does
 
 - **Records your app and remembers how.** The recorder drives a browser through your clicks and typing, logs every cursor move, and drops named marks where you'll talk. Zoom, a smooth cursor and click ripples are added afterwards, so you never re-record to fix the camera. Local dev servers work.
+- **Records desktop apps too.** For anything outside a browser (JianyingPro, Excel, an IDE, a game), a record bar comes up while you work the app, with Start, Mark and Stop on F9/F10. Your pointer and clicks are logged, so the same zoom, cursor and click ripples apply. The assistant can ask you for a recording and put its instructions on the bar, then cut the footage in and line the captions up with your marks.
 - **Re-records after a release.** Each recording keeps its steps. `rerecord all` plays them against the new UI; captions, cuts and sound cues anchored to marks (`"at": "@submit"`) land on the same moments in the new footage, and `check` names any mark that disappeared.
 - **Edits with an AI next to you.** Hold Ctrl and click a spot in the preview, a scene or a caption, then say what you want changed there. The assistant edits through the editor's CLI; its changes appear in the preview within a second and can be undone like your own. It can record websites, write and voice narration, and look at rendered frames to check the text and circles it placed.
   ![The AI panel: a spot Ctrl+clicked in the preview, the request, the command the AI ran, and the circle it drew there](docs/ai-chat.png)
@@ -72,7 +73,7 @@ Open the project in the editor afterwards to adjust it by hand; the agent sees y
 - **58 sound effects**: whooshes, risers, booms, hits, clicks, typing, notification dings and digital blips. Listen in the library, drag one onto the Sound FX lane, then drag it to the exact frame.
 - **Captions**: box, outline or plain styles, any position and size, and most text animations; a Screen Studio-style frame for recordings, frosted cards and a chapter bar.
 - **AI voice-over**: pick a voice in Library › Voiceover and press Voice. The built-in voices are free and run offline (100 Chinese, 3 English; a 147 MB model downloads once); OpenAI, Gemini and Qwen voices use your key from Settings › AI. Only lines without current audio are voiced, so editing a line re-voices just that line.
-- **Screen recordings**: Library › Media › Record a website takes a short scroll through any page; the AI assistant or the CLI records clicks and typing. Recordings keep their steps for `rerecord`.
+- **Screen recordings**: Library › Media › Record a website takes a short scroll through any page; the AI assistant or the CLI records clicks and typing. Recordings keep their steps for `rerecord`. Library › Media › Record an app records a window, a window's area (menus included) or a whole screen on Windows. `import` brings in videos you recorded elsewhere.
 - **AI assistant**: works with a Claude subscription (through Claude Code), a ChatGPT plan (through the Codex CLI), a Google account (through the Gemini CLI or Antigravity), a Claude API key, or any OpenAI-compatible API: OpenAI, Gemini, DeepSeek, Qwen, Kimi, GLM, OpenRouter or a local Ollama. See [Connecting the AI](#connecting-the-ai).
 - **Export**: MP4, 2× resolution, GIF, ProRes, SRT subtitles and a chapter list, from the export menu or `export` on the command line. The export menu shows where files go (desktop app: `Documents\Cutroom\exports\editor`).
 - **Settings** (gear icon or Ctrl+,): language, help hints, default lengths and transition for new scenes, which timeline lanes to show, preview loop and volume, hiding URLs for platforms that ban links, the export folder and preset, the AI connection, shortcuts and the thumbnail cache.
@@ -115,7 +116,7 @@ To build the installer yourself, run `npm run dist` from a source checkout; it l
 
 ## Run from source
 
-Requirements: Node.js 22+, [ffmpeg](https://ffmpeg.org) on your `PATH`, and Chrome for screen recordings and browser tests. Developed and tested on Windows 11.
+Requirements: Node.js 22+, [ffmpeg](https://ffmpeg.org) on your `PATH` (FFmpeg 8 or newer to record desktop apps; otherwise Cutroom downloads a build once, 87 MB), and Chrome for screen recordings and browser tests. Developed and tested on Windows 11.
 
 ```bash
 git clone https://github.com/WEBGRS/cutroom.git
@@ -209,6 +210,12 @@ node editor/dist/cli.mjs showcase voice --lang en --redo          # re-voice the
 node editor/dist/cli.mjs showcase inspect https://example.com     # a page's clickable elements and their selectors
 node editor/dist/cli.mjs showcase record demo https://example.com '[{"wait":800},{"mark":"more"},{"click":"text=\"Learn more\""},{"wait":1500}]'
 node editor/dist/cli.mjs showcase rerecord all                    # record the websites again from their saved steps
+node editor/dist/cli.mjs showcase windows excel                   # open windows that match, and the screens
+node editor/dist/cli.mjs showcase record-window sheet EXCEL.EXE --note "Type the totals, then Stop" --marks typed
+node editor/dist/cli.mjs showcase swap planner cap/sheet.mp4      # new footage in a scene; its lines and sounds stay
+node editor/dist/cli.mjs showcase plan                            # per scene: what is said, what is shown, text that repeats the words
+node editor/dist/cli.mjs showcase rules add "Captions under 16 characters"   # a standing rule the assistant follows
+node editor/dist/cli.mjs showcase export --lufs -14              # export at the loudness video platforms expect
 node editor/dist/cli.mjs showcase html vars loop                  # an HTML scene's variables and their values
 node editor/dist/cli.mjs showcase export --format tall --mode beat
 node editor/dist/cli.mjs my-app new "My app"                      # a new project
@@ -246,8 +253,9 @@ node editor/dist/cli.mjs fx                                       # every effect
 
 - `src/`: the Remotion composition: scenes, camera, captions, effects, transitions. `src/lib/html.ts` is the HTML scene runtime that sets a page's clock frame by frame.
 - `src/fx/`: the effect library: text animations, transitions, overlays, cards, backdrops, scene effects, sounds, and `registry.ts`, the list that drives the UI and the previews.
-- `editor/src/`: UI (React), server, CLI, edit operations, the effects catalog behind the UI, the CLI's `fx` listing and the AI's instructions, plus the AI providers (`chat.ts`, `compat.ts`, `agents.ts`, `mcp.ts`), voice-over (`voice.ts`, `voices.ts`), web recording and re-recording (`record.ts`), HTML scene files (`htmlfiles.ts`) and exports (`exporter.ts`).
+- `editor/src/`: UI (React), server, CLI, edit operations, the effects catalog behind the UI, the CLI's `fx` listing and the AI's instructions, plus the AI providers (`chat.ts`, `compat.ts`, `agents.ts`, `mcp.ts`), voice-over (`voice.ts`, `voices.ts`), web recording and re-recording (`record.ts`), desktop recording (`desktop.ts`), imports and marks (`importfile.ts`), the assistant's saved rules (`rules.ts`), export loudness (`loudness.ts`), HTML scene files (`htmlfiles.ts`) and exports (`exporter.ts`).
 - `tools/capture.mjs`: deterministic screen recorder. `editor/demo/capture.mjs` shows how to script one.
+- `tools/deskrec.cs`: the Windows helper for desktop recording (window list, record bar, pointer log), compiled on first use with the C# compiler that ships with Windows. FFmpeg's `gfxcapture` does the capture.
 - `editor/fx/previews.ts`: renders the hover previews into `public/_fx/` (`npm run previews`; `--only transition/whip` for one).
 - `skills/cutroom/` and `.claude-plugin/`: the skill and plugin for coding agents.
 - `app/`: desktop shell; `electron-builder.yml` and `build/installer.nsh` make the installer, and `build/cutroom.cmd` becomes the command line next to `Cutroom.exe`.
@@ -255,7 +263,7 @@ node editor/dist/cli.mjs fx                                       # every effect
 ## Tests
 
 ```bash
-npm test             # unit tests: edit operations, timeline model, effects catalog, AI providers, voice-over, recording and re-recording, HTML scenes, CLI
+npm test             # unit tests: edit operations, timeline model, effects catalog, AI providers, voice-over, recording and re-recording, desktop recording (on Windows it records a test window it opens, with scripted input), HTML scenes, CLI
 npm run typecheck
 npm run test:e2e     # drives the editor in headless Chrome against a throwaway copy of the showcase
 npm run test:oracle  # preview frames vs. Remotion's renderer (PSNR ≥ 50 dB; most frames identical), HTML scenes included
@@ -270,7 +278,8 @@ The e2e, oracle, app and screenshot scripts need the editor running (`npm run ed
 - The timeline is scene-based and always closed up (ripple). There is no free placement on multiple tracks; overlays and sounds attach to scenes instead.
 - Twelve of Remotion's shader transitions need an experimental Chrome flag, so they are not offered.
 - The built-in voices are clear but not studio quality, and Chinese voices now and then misread a rare word: listen back, or switch to a cloud voice. Your own recording can replace any line through `timings.json`.
-- Recording needs Google Chrome or Microsoft Edge. It opens a fresh browser, so pages behind a login can't be recorded.
+- Recording needs Google Chrome or Microsoft Edge. It opens a fresh browser, so pages behind a login can't be recorded; record those with Record an app instead.
+- Desktop recording is Windows-only. You work the app yourself, so `rerecord` can't repeat it. Window capture leaves out menus and pop-ups, which are separate windows: use the window area mode for those.
 - HTML scenes: sound inside a page is not exported, and pages that load scripts or fonts from the internet need a connection to preview and export. Animation driven by timers or `requestAnimationFrame` can't be seeked; `html check` points it out.
 - Rendering is local. There is no cloud rendering like Remotion Lambda.
 - Windows only so far, and the installer is unsigned.

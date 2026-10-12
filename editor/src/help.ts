@@ -41,14 +41,40 @@ export const HELP = `node editor/dist/cli.mjs <slug> <command> [args] [--format 
                            No steps: a short scroll through the page. Then: add screen cap/<name>.mp4
   rerecord [name ... | all] record websites again from their saved steps (after the site changed); captions and
                            cuts anchored to marks follow the new footage. No arguments: list them
+  windows [word]           app windows on this computer that can be recorded (title, program, size) and the screens;
+                           a word (e.g. jianying, excel) lists only matching ones. Windows only
+  record-window <name> "<title or program>" [--note "what to do"] [--marks a,b,c] [--max sec] [--area]
+                           record a desktop app while THE PERSON works it (you cannot click in desktop apps):
+                           a record bar appears on their screen with your --note, Start (F9), Mark (F9) and
+                           Stop (F10). The command waits until they stop (up to 4 min to start). Pointer moves
+                           and clicks are logged (auto-zoom, click ripples); each Mark press becomes the next
+                           name from --marks. --area records the window's place on screen, so menus and
+                           pop-ups show (and anything on top of it). Saves cap/<name>.mp4
+  record-screen <name> [n] [--note …] [--marks …] [--max sec]
+                           the same for a whole screen (n from windows; default: the main screen)
+  import <file> [name] [--media]
+                           bring in a file from elsewhere: a video becomes a screen recording cap/<name>.mp4
+                           (OBS, Game Bar, a phone); --media keeps a video as footage in media/; images and
+                           audio go to media/
+  mark <recording> <name> <seconds|off>
+                           name a moment in a recording (for imported ones, or a Mark that was missed)
+  plan                     production table: per scene what the narration says, what the picture shows and the text
+                           on screen; notes where the picture repeats the words or an action has no footage
+  rules [add "…" | rm <n>] [--all]
+                           the user's standing rules (this project; --all = every project), read with every request
+  swap <id> <src> [--tall] [--keep-overlays]
+                           put other footage into an existing scene (cap/x.mp4 = screen, media/x.mp4 = clip,
+                           media/x.png = image, scenes/x/index.html): lines, sounds and transition stay; overlays
+                           placed on the old picture are removed unless --keep-overlays
   html [list]              HTML scenes: pages with seekable animation in scenes/ (HyperFrames compositions work as is)
   html new <name> [sec]    starter page sized to the board (--format tall: 1080×1920)
   html write <name> <html> write or replace scenes/<name>/index.html (the page as one argument, a file, or - for stdin)
   html import <path>       copy a page, or a folder with index.html, into scenes/
   html check [name|id]     problems that make a page render differently in preview and export
   html vars <scene-id>     the page's declared variables and their values (set <id> visual.vars.<var> <json>)
-  export [--format wide|tall] [--mode voice|beat] [--lang zh|en] [--clean] [--silent] [--scale 2] [--codec h264|h265|vp9|prores|gif] [--out file]
-                           render the video to a file (default: the export folder). --max-mb N keeps the file under N MB
+  export [--format wide|tall] [--mode voice|beat] [--lang zh|en] [--clean] [--silent] [--scale 2] [--codec h264|h265|vp9|prores|gif] [--out file] [--lufs N]
+                           render the video to a file (default: the export folder) and report its loudness. --max-mb N keeps the file
+                           under N MB; --lufs -14 sets the loudness video platforms expect
   export --jianying [--out <draft folder>] [--name n]
                            a JianyingPro (剪映专业版) draft instead: the picture per scene, narration, music (with its ducking),
                            sound effects and captions on their own tracks, added to JianyingPro's draft list

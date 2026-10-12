@@ -13,6 +13,10 @@ import { boardTemplate, sceneTemplate } from './templates';
 import { installModel, lineStates, modelInstalled, voiceOf, voiceProject, voiceSettings, writeVoiceSettings } from './voice';
 import { ENGINES, engineDef, type EngineId } from './voices';
 import { inspectPage, parseSteps, readRecipes, recordPage, rerecord } from './record';
+import { desktopSupported, listMonitors, listWindows, recordDesktop } from './desktop';
+import { importFile, setMark } from './importfile';
+import { addRule, globalRules, projectRules, removeRule } from './rules';
+import { describe as describeLoudness, measureLoudness, normalizeLoudness } from './loudness';
 import { runExport } from './exporter';
 import { exportJianying } from './jianying';
 import { imagine, type ImageEngine, type Shape } from './imagegen';
@@ -66,6 +70,15 @@ const maxMbArg = flag('max-mb');
 const jianying = has('jianying');
 const transparent = has('transparent');
 const shapeArg = flag('shape');
+const noteArg = flag('note');
+const marksArg = flag('marks');
+const maxArg = flag('max');
+const replace = has('replace');
+const area = has('area');
+const asMedia = has('media');
+const allFlag = has('all');
+const keepOverlays = has('keep-overlays');
+const lufsArg = flag('lufs');
 // An option this CLI doesn't know is an error, not something to silently ignore
 const unknown = args.find((a) => /^--[a-z][\w-]*$/.test(a));
 if (unknown) {
@@ -415,6 +428,46 @@ async function main() {
       if (!rest[0]) throw new Error('inspect <url> [--mobile]');
       return console.log(await inspectPage(rest[0], mobile));
     }
+    case 'windows':
+      return windowsCmd(rest.join(' '));
+    case 'record-window':
+    case 'record-screen':
+      return desktopCmd(cmd, rest);
+    case 'import': {
+      const [file, name] = rest;
+      if (!file) throw new Error('import <file> [name] [--media]  (a video becomes a screen recording in cap/; --media keeps it as footage in media/)');
+      const r = await importFile(slug, file, name, asMedia);
+      if (r.kind === 'screen') {
+        console.log(`imported ${r.file}: ${r.duration!.toFixed(1)} s, ${r.width}×${r.height} (as a screen recording, no clicks logged)`);
+        return console.log(`next: add screen ${r.file} [after-id], or swap <id> ${r.file}; name moments to align captions to: mark ${r.file.slice(4, -4)} <name> <seconds>  (look or shots ${r.file} help find them)`);
+      }
+      console.log(`imported ${r.file}`);
+      return console.log(r.kind === 'audio' ? `use it as music: set - music.src '"${r.file}"'` : `next: add ${r.kind} ${r.file} [after-id], or swap <id> ${r.file}`);
+    }
+    case 'mark': {
+      const [rec, name, at] = rest;
+      if (!rec || !name || at === undefined) throw new Error('mark <recording> <name> <seconds | off>  e.g. mark demo saved 12.4');
+      const r = await setMark(slug, rec, name, at === 'off' ? null : Number(at));
+      return console.log(`${r.file} marks: ${r.marks.map((m) => `@${m.name} ${m.t.toFixed(2)}s`).join(', ') || 'none'}`);
+    }
+    case 'swap':
+      return swapCmd(rest);
+    case 'plan':
+      return planCmd();
+    case 'rules': {
+      const [sub, ...words] = rest;
+      if (sub === 'add') {
+        const list = addRule(slug, words.join(' '), allFlag);
+        return console.log(`saved (${allFlag ? 'every project' : slug}, ${list.length} rule(s)): ${list[list.length - 1]}`);
+      }
+      if (sub === 'rm') {
+        const list = removeRule(slug, Number(words[0]), allFlag);
+        return console.log(`removed; ${list.length} rule(s) left ${allFlag ? 'for every project' : `for ${slug}`}`);
+      }
+      const show = (list: string[]) => list.map((r, i) => `  ${i + 1}. ${r}`).join('\n') || '  none';
+      console.log(`rules for every project (rules add --all "…"):\n${show(globalRules())}`);
+      return console.log(`rules for ${slug} (rules add "…"; rules rm <n>):\n${show(projectRules(slug))}`);
+    }
     case 'record': {
       const [name, url, stepsArg] = rest;
       if (!name || !url) throw new Error('record <name> <url> [steps-json | steps-file] [--mobile] [--size 1280x720]');
@@ -438,6 +491,153 @@ async function main() {
     default:
       console.log(HELP);
   }
+}
+
+// Production table: what each scene's narration says, what its picture shows and the text on screen, with
+// the scenes where the picture only repeats the words, or the words describe an action no footage shows
+const NOT_TEXT = new Set(['kind', 'src', 'url', 'fit', 'frame', 'look', 'pos', 'to', 'from', 'font', 'color', 'accent', 'bg', 'icon', 'lang', 'voice', 'ar', 'zoom', 'enter', 'a', 'b', 'vars']);
+function screenText(v: unknown, out: string[] = []): string[] {
+  if (typeof v === 'string') {
+    // Enum-like values (blurin, left) are settings, not words on screen
+    if (v.trim() && !/^[a-z][a-z0-9-]*$/.test(v.trim()) && !/^#[0-9a-f]{3,8}$|\.(png|jpe?g|mp4|webm|html?|svg|wav|mp3)$|^@|^https?:/i.test(v)) out.push(v.trim());
+  } else if (Array.isArray(v)) v.forEach((x) => screenText(x, out));
+  else if (v && typeof v === 'object') for (const [k, x] of Object.entries(v)) if (!NOT_TEXT.has(k)) screenText(x, out);
+  return out;
+}
+// Share of the on-screen text that is also spoken (character pairs, so it works for Chinese and English)
+function spokenShare(screen: string, said: string): number {
+  const pairs = (s: string) => {
+    const t = s.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
+    return new Set(Array.from({ length: Math.max(0, t.length - 1) }, (_, i) => t.slice(i, i + 2)));
+  };
+  const a = pairs(screen);
+  if (a.size < 4) return 0;
+  const b = pairs(said);
+  let n = 0;
+  for (const p of a) if (b.has(p)) n++;
+  return n / a.size;
+}
+const ACTION = /点击|点开|打开|拖|输入|搜索|选中|切换|导出|上传|录制|安装|运行|\b(click|open|drag|type|search|select|switch|export|upload|install|run|press)\b/i;
+const FOOTAGE_KINDS = new Set(['screen', 'clip', 'image', 'html', 'scroll']);
+async function planCmd() {
+  const { doc } = readDoc(slug);
+  const { tl } = await timeline(doc);
+  const fps = tl.fps;
+  const cut = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
+  console.log(`${slug} · plan (${lang}, ${format}, ${mode === 'beat' ? 'beat cut' : 'narrated'}): what each scene says, what its picture adds, the text on screen`);
+  let flagged = 0;
+  for (const e of tl.scenes) {
+    const sc = doc.board.scenes.find((x) => x.id === e.id)!;
+    const v = (format === 'tall' && sc.tall ? sc.tall : sc.visual) as { kind: string; src?: string };
+    const said = e.lines.map((l) => l.text).join(' ');
+    const text = [...screenText(v), ...(sc.overlays ?? []).flatMap((o) => (o && 'text' in o && typeof o.text === 'string' ? [o.text] : []))].map((t) => plain(t).replace(/\s+/g, ' ')).join(' / ');
+    const shows = v.kind === 'screen' ? `recording ${v.src} ${e.from?.toFixed(1)}→${e.to?.toFixed(1)} s` : v.src ? `${v.kind} ${v.src}` : `${v.kind} card`;
+    console.log(`${String(e.index + 1).padStart(2)} ${pad(e.id, 12)} ${fmtTime(e.start, fps).padStart(7)} ${sec(e.dur, fps).padStart(5)}s`);
+    console.log(`     says:  ${said ? cut(said, 110) : '(no narration)'}`);
+    console.log(`     shows: ${shows}`);
+    if (text) console.log(`     text:  ${cut(text, 110)}`);
+    const share = text && said ? spokenShare(text, said) : 0;
+    if (share >= 0.6 && [...plain(text)].length >= 8) {
+      flagged++;
+      console.log(`     ! ${Math.round(share * 100)}% of the on-screen text is also spoken: the picture repeats the words instead of adding to them (show the thing itself, or cut the text to a short label)`);
+    }
+    if (said && ACTION.test(said) && !FOOTAGE_KINDS.has(v.kind)) {
+      flagged++;
+      console.log(`     ! the narration describes doing something, but the picture is a ${v.kind} card: footage of it would show it (record, record-window, or import, then swap ${e.id} cap/<name>.mp4)`);
+    }
+  }
+  console.log(flagged ? `${flagged} note(s). A note is a suggestion: the user's request decides.` : 'no notes');
+}
+
+// Windows a desktop recording can capture, front to back; a word narrows the list to matching titles or programs
+async function windowsCmd(filter: string) {
+  if (!desktopSupported()) return console.log('desktop recording works on Windows for now; web pages: record <name> <url>');
+  const f = filter.trim().toLowerCase();
+  const all = (await listWindows()).filter((w) => !f || w.title.toLowerCase().includes(f) || w.exe.toLowerCase().includes(f));
+  // Window titles can be private (chats, documents): the full list shows only their start
+  const n = f ? 50 : 24;
+  const short = (t: string) => (t.length > n ? `${t.slice(0, n - 1)}…` : t);
+  const open = all.filter((w) => !w.minimized);
+  console.log(`windows${f ? ` matching "${filter.trim()}"` : ''} (record-window <name> "<title or program>"):`);
+  console.log(open.map((w, i) => `  ${String(i + 1).padStart(2)}. ${short(w.title)}  —  ${w.exe}, ${w.client.w}×${w.client.h}${w.foreground ? ' (in front)' : ''}`).join('\n') || '  none');
+  const mins = all.filter((w) => w.minimized);
+  if (mins.length) console.log(`minimized (the person has to restore them before recording): ${mins.map((w) => `${short(w.title)} (${w.exe})`).join('; ')}`);
+  const mons = await listMonitors();
+  console.log(`screens (record-screen <name> [n]):\n${mons.map((m, i) => `  ${i + 1}. ${m.rect.w}×${m.rect.h}${m.primary ? ' (main)' : ''}${m.scale !== 1 ? `, ${Math.round(m.scale * 100)}% scaling` : ''}`).join('\n')}`);
+}
+
+// A person works an app (or the whole screen) while Cutroom records it: the record bar shows the note,
+// Start/Stop and Mark; clicks and pointer moves are logged for the camera, Mark presses become named marks
+async function desktopCmd(which: string, rest: string[]) {
+  const [name, ...more] = rest;
+  const screen = which === 'record-screen';
+  const what = more.join(' ').trim();
+  if (!name || (!screen && !what)) throw new Error(screen ? 'record-screen <name> [screen number] [--note "what to do"] [--marks a,b] [--max sec]' : 'record-window <name> "<window title or program>" [--area] [--note "what to do"] [--marks a,b] [--max sec]');
+  const marks = marksArg ? marksArg.split(',').map((x) => x.trim()).filter(Boolean) : undefined;
+  if (marks?.some((m) => !/^[\w-]+$/.test(m))) throw new Error('--marks are names of letters, digits, - and _, separated by commas: --marks open,drag,done');
+  const max = maxArg ? Number(maxArg) : 300;
+  if (!(max >= 2 && max <= 1800)) throw new Error('--max is the longest recording in seconds (2–1800)');
+  const mon = screen && what ? Number(what) - 1 : undefined;
+  if (mon !== undefined && !(mon >= 0)) throw new Error('record-screen <name> [n]: n is a screen number from windows');
+  console.log(screen ? `recording screen ${what || 'with the record bar'} …` : `recording the window "${what}" …`);
+  const r = await recordDesktop({
+    slug,
+    name,
+    window: screen ? undefined : /^\d{4,}$/.test(what) ? undefined : what,
+    hwnd: !screen && /^\d{4,}$/.test(what) ? Number(what) : undefined,
+    mode: screen ? 'screen' : area ? 'area' : 'window',
+    monitor: mon,
+    note: noteArg,
+    marks,
+    max,
+    replace,
+    log: (s) => console.log(`  ${s}`),
+  });
+  const ms = r.marks.length ? r.marks.map((m) => `@${m.name} ${m.t.toFixed(2)}s`).join(', ') : 'none';
+  console.log(`saved ${r.file}: ${r.duration.toFixed(1)} s, ${r.width}×${r.height}${r.title ? ` from "${r.title}"` : ''}; ${r.clicks} click(s); marks: ${ms}${r.stopped === 'max' ? ` (stopped at the ${max} s limit)` : r.stopped === 'closed' ? ' (the window was closed)' : ''}`);
+  if (marks && r.marks.length < marks.length) console.log(`note: ${marks.length - r.marks.length} of the planned marks were not pressed (${marks.slice(r.marks.length).join(', ')}); add them with mark ${r.file.slice(4, -4)} <name> <seconds> after finding the moment with look`);
+  console.log(`next: add screen ${r.file} [after-id], or put it into an existing scene: swap <id> ${r.file}. Captions can align to marks ("at": "@name"); the camera zooms in on each click.`);
+}
+
+// New footage into an existing scene: its narration, overlays, sounds and transition stay
+async function swapCmd(rest: string[]) {
+  const [id, src] = rest;
+  if (!id || !src) throw new Error('swap <scene-id> <cap/x.mp4 | media/x.mp4 | media/x.png | scenes/x/index.html> [--tall]');
+  const { doc } = readDoc(slug);
+  const old = doc.board.scenes.find((x) => x.id === id);
+  if (!old) throw new Error(`没有场景 ${id}`);
+  if (!fs.existsSync(path.join(PUBLIC, slug, src))) throw new Error(`no ${src} in the project (media lists the files; import <file> brings one in)`);
+  const kind = /^cap\/[^/]+\.mp4$/i.test(src) ? 'screen' : /\.(mp4|webm|mov)$/i.test(src) ? 'clip' : /\.(png|jpe?g|webp|gif)$/i.test(src) ? 'image' : /\.html?$/i.test(src) ? 'html' : '';
+  if (!kind) throw new Error(`${src}: swap takes a recording (cap/*.mp4), a video or image in media/, or an HTML page in scenes/`);
+  const sc = structuredClone(old);
+  const fresh = sceneTemplate(kind, id, src);
+  const key = tallFlag ? 'tall' : 'visual';
+  const was = (sc[key] ?? sc.visual).kind;
+  sc[key] = fresh.visual;
+  // A card's minimum length meant reading time for the card; footage takes the length of its lines
+  if (!tallFlag) {
+    if (fresh.minSec !== undefined) sc.minSec = fresh.minSec;
+    else delete sc.minSec;
+    if (kind === 'image' && !sc.fx) sc.fx = fresh.fx;
+  }
+  // Overlays were placed on the old picture (a cross over a list item, a circle on a card); they go unless kept
+  const dropped = !keepOverlays && !tallFlag ? (sc.overlays ?? []).filter(Boolean) : [];
+  if (dropped.length) delete sc.overlays;
+  save({ ...replaceScene(doc, id, sc), desc: `${id}${tallFlag ? ' (9:16)' : ''}: ${was} → ${kind} ${src}（台词、音效保留${dropped.length ? `，去掉 ${dropped.length} 个叠加` : ''}）` });
+  if (dropped.length) console.log(`removed ${dropped.length} overlay(s) placed on the old ${was} picture: ${dropped.map((o) => `${o!.kind}${'text' in o! && o!.text ? ` "${plain(String(o!.text)).slice(0, 20)}"` : ''} at ${o!.at}s`).join(', ')} (swap ${id} ${src} --keep-overlays keeps them)`);
+  const { tl } = await timeline(readDoc(slug).doc);
+  const e = tl.scenes.find((x) => x.id === id);
+  if (e && kind === 'screen' && e.capDur !== undefined && e.from !== undefined) {
+    const hold = e.dur / tl.fps - (e.capDur - e.from) / e.rate;
+    if (hold > 0.5) console.log(`note: the recording is ${(e.capDur - e.from).toFixed(1)} s and the narration needs ${(e.dur / tl.fps).toFixed(1)} s, so the last frame would stand still for ${hold.toFixed(1)} s: shorten the lines, or ask for a longer recording`);
+  }
+  const marks = kind === 'screen' ? (() => {
+    const j = path.join(PUBLIC, slug, src.replace(/\.mp4$/i, '.json'));
+    if (!fs.existsSync(j)) return [];
+    return (JSON.parse(fs.readFileSync(j, 'utf8')).events as { type: string; name?: string; t: number }[]).filter((e) => e.type === 'mark').map((e) => `@${e.name} ${e.t.toFixed(1)}s`);
+  })() : [];
+  if (marks.length) console.log(`${src} marks: ${marks.join(', ')}; align a line to one: set ${id} lines.<k>.at '"@<mark>"'`);
+  console.log(`check it: look ${id}${kind === 'screen' ? `; to show only part of the recording: trim ${id} --from <s|@mark> --to <s|@mark>` : ''}`);
 }
 
 // Render the video to a file, like the editor's export button
@@ -465,6 +665,17 @@ async function exportCmd() {
   });
   if (r.code !== 0 || !fs.existsSync(r.out)) throw new Error(`export failed (exit ${r.code})`);
   console.log(`saved ${r.out} (${(fs.statSync(r.out).size / 1048576).toFixed(1)} MB, ${((Date.now() - t0) / 1000).toFixed(0)} s)`);
+  // Sound check: platforms play everything at about -14 LUFS, so a quieter mix just sounds weak
+  if (codecArg === 'gif') return;
+  const loud = measureLoudness(r.out);
+  if (!loud) return console.log('no sound in the export');
+  const target = lufsArg !== undefined ? Number(lufsArg) : undefined;
+  if (target !== undefined) {
+    if (!(target >= -30 && target <= -8)) throw new Error('--lufs is a loudness target from -30 to -8 (-14 for video platforms)');
+    const after = normalizeLoudness(r.out, target, loud);
+    return console.log(`loudness ${describeLoudness(loud)} → ${after ? describeLoudness(after) : '?'}`);
+  }
+  console.log(`loudness ${describeLoudness(loud)}${loud.i < -16 || loud.i > -12 || loud.tp > -1 ? ' (video platforms play at about -14 LUFS: export again with --lufs -14)' : ''}`);
 }
 
 // Record websites again from their saved steps; the edit follows the new footage through its marks
@@ -479,7 +690,12 @@ async function rerecordCmd(rest: string[]) {
   let lost = 0;
   for (const n of names) {
     const rec = all.find((x) => x.name === n);
-    if (!rec) throw new Error(`no saved steps for cap/${n}.mp4 (rerecord lists the ones that have them)`);
+    if (!rec) {
+      const j = path.join(PUBLIC, slug, 'cap', `${n}.json`);
+      const src = fs.existsSync(j) ? (JSON.parse(fs.readFileSync(j, 'utf8')) as { source?: { kind: string; exe?: string } }).source : undefined;
+      if (src?.kind === 'desktop') throw new Error(`cap/${n}.mp4 is a desktop recording (${src.exe ?? 'a screen'}), made by a person working the app, so it has no steps to replay. Record it again: record-window ${n} "${src.exe ?? '<program>'}" --replace --note "…" (press Mark at the same moments and the edit keeps its anchors)`);
+      throw new Error(`no saved steps for cap/${n}.mp4 (rerecord lists the ones that have them)`);
+    }
     console.log(`re-recording cap/${n}.mp4 from ${rec.recipe.url} …`);
     const r = await rerecord(slug, n, (s) => console.log(s));
     console.log(`cap/${n}.mp4: ${r.before !== undefined ? `${r.before.toFixed(1)} s → ` : ''}${r.duration.toFixed(1)} s; marks: ${r.marks.map((m) => `@${m.name} ${m.t.toFixed(2)}s`).join(', ') || 'none'}`);
@@ -645,9 +861,12 @@ function mediaCmd() {
   const caps = list('cap', /\.mp4$/i).map((f) => {
     const j = path.join(dir, f.replace(/\.mp4$/i, '.json'));
     if (!fs.existsSync(j)) return f;
-    const m = JSON.parse(fs.readFileSync(j, 'utf8')) as { duration: number; events: { type: string; name?: string; t: number }[] };
+    const m = JSON.parse(fs.readFileSync(j, 'utf8')) as { duration: number; events: { type: string; name?: string; t: number }[]; source?: { kind: string; title?: string; exe?: string; from?: string } };
     const marks = m.events.filter((e) => e.type === 'mark').map((e) => `@${e.name} ${e.t.toFixed(1)}s`);
-    return `${f}  ${m.duration.toFixed(1)} s${marks.length ? `  marks: ${marks.join(', ')}` : ''}`;
+    const clicks = m.events.filter((e) => e.type === 'down').map((e) => e.t.toFixed(1));
+    // Where it came from: a desktop app (worked by the person) or an imported file; web recordings have recipes
+    const src = m.source?.kind === 'desktop' ? `  from ${m.source.exe || 'the screen'}${clicks.length ? `, clicks at ${clicks.slice(0, 12).join(' ')}${clicks.length > 12 ? ' …' : ''} s` : ', no clicks'}` : m.source?.kind === 'import' ? `  imported (${m.source.from})` : '';
+    return `${f}  ${m.duration.toFixed(1)} s${marks.length ? `  marks: ${marks.join(', ')}` : ''}${src}`;
   });
   const media = list('media', /\.(png|jpe?g|webp|gif|mp4|webm|mov)$/i);
   const audio = list('media', /\.(mp3|wav|m4a)$/i);

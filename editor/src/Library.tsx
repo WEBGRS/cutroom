@@ -237,6 +237,147 @@ function SoundList({ onAdd }: { onAdd: (id: string) => void }) {
   );
 }
 
+// Record an app window or a screen into cap/ (Windows): the person works the app; the record bar has Stop and Mark
+interface DeskWin {
+  hwnd: number;
+  title: string;
+  exe: string;
+  w: number;
+  h: number;
+  foreground: boolean;
+}
+interface DeskJobView {
+  slug: string;
+  state: 'starting' | 'waiting' | 'recording' | 'saving' | 'done' | 'error';
+  note?: string;
+  file?: string;
+  duration?: number;
+  clicks?: number;
+  error?: string;
+}
+function RecordDesk({ slug }: { slug: string }) {
+  const [supported, setSupported] = useState<boolean | null>(null);
+  const [open, setOpen] = useState(false);
+  const [wins, setWins] = useState<DeskWin[]>([]);
+  const [mons, setMons] = useState<{ index: number; rect: { w: number; h: number }; primary: boolean }[]>([]);
+  const [pick, setPick] = useState('');
+  const [mode, setMode] = useState<'window' | 'area' | 'screen'>('window');
+  const [job, setJob] = useState<DeskJobView | null>(null);
+  const [err, setErr] = useState('');
+  const load = async () => {
+    const r = await (await fetch('/api/desktop')).json();
+    setSupported(!!r.supported);
+    if (!r.supported) return;
+    if (r.error) setErr(r.error);
+    // Cutroom's own window is not something to record here
+    const list: DeskWin[] = (r.windows ?? []).filter((w: DeskWin) => !/^Cutroom( |$)/.test(w.title));
+    setWins(list);
+    setMons(r.monitors ?? []);
+    setPick((p) => (list.some((w) => String(w.hwnd) === p) ? p : String(list[0]?.hwnd ?? '')));
+    if (r.job && !['done', 'error'].includes(r.job.state)) setJob(r.job);
+  };
+  useEffect(() => {
+    void load().catch(() => setSupported(false));
+  }, []);
+  const busy = !!job && !['done', 'error'].includes(job.state);
+  useEffect(() => {
+    if (!busy) return;
+    const es = new EventSource('/api/events');
+    es.onmessage = (m) => {
+      const e = JSON.parse(m.data);
+      if (e.type === 'desk' && e.job.slug === slug) setJob(e.job);
+    };
+    return () => es.close();
+  }, [busy, slug]);
+  if (!supported) return null;
+  const go = async () => {
+    setErr('');
+    const w = wins.find((x) => String(x.hwnd) === pick);
+    const monitor = mode === 'screen' ? Number(pick.replace(/^m/, '')) : undefined;
+    const r = await fetch('/api/desktop/record', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ slug, mode, hwnd: w?.hwnd, exe: w?.exe, title: w?.title, monitor }) });
+    const j = await r.json();
+    if (!r.ok) return setErr(j.error);
+    setJob(j.job);
+  };
+  const stop = (cancel = false) => void fetch('/api/desktop/stop', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cancel }) });
+  if (!open)
+    return (
+      <button
+        className="btn"
+        onClick={() => {
+          setOpen(true);
+          void load();
+        }}
+        title={tr('Record an app on this computer, or the whole screen, while you use it', '一边操作一边录下电脑上的软件窗口或整个屏幕')}
+      >
+        <Icon name="screen" />
+        {tr('Record an app', '录制软件')}
+      </button>
+    );
+  const status = !job
+    ? null
+    : job.state === 'done'
+      ? { ok: true, text: tr(`Saved ${job.file} (${job.duration?.toFixed(1)} s, ${job.clicks} clicks): click it below to add it`, `已保存 ${job.file}（${job.duration?.toFixed(1)} 秒，${job.clicks} 次点击），在下面点它加到时间线`) }
+      : job.state === 'error'
+        ? { ok: false, text: job.error ?? '' }
+        : { ok: true, text: job.note ?? (job.state === 'recording' ? tr('Recording. Stop on the record bar at the top of the screen (F10), or here.', '录制中。在屏幕顶部的录制条上点停止（F10），或在这里停止。') : job.state === 'saving' ? tr('Saving…', '保存中…') : tr('Switch to the window now: recording starts after the countdown.', '现在切到要录的窗口：倒计时结束后开始录。')) };
+  return (
+    <div className="recweb">
+      <div className="seg">
+        {(['window', 'area', 'screen'] as const).map((m) => (
+          <button
+            key={m}
+            className={mode === m ? 'on' : ''}
+            disabled={busy}
+            onClick={() => {
+              setMode(m);
+              setPick(m === 'screen' ? `m${mons.find((x) => x.primary)?.index ?? 0}` : String(wins[0]?.hwnd ?? ''));
+            }}
+            title={m === 'area' ? tr("The window's place on screen, with its menus and pop-ups (anything on top of it shows too)", '窗口在屏幕上的那块区域，菜单和弹窗也录得到（盖在上面的东西也会录进去）') : undefined}
+          >
+            {m === 'window' ? tr('Window', '窗口') : m === 'area' ? tr('Window area', '窗口区域') : tr('Whole screen', '整个屏幕')}
+          </button>
+        ))}
+      </div>
+      <div className="recweb-row">
+        <select value={pick} disabled={busy} onChange={(e) => setPick(e.target.value)} onFocus={() => void load()}>
+          {mode === 'screen'
+            ? mons.map((m) => (
+                <option key={m.index} value={`m${m.index}`}>
+                  {tr(`Screen ${m.index + 1}`, `屏幕 ${m.index + 1}`)} · {m.rect.w}×{m.rect.h}
+                  {m.primary ? tr(' (main)', '（主屏）') : ''}
+                </option>
+              ))
+            : wins.map((w) => (
+                <option key={w.hwnd} value={w.hwnd} title={w.title}>
+                  {w.exe.replace(/\.exe$/i, '')} · {w.title.length > 46 ? `${w.title.slice(0, 45)}…` : w.title}
+                </option>
+              ))}
+        </select>
+        {busy ? (
+          <button className="primary" disabled={job!.state === 'saving'} onClick={() => stop()}>
+            <Icon name={job!.state === 'saving' ? 'wait' : 'stop'} size={14} />
+            {tr('Stop', '停止')}
+          </button>
+        ) : (
+          <button className="primary" disabled={!pick} onClick={() => void go()}>
+            <Icon name="cam" size={14} />
+            {tr('Record', '录制')}
+          </button>
+        )}
+        {!busy ? (
+          <button className="icon sm" onClick={() => setOpen(false)} title={tr('Close', '关闭')}>
+            <Icon name="close" size={14} />
+          </button>
+        ) : null}
+      </div>
+      <span className={status && !status.ok ? 'vo-err' : 'lib-note'}>
+        {status ? status.text : err || tr('A record bar appears at the top of the screen. After a 3-second countdown, use the app; clicks get an automatic zoom. Stop with F10, mark moments with F9.', '屏幕顶部会出现录制条。倒计时 3 秒后开始，正常操作软件即可，点击处会自动放大。F10 停止，F9 打标记。')}
+      </span>
+    </div>
+  );
+}
+
 // Record a web page into cap/: a short scroll-through; the AI assistant can script clicks and typing
 function RecordWeb({ slug }: { slug: string }) {
   const [open, setOpen] = useState(false);
@@ -400,6 +541,7 @@ export function Library(p: Props & { tab: LibTab; setTab: (t: LibTab) => void })
               {tr('Import', '导入素材')}
             </button>
             <RecordWeb slug={slug} />
+            <RecordDesk slug={slug} />
           </div>
           {caps.length + vids.length + imgs.length + pages.length ? (
             <>

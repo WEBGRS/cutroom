@@ -140,7 +140,8 @@ p.hint { margin: 8px 0 0; }
 .lib-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 14px; }
 .recweb { flex: 1 1 100%; display: flex; flex-direction: column; gap: 6px; }
 .recweb-row { display: flex; align-items: center; gap: 6px; }
-.recweb-row input { flex: 1; }
+.recweb-row input, .recweb-row select { flex: 1 1 0; width: 0; min-width: 0; }
+.recweb .lib-note, .recweb .vo-err { overflow-wrap: anywhere; }
 .lib-note { font-size: 11px; color: var(--ink3); line-height: 1.45; }
 .lib-note.pad { padding: 12px 2px; }
 .lib-note.pad0 { margin: 0 0 12px; }

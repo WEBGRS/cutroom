@@ -12,7 +12,7 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '.
 
 export const TOOL = {
   name: 'editor',
-  description: `Run one Cutroom CLI command on project "${slug}". Pass the command and its arguments as an array of strings, without any program name or project id, e.g. ["ls","--format","wide"], ["show","intro"], ["set","intro","fx.look","\\"warm\\""]. Returns the command's output.`,
+  description: `Run one Cutroom CLI command on project "${slug}". Pass the command and its arguments as an array of strings, without any program name or project id, e.g. ["ls","--format","wide"], ["show","intro"], ["set","intro","fx.look","\\"warm\\""]. Returns the command's output. Recording, voice-over, look and export can take minutes (record-window waits for the person to press Stop); wait for the result.`,
   inputSchema: { type: 'object', properties: { args: { type: 'array', items: { type: 'string' }, description: 'The command and its arguments' } }, required: ['args'] },
 };
 

@@ -101,6 +101,13 @@ const P: Record<string, React.ReactNode> = {
       <path d="m10.5 7 4-2.2v6.4l-4-2.2" />
     </>
   ),
+  stop: <rect x="4" y="4" width="8" height="8" rx="1.5" fill="currentColor" stroke="none" />,
+  screen: (
+    <>
+      <rect x="1.5" y="2.5" width="13" height="8.5" rx="1.5" />
+      <path d="M6 14h4M8 11v3" strokeLinecap="round" />
+    </>
+  ),
   keyboard: (
     <>
       <rect x="1.5" y="4" width="13" height="8.5" rx="1.5" />
