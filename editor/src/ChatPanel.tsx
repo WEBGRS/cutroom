@@ -2,8 +2,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Icon } from './icons';
 import { nm, tr } from './i18n';
 import type { AiRef } from './pick';
-import { getPrefs, usePrefs } from './prefs';
-import { FEATURED, PROMPTS, SLOT, type PromptItem } from './prompts';
+import { usePrefs } from './prefs';
+import { FEATURED, PROMPTS, SLOT, chipsFor, type PromptItem } from './prompts';
 
 export interface ChatContext {
   format: string;
@@ -69,6 +69,74 @@ export interface AiStatus {
   key: { source: 'env' | 'file'; masked: string } | null;
   compat: { preset: string; base: string; model: string; key: { source: 'env' | 'file'; masked: string } | null; ready: boolean } | null;
   presets: Preset[];
+  effort: string;
+  models: { 'claude-code': string; anthropic: string };
+  modelChoices: { 'claude-code': string[]; anthropic: string[] };
+}
+
+const MODEL_NAMES: Record<string, string> = { 'claude-fable-5-1': 'Fable 5.1', opus: 'Opus', sonnet: 'Sonnet', haiku: 'Haiku', 'claude-opus-5-5': 'Opus 5.5', 'claude-sonnet-5-5': 'Sonnet 5.5', 'claude-haiku-5-5': 'Haiku 5.5' };
+const modelName = (m: string) => (m ? (MODEL_NAMES[m] ?? m) : tr('Default model', '默认模型'));
+
+// Model of the connection in use, changed right from the chat header
+function ModelPick({ st, onChange }: { st: AiStatus; onChange: (s: AiStatus) => void }) {
+  const [listed, setListed] = useState<string[] | null>(null);
+  const prov = st.provider;
+  const agent = st.agents.find((a) => a.id === st.agent);
+  const value = prov === 'claude-code' ? st.models['claude-code'] : prov === 'anthropic' ? st.models.anthropic : prov === 'compat' ? (st.compat?.model ?? '') : (agent?.model ?? '');
+  const base = prov === 'claude-code' ? st.modelChoices['claude-code'] : prov === 'anthropic' ? st.modelChoices.anthropic : prov === 'compat' ? (listed ?? []) : ['', ...(agent?.models ?? [])];
+  const options = base.includes(value) ? base : [...base, value];
+  return (
+    <select
+      className="hsel"
+      value={value}
+      title={tr('Model', '模型')}
+      aria-label={tr('Model', '模型')}
+      onFocus={() => {
+        if (prov === 'compat' && !listed)
+          fetch('/api/ai/models')
+            .then((r) => r.json())
+            .then((j) => setListed(j.models ?? []))
+            .catch(() => setListed([]));
+      }}
+      onChange={async (e) => onChange(await (await post('/api/ai', { model: { provider: prov, value: e.target.value } })).json())}
+    >
+      {options.map((m) => (
+        <option key={m} value={m}>
+          {modelName(m)}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+const EFFORTS: [string, string, string][] = [
+  ['', 'Default', '默认'],
+  ['low', 'Low', '低'],
+  ['medium', 'Medium', '中'],
+  ['high', 'High', '高'],
+  ['xhigh', 'Extra high', '很高'],
+  ['max', 'Max', '最高'],
+];
+
+// How long the model thinks; only the connections that take a setting
+function EffortPick({ st, onChange }: { st: AiStatus; onChange: (s: AiStatus) => void }) {
+  const ok = st.provider === 'claude-code' || st.provider === 'anthropic' || (st.provider === 'agent' && (st.agent === 'codex' || st.agent === 'antigravity'));
+  return (
+    <select
+      className="hsel"
+      value={ok ? st.effort : ''}
+      disabled={!ok}
+      title={ok ? tr('Reasoning effort: higher thinks longer and uses more of your plan', '推理强度：越高想得越久，用量也越多') : tr('This connection has no effort setting', '这个连接不支持推理强度')}
+      aria-label={tr('Reasoning effort', '推理强度')}
+      onChange={async (e) => onChange(await (await post('/api/ai', { effort: e.target.value })).json())}
+    >
+      {EFFORTS.map(([v, en, zh]) => (
+        <option key={v} value={v}>
+          {tr(`Effort · ${en}`, `推理 · ${zh}`)}
+        </option>
+      ))}
+    </select>
+  );
 }
 
 
@@ -496,6 +564,40 @@ export function Connection({ st, onChange, onClose }: { st: AiStatus | null; onC
   );
 }
 
+const ToolLine = ({ t }: { t: Tool }) => (
+  <div className={`tool-line${t.ok === false ? ' bad' : t.ok === undefined ? ' run' : ''}`} title={t.out}>
+    <span className="dot" />
+    {t.cmd}
+  </div>
+);
+
+// Long runs fold into one line (the last two commands stay visible while it works); click to see them all
+function ToolList({ tools, live }: { tools: Tool[]; live: boolean }) {
+  const [open, setOpen] = useState(false);
+  if (tools.length <= 4) {
+    return (
+      <div className="tools">
+        {tools.map((t) => (
+          <ToolLine key={t.id} t={t} />
+        ))}
+      </div>
+    );
+  }
+  const bad = tools.filter((t) => t.ok === false).length;
+  return (
+    <div className="tools">
+      <button className={`tool-sum${open ? ' open' : ''}`} onClick={() => setOpen(!open)} aria-expanded={open}>
+        <Icon name="chev" size={12} />
+        {tr(`${tools.length} commands`, `运行了 ${tools.length} 条命令`)}
+        {bad ? <span className="bad">{tr(`${bad} failed`, `${bad} 条失败`)}</span> : null}
+      </button>
+      {(open ? tools : live ? tools.slice(-2) : []).map((t) => (
+        <ToolLine key={t.id} t={t} />
+      ))}
+    </div>
+  );
+}
+
 interface Pointing {
   refs: AiRef[];
   onRemoveRef: (key: string) => void;
@@ -506,7 +608,7 @@ interface Pointing {
 }
 
 // Connection setup lives in Settings › AI; statusKey changes when that window closes
-export function ChatPanel({ slug, context, where, refs, onRemoveRef, onClearRefs, armed, onArm, focusKey, onSettings, statusKey }: { slug: string; context: () => ChatContext; where: string; onSettings: () => void; statusKey: number } & Pointing) {
+export function ChatPanel({ slug, context, where, refs, onRemoveRef, onClearRefs, armed, onArm, focusKey, onSettings, statusKey, wide, onWide }: { slug: string; context: () => ChatContext; where: string; onSettings: () => void; statusKey: number; wide: boolean; onWide: () => void } & Pointing) {
   const [items, setItems] = useState<Item[]>([]);
   const [status, setStatus] = useState<AiStatus | null>(null);
   const [running, setRunning] = useState(false);
@@ -568,7 +670,7 @@ export function ChatPanel({ slug, context, where, refs, onRemoveRef, onClearRefs
     setRunning(true);
     setItems((xs) => [...xs, { role: 'user', text: msg, refs: sent.map((r) => r.label), tools: [] }, { role: 'assistant', text: '', tools: [], pending: true }]);
     try {
-      const r = await post('/api/chat', { slug, message: msg, refs: sent.map(({ label, detail }) => ({ label, detail })), context: context(), model: getPrefs().claudeModel || undefined });
+      const r = await post('/api/chat', { slug, message: msg, refs: sent.map(({ label, detail }) => ({ label, detail })), context: context() });
       const reader = r.body!.getReader();
       const dec = new TextDecoder();
       let buf = '';
@@ -598,10 +700,14 @@ export function ChatPanel({ slug, context, where, refs, onRemoveRef, onClearRefs
 
   const stop = () => post('/api/chat/stop', { slug });
   const [menu, setMenu] = useState(false);
+  const slash = input.startsWith('/') ? input.slice(1) : null;
+  const [hit, setHit] = useState(0);
+  useEffect(() => setHit(0), [slash]);
+  const found = slash !== null ? findPrompts(slash) : [];
   // A prompt from the library goes into the input with its first 【…】 selected, ready to type over
   const insertPrompt = (p: PromptItem) => {
     const text = tr(p.en, p.zh);
-    setInput((cur) => (cur.trim() ? `${cur.trimEnd()}
+    setInput((cur) => (cur.startsWith('/') ? text : cur.trim() ? `${cur.trimEnd()}
 ${text}` : text));
     setMenu(false);
     requestAnimationFrame(() => {
@@ -636,9 +742,14 @@ ${text}` : text));
           {status ? providerName(status) : tr('Checking', '检查中')}
           <Icon name="gear" size={13} />
         </button>
+        {status && provider ? <ModelPick st={status} onChange={setStatus} /> : null}
+        {status && provider ? <EffortPick st={status} onChange={setStatus} /> : null}
         <span className="grow" />
-        <button className="mini" onClick={fresh} disabled={running || !items.length} title={tr('Clear the conversation and start fresh', '清空对话，开始新的上下文')}>
-          {tr('New chat', '新对话')}
+        <button className="icon" onClick={fresh} disabled={running || !items.length} title={tr('New chat: clear the conversation and start fresh', '新对话：清空对话，开始新的上下文')} aria-label={tr('New chat', '新对话')}>
+          <Icon name="plus" size={14} />
+        </button>
+        <button className="icon" onClick={onWide} title={wide ? tr('Back to the normal width', '恢复正常宽度') : tr('Widen the chat (hides the library)', '放大对话（暂时收起素材库）')} aria-pressed={wide}>
+          <Icon name={wide ? 'shrink' : 'expand'} size={14} />
         </button>
       </div>
       <div className="chat-list" ref={list}>
@@ -697,16 +808,7 @@ ${text}` : text));
               </div>
             ) : (
               <div key={i} className="msg bot">
-                {it.tools.length ? (
-                  <div className="tools">
-                    {it.tools.map((t) => (
-                      <div key={t.id} className={`tool-line${t.ok === false ? ' bad' : t.ok === undefined ? ' run' : ''}`} title={t.out}>
-                        <span className="dot" />
-                        {t.cmd}
-                      </div>
-                    ))}
-                  </div>
-                ) : null}
+                {it.tools.length ? <ToolList tools={it.tools} live={!!it.pending} /> : null}
                 {it.text ? (
                   <div className="txt">
                     <Rich text={it.text.trim()} />
@@ -735,16 +837,51 @@ ${text}` : text));
               ))}
             </div>
           ) : null}
+          {provider && items.length && !input && !running ? (
+            <div className="chips">
+              {chipsFor({ sel: !!context().sel, beat: context().mode === 'beat' }).map(([g, i]) => {
+                const p = PROMPTS.find((x) => x.id === g)!.items[i];
+                return (
+                  <button key={`${g}${i}`} className="chip" onClick={() => insertPrompt(p)} title={tr(p.en, p.zh)}>
+                    <PromptText text={tr(p.en, p.zh)} />
+                  </button>
+                );
+              })}
+              <button className="chip all" onClick={() => setMenu(true)}>
+                <Icon name="bulb" size={12} />
+                {tr('All prompts', '全部提示词')}
+                <kbd>/</kbd>
+              </button>
+            </div>
+          ) : null}
           <div className="box">
-            {menu ? <PromptMenu onPick={insertPrompt} onClose={() => setMenu(false)} /> : null}
+            {menu ? <PromptPicker onPick={insertPrompt} onClose={() => setMenu(false)} /> : slash !== null ? <PromptPicker query={slash} hit={hit} onHit={setHit} onPick={insertPrompt} onClose={() => setInput('')} /> : null}
             <textarea
               ref={ta}
               value={input}
               rows={2}
-              placeholder={!provider ? tr('Checking the AI connection…', '正在检查 AI 连接…') : refs.length ? tr('What do you think about this?', '你觉得这里怎么样？要怎么改？') : tr('e.g. make the selected scene 3 s long and give it a warm look', '比如：把选中这段缩短到 3 秒，加个暖色滤镜')}
+              placeholder={!provider ? tr('Checking the AI connection…', '正在检查 AI 连接…') : refs.length ? tr('What do you think about this?', '你觉得这里怎么样？要怎么改？') : tr('Say what to change, or type / to search the prompts', '说要怎么改，或输入 / 搜索提示词')}
               disabled={!provider}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => {
+                // Typing "/" searches the prompt library; arrows move, Enter takes the highlighted one
+                if (slash !== null && !e.nativeEvent.isComposing) {
+                  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+                    e.preventDefault();
+                    if (found.length) setHit((h) => (h + (e.key === 'ArrowDown' ? 1 : found.length - 1)) % found.length);
+                    return;
+                  }
+                  if (e.key === 'Enter' && found[hit]) {
+                    e.preventDefault();
+                    insertPrompt(found[hit].p);
+                    return;
+                  }
+                  if (e.key === 'Escape') {
+                    e.preventDefault();
+                    setInput('');
+                    return;
+                  }
+                }
                 if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
                   e.preventDefault();
                   send();
@@ -781,55 +918,86 @@ const PromptText = ({ text }: { text: string }) => (
   </>
 );
 
-// Prompts by task; picking one fills the input
-function PromptMenu({ onPick, onClose }: { onPick: (p: PromptItem) => void; onClose: () => void }) {
-  const [group, setGroup] = useState(() => {
-    try {
-      return localStorage.getItem('cutroom-prompt-group') || PROMPTS[0].id;
-    } catch {
-      return PROMPTS[0].id;
-    }
-  });
+// Every prompt, searchable: matches the text in either language and the group name
+interface Found {
+  g: string;
+  i: number;
+  p: PromptItem;
+}
+function findPrompts(q: string): Found[] {
+  const words = q.toLowerCase().split(/\s+/).filter(Boolean);
+  return PROMPTS.flatMap((g) => g.items.map((p, i) => ({ g: g.id, i, p, hay: `${g.en} ${g.zh} ${p.en} ${p.zh}`.toLowerCase() })))
+    .filter((x) => words.every((w) => x.hay.includes(w)))
+    .map(({ g, i, p }) => ({ g, i, p }));
+}
+
+// The prompt library: the lightbulb opens it with its own search box; "/" in the input drives it from there
+function PromptPicker({ query, hit, onHit, onPick, onClose }: { query?: string; hit?: number; onHit?: (i: number) => void; onPick: (p: PromptItem) => void; onClose: () => void }) {
+  const own = query === undefined;
+  const [q, setQ] = useState('');
+  const [mine, setMine] = useState(0);
+  const text = own ? q : query;
+  const at = own ? mine : (hit ?? 0);
+  const setAt = own ? setMine : (onHit ?? (() => undefined));
+  const list = findPrompts(text);
   const box = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const down = (e: PointerEvent) => {
       const t = e.target as HTMLElement;
-      if (!box.current?.contains(t) && !t.closest('.prompt-btn')) onClose();
+      if (!box.current?.contains(t) && !t.closest('.prompt-btn, .chip.all, .chat-input textarea')) onClose();
     };
-    const key = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
     window.addEventListener('pointerdown', down);
-    window.addEventListener('keydown', key);
-    return () => {
-      window.removeEventListener('pointerdown', down);
-      window.removeEventListener('keydown', key);
-    };
+    return () => window.removeEventListener('pointerdown', down);
   }, [onClose]);
-  const pick = (id: string) => {
-    setGroup(id);
-    try {
-      localStorage.setItem('cutroom-prompt-group', id);
-    } catch {
-      // Not remembered
-    }
-  };
-  const g = PROMPTS.find((x) => x.id === group) ?? PROMPTS[0];
+  useEffect(() => {
+    box.current?.querySelector('.pm-item.on')?.scrollIntoView({ block: 'nearest' });
+  }, [at]);
+  let last = '';
   return (
     <div className="prompt-menu" ref={box} role="dialog" aria-label={tr('Prompt library', '常用提示词')}>
-      <div className="pm-tabs" role="tablist">
-        {PROMPTS.map((x) => (
-          <button key={x.id} role="tab" aria-selected={x.id === g.id} className={x.id === g.id ? 'on' : undefined} onClick={() => pick(x.id)}>
-            {nm(x)}
-          </button>
-        ))}
-      </div>
+      {own ? (
+        <div className="pm-search">
+          <Icon name="search" size={13} />
+          <input
+            autoFocus
+            value={q}
+            placeholder={tr('Search prompts, e.g. voice, 30 s, transition', '搜索提示词，比如：配音、30 秒、转场')}
+            onChange={(e) => {
+              setQ(e.target.value);
+              setMine(0);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+                e.preventDefault();
+                if (list.length) setMine((h) => (h + (e.key === 'ArrowDown' ? 1 : list.length - 1)) % list.length);
+              } else if (e.key === 'Enter' && list[at]) {
+                e.preventDefault();
+                onPick(list[at].p);
+              } else if (e.key === 'Escape') onClose();
+            }}
+          />
+        </div>
+      ) : null}
       <div className="pm-list">
-        {g.items.map((p, i) => (
-          <button key={i} className="pm-item" onClick={() => onPick(p)}>
-            <PromptText text={tr(p.en, p.zh)} />
-          </button>
-        ))}
+        {list.length ? (
+          list.map((x, k) => {
+            const g = PROMPTS.find((y) => y.id === x.g)!;
+            const head = x.g !== last ? <div className="pm-group">{nm(g)}</div> : null;
+            last = x.g;
+            return (
+              <React.Fragment key={`${x.g}${x.i}`}>
+                {head}
+                <button className={`pm-item${k === at ? ' on' : ''}`} onMouseEnter={() => setAt(k)} onClick={() => onPick(x.p)}>
+                  <PromptText text={tr(x.p.en, x.p.zh)} />
+                </button>
+              </React.Fragment>
+            );
+          })
+        ) : (
+          <div className="pm-none">{tr('No prompt matches. Just write what you want in your own words.', '没有匹配的提示词，直接用自己的话说也可以。')}</div>
+        )}
       </div>
-      <div className="pm-foot">{tr('Click to put it in the box; Tab jumps between the 【】 parts to fill in.', '点一下放进输入框；按 Tab 在要填的【】之间跳。')}</div>
+      <div className="pm-foot">{tr('↑↓ to choose, Enter to use, Tab jumps between the 【】 parts to fill in.', '↑↓ 选择，回车使用；按 Tab 在要填的【】之间跳。')}</div>
     </div>
   );
 }

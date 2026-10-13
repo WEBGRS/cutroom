@@ -248,7 +248,9 @@ function App() {
       return 'media';
     }
   });
-  const [size, setSize] = useState(() => ({ lib: pref.get('vs-w-lib2', innerWidth < 1440 ? 300 : 340), side: pref.get('vs-w-side2', innerWidth < 1440 ? 330 : 356), tl: pref.get('vs-h-tl2', innerHeight < 860 ? 280 : 340) }));
+  // The AI tab keeps its own, wider width; "wide" gives the chat about half the window and folds the library away
+  const [size, setSize] = useState(() => ({ lib: pref.get('vs-w-lib2', innerWidth < 1440 ? 300 : 340), side: pref.get('vs-w-side2', innerWidth < 1440 ? 330 : 356), ai: pref.get('vs-w-ai', innerWidth < 1440 ? 420 : 480), tl: pref.get('vs-h-tl2', innerHeight < 860 ? 280 : 340) }));
+  const [chatWide, setChatWide] = useState(() => pref.get('vs-chat-wide', 0) === 1);
   const size0 = useRef(size);
   const [phId, setPhId] = useState<string | null>(null);
   // Ctrl+click pointing: references waiting in the AI input
@@ -1022,16 +1024,22 @@ function App() {
     const to = dir < 0 ? [...starts].reverse().find((x) => x < f - 2) : starts.find((x) => x > f + 1);
     seek(to ?? (dir < 0 ? 0 : (loaded?.durationInFrames ?? 1) - 1));
   };
-  const resize = (k: 'lib' | 'side' | 'tl', d: number) => {
-    const lim = { lib: [250, 520], side: [280, 560], tl: [200, 520] }[k];
+  const resize = (k: 'lib' | 'side' | 'ai' | 'tl', d: number) => {
+    const lim = { lib: [250, 520], side: [280, 560], ai: [320, Math.max(600, Math.round(innerWidth * 0.6))], tl: [200, 520] }[k];
     setSize((s) => ({ ...s, [k]: clamp(size0.current[k] + d, lim[0], lim[1]) }));
   };
   const resized = () => {
     size0.current = size;
     pref.set('vs-w-lib2', size.lib);
     pref.set('vs-w-side2', size.side);
+    pref.set('vs-w-ai', size.ai);
     pref.set('vs-h-tl2', size.tl);
   };
+  const toggleWide = () => {
+    pref.set('vs-chat-wide', chatWide ? 0 : 1);
+    setChatWide(!chatWide);
+  };
+  const wideNow = side === 'ai' && chatWide;
   const setSideTab = (k: 'props' | 'ai') => {
     setSide(k);
     pref.set('vs-side', k);
@@ -1039,8 +1047,8 @@ function App() {
 
   return (
     <div
-      className={`app${dragOver ? ' filedrop' : ''}${pickHeld || pickArmed ? ' picking' : ''}`}
-      style={{ ['--lib-w' as string]: `${size.lib}px`, ['--side-w' as string]: `${size.side}px`, ['--tl-h' as string]: `${size.tl}px` }}
+      className={`app${dragOver ? ' filedrop' : ''}${pickHeld || pickArmed ? ' picking' : ''}${wideNow ? ' chatwide' : ''}`}
+      style={{ ['--lib-w' as string]: wideNow ? '0px' : `${size.lib}px`, ['--side-w' as string]: wideNow ? 'max(46vw, 560px)' : `${side === 'ai' ? size.ai : size.side}px`, ['--tl-h' as string]: `${size.tl}px` }}
       onDragOver={(e) => {
         if (![...e.dataTransfer.types].includes('Files')) return;
         e.preventDefault();
@@ -1266,7 +1274,18 @@ function App() {
             </div>
           </div>
         </section>
-        <Splitter dir="x" onDrag={(d) => resize('side', -d)} onEnd={resized} />
+        <Splitter
+          dir="x"
+          onDrag={(d) => {
+            // Dragging the edge leaves the wide layout and sets the width by hand
+            if (wideNow) {
+              setChatWide(false);
+              pref.set('vs-chat-wide', 0);
+            }
+            resize(side === 'ai' ? 'ai' : 'side', -d);
+          }}
+          onEnd={resized}
+        />
         <aside className="side panel">
           <div className="ptabs" role="tablist">
             <button role="tab" aria-selected={side === 'props'} className={side === 'props' ? 'on' : undefined} onClick={() => setSideTab('props')}>
@@ -1291,6 +1310,8 @@ function App() {
               focusKey={chatFocus}
               onSettings={() => setSettingsTab('ai')}
               statusKey={aiKey}
+              wide={chatWide}
+              onWide={toggleWide}
             />
           ) : doc ? (
             <Inspector

@@ -10,6 +10,9 @@ import { editTimeline } from '../src/model';
 import { addScene, addSound, duplicateScene, moveScene, moveSound, removeScene, removeSound, setBeatBars, setPath, splitPoint, splitScene, toRef, trimEdge, type Doc } from '../src/ops';
 import { BOARD_FX, CARD_LIST, LOWER_LIST, OVERLAY_LIST, SCENE_FX, TEXT_LIST, TRANSITION_LIST, BG_LIST, catalogText } from '../src/catalog';
 import { extraPresentation } from '../../src/fx/transitions';
+import { cutStarts, type Cut } from '../../src/components/Cuts';
+import { withFades, XFADE } from '../../src/lib/fades';
+import { linearTiming } from '@remotion/transitions';
 import { DEMO_CARDS } from '../../src/fx/demo';
 import { ADDABLE, boardTemplate, sceneTemplate } from '../src/templates';
 import { SOUNDS, SOUND_CATS, soundDef } from '../../src/fx/sounds';
@@ -245,4 +248,22 @@ test('timeline shows what each scene uses: effects, camera moves, overlays, tran
   const b = editTimeline(await props(d, 'wide', 'beat'), 60).scenes.find((s) => s.id === 'photo')!;
   assert.equal(b.overlays[0].off?.en, 'the beat cut hides overlays');
   assert.equal(b.transIn?.plain, true);
+});
+
+// Scenes sit where the timeline (captions, sounds, cues) expects them: transitions overlap both sides
+test('scene placement matches the timeline in both cuts', async () => {
+  const d = fresh();
+  const join = (n: number): Cut['join'] => ({ presentation: { component: () => null, props: {} }, timing: linearTiming({ durationInFrames: n }) });
+  const cut = (k: string, dur: number, n = 0): Cut => ({ key: k, dur, join: n ? join(n) : undefined, children: null });
+  assert.deepEqual(cutStarts([cut('a', 100), cut('b', 80, 12), cut('c', 50), cut('d', 60, 30)], 60), [0, 88, 168, 188]);
+  for (const format of ['wide', 'tall'] as Format[]) {
+    const p = await props(d, format, 'voice');
+    const tl = buildTimeline(d.board, d.timings.zh, format, 60, p.captures, false, 'zh');
+    const starts = cutStarts(tl.scenes.map((s, i) => cut(s.scene.id, s.dur, i > 0 ? s.trans : 0)), 60);
+    assert.deepEqual(starts, tl.scenes.map((s) => Math.max(0, s.start)), `voice ${format}`);
+    const b = await props(d, format, 'beat');
+    const bt = withFades(buildBeatTimeline(d.board, b.grid!, format, 60, b.captures, 'zh'), b.captures, 60);
+    const bs = cutStarts(bt.scenes.map((s, i) => cut(s.scene.id, s.dur, bt.fadeBefore[i] ? XFADE : 0)), 60);
+    assert.deepEqual(bs, bt.scenes.map((s) => Math.max(0, s.start)), `beat ${format}`);
+  }
 });

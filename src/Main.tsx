@@ -1,10 +1,11 @@
 import React, { useMemo } from 'react';
 import { AbsoluteFill, Audio, Sequence, staticFile, useVideoConfig } from 'remotion';
-import { TransitionSeries, linearTiming } from '@remotion/transitions';
+import { linearTiming } from '@remotion/transitions';
 import { Backdrop } from './components/Chrome';
 import { ClipScene, FlowScene, ImageScene, OutroScene, ScrollScene, StatsScene, TitleScene } from './components/Cards';
 import { Captions, ChapterBar, Overlays, TallHeader } from './components/Captions';
 import { FxLayer, presentation } from './components/Fx';
+import { Cuts, type Cut } from './components/Cuts';
 import { ScreenScene } from './components/ScreenScene';
 import { HtmlScene } from './components/HtmlScene';
 import { SceneSounds } from './components/Sounds';
@@ -40,7 +41,7 @@ export const SceneView: React.FC<{ s: TScene; props: Props; layout: Layout; them
     body = <ScrollScene v={v} slug={slug} layout={layout} dur={s.dur} imgW={d.w} imgH={d.h} look={look} />;
   } else body = <FxCard v={v} layout={layout} theme={theme} slug={slug} />;
   return (
-    <AbsoluteFill>
+    <AbsoluteFill data-scene={s.scene.id}>
       <FxLayer fx={s.scene.fx} dur={s.dur}>
         {body}
       </FxLayer>
@@ -65,21 +66,18 @@ const VoiceMain: React.FC<Props> = (props) => {
   // Picture only (for editing elsewhere): no captions, narration, music or added sounds; clicks and clip sound stay
   const picture = props.parts === 'picture';
 
-  const seq: React.ReactNode[] = [];
-  tl.scenes.forEach((s, i) => {
-    if (i > 0 && s.trans > 0) seq.push(<TransitionSeries.Transition key={`t-${s.scene.id}`} presentation={presentation(s.scene.transition, s.scene.transDir, layout.W, layout.H)} timing={linearTiming({ durationInFrames: s.trans })} />);
-    seq.push(
-      // Mount a second early so media is decoded before the cut (preview only; renders are unaffected)
-      <TransitionSeries.Sequence key={s.scene.id} durationInFrames={s.dur} premountFor={fps}>
-        <SceneView s={s} props={props} layout={layout} theme={theme} paths={paths} />
-      </TransitionSeries.Sequence>,
-    );
-  });
+  const cuts: Cut[] = tl.scenes.map((s, i) => ({
+    key: s.scene.id,
+    dur: s.dur,
+    join: i > 0 && s.trans > 0 ? { presentation: presentation(s.scene.transition, s.scene.transDir, layout.W, layout.H), timing: linearTiming({ durationInFrames: s.trans }) } : undefined,
+    children: <SceneView s={s} props={props} layout={layout} theme={theme} paths={paths} />,
+  }));
 
   return (
     <AbsoluteFill style={{ fontFamily: SANS, background: '#000' }}>
       <Backdrop theme={theme} slug={slug} />
-      <TransitionSeries>{seq}</TransitionSeries>
+      {/* Each scene mounts a second early so its media is decoded before the cut (preview only; renders are unaffected) */}
+      <Cuts cuts={cuts} premountFor={fps} />
       {format === 'tall' && board.header ? (props.lang === 'en' ? <TallHeader title={board.headerEn ?? board.header} theme={theme} /> : <TallHeader title={board.header} en={board.headerEn} theme={theme} />) : null}
       {board.chapterBar ? <ChapterBar tl={tl} layout={layout} theme={theme} /> : null}
       {picture ? null : <Captions tl={tl} layout={layout} theme={theme} en={props.lang === 'en'} cs={board.captions} />}

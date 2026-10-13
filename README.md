@@ -154,6 +154,8 @@ Open the **AI assistant** tab and click the connection pill at its top, or go to
 
 **Test connection** sends one short request through whichever option is active. In auto mode the editor prefers the Claude Code login, then the Claude API key, then a configured other provider. Whichever model answers, the assistant can only run the editor's own CLI on the open project.
 
+In the chat panel's header you pick the model and the reasoning effort (Claude Code, the Claude API, Codex and Antigravity take an effort; higher thinks longer and uses more of your plan). Type `/` in the message box to search the prompt library, or open it with the lightbulb; the expand button gives the chat half the window.
+
 ## A storyboard
 
 ```json

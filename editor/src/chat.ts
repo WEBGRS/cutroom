@@ -82,6 +82,10 @@ interface AiSettings {
   agent?: { id?: AgentId; models?: Record<string, string> };
   // Other providers: chosen preset, address override (custom), model, one saved key per preset
   compat?: { preset?: string; base?: string; model?: string; keys?: Record<string, string> };
+  // Reasoning effort for the connections that take one
+  effort?: string;
+  // Model for the Claude Code login and the Claude API key
+  models?: { 'claude-code'?: string; anthropic?: string };
 }
 export interface CompatPatch {
   preset?: string;
@@ -90,8 +94,24 @@ export interface CompatPatch {
   key?: string | null;
 }
 export const readAi = (): AiSettings => readSettings().ai ?? {};
-export function writeAi(patch: { pref?: string; apiKey?: string | null; compat?: CompatPatch; agent?: { id?: string; model?: string } }) {
+export const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
+export function writeAi(patch: { pref?: string; apiKey?: string | null; compat?: CompatPatch; agent?: { id?: string; model?: string }; effort?: string; model?: { provider?: string; value?: string } }) {
   const ai: AiSettings = { ...(readSettings().ai ?? {}) };
+  if (patch.effort !== undefined) {
+    if (EFFORTS.includes(patch.effort)) ai.effort = patch.effort;
+    else delete ai.effort;
+  }
+  // The model of whichever connection the panel is using
+  const m = patch.model;
+  if (m && typeof m.value === 'string') {
+    const v = m.value.trim();
+    if (m.provider === 'claude-code' || m.provider === 'anthropic') {
+      ai.models = { ...(ai.models ?? {}) };
+      if (v) ai.models[m.provider] = v;
+      else delete ai.models[m.provider];
+    } else if (m.provider === 'compat') patch.compat = { ...(patch.compat ?? {}), model: v };
+    else if (m.provider === 'agent' && ai.agent?.id) patch.agent = { id: ai.agent.id, model: v };
+  }
   if (patch.pref !== undefined) ai.pref = ['claude-code', 'anthropic', 'compat', 'agent'].includes(patch.pref) ? (patch.pref as AiSettings['pref']) : 'auto';
   if (patch.agent && typeof patch.agent === 'object') {
     const a = { ...(ai.agent ?? {}), models: { ...(ai.agent?.models ?? {}) } };
@@ -172,6 +192,13 @@ const chosenAgent = (): AgentId | null => {
   return def && cliOf(def) ? def.id : null;
 };
 const agentModel = (id: AgentId) => readAi().agent?.models?.[id];
+const aiEffort = () => {
+  const e = readAi().effort;
+  return e && EFFORTS.includes(e) ? e : undefined;
+};
+// Models offered for the Claude connections ('' = the tool's own default)
+export const CLAUDE_CODE_MODELS = ['', 'claude-fable-5-1', 'opus', 'sonnet', 'haiku'];
+export const API_MODELS = ['claude-opus-5-5', 'claude-fable-5-1', 'claude-sonnet-5-5', 'claude-haiku-5-5'];
 
 export function provider(): Provider | null {
   const p = pref();
@@ -198,6 +225,9 @@ export async function aiStatus() {
     claude: bin ? { path: bin, version, loggedIn: auth?.loggedIn ?? null, method: auth?.method ?? null, plan: auth?.plan ?? null } : null,
     key: key ? { source: process.env.ANTHROPIC_API_KEY ? 'env' : 'file', masked: mask(key) } : null,
     compat: compatStatus(),
+    effort: aiEffort() ?? '',
+    models: { 'claude-code': readAi().models?.['claude-code'] ?? '', anthropic: readAi().models?.anthropic ?? API_MODELS[0] },
+    modelChoices: { 'claude-code': CLAUDE_CODE_MODELS, anthropic: API_MODELS },
     agent: readAi().agent?.id ?? null,
     agents: await Promise.all(AGENTS.map(async (a) => ({ ...(await agentState(a.id)), en: a.en, zh: a.zh, plansEn: a.plansEn, plansZh: a.plansZh, login: a.login, pkg: a.pkg, url: a.url, model: agentModel(a.id) ?? '' }))),
     presets: PRESETS.map(({ id, en, zh, base, keyUrl, env, noKey }) => ({ id, en, zh, base, keyUrl, env, noKey })),
@@ -477,7 +507,7 @@ export async function chat(slug: string, message: string, ctx: ChatContext, mode
   const pointed = refs.length ? `The user pointed at these in the editor:\n${refs.map((r, i) => `${i + 1}. ${r.detail}`).join('\n')}\n\n` : '';
   const prompt = `${contextLine(ctx)}\n\n${pointed}${message || '(No words: look at what they pointed at, say what you notice and suggest a fix.)'}`;
   try {
-    if (prov === 'claude-code') await viaClaudeCode(slug, prompt, model, saved, wrapped, t0);
+    if (prov === 'claude-code') await viaClaudeCode(slug, prompt, readAi().models?.['claude-code'] || model, saved, wrapped, t0);
     else if (prov === 'compat') await viaCompat(slug, prompt, saved, wrapped, t0);
     else if (prov === 'agent') await viaAgent(slug, prompt, saved, wrapped, t0);
     else await viaApi(slug, prompt, saved, wrapped, t0);
@@ -505,6 +535,8 @@ function viaClaudeCode(slug: string, prompt: string, model: string | undefined, 
     fs.writeFileSync(promptFile, systemPrompt(slug));
     const args = ['-p', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--setting-sources', 'project,local', '--strict-mcp-config', '--allowedTools', `Bash(${CLI}:*)`, lookReadRule(), '--disallowedTools', 'Edit', 'Write', 'NotebookEdit', '--append-system-prompt-file', promptFile];
     if (model) args.push('--model', model);
+    const effort = aiEffort();
+    if (effort) args.push('--effort', effort);
     if (saved.sessionId) args.push('--resume', saved.sessionId);
     // Voice-over and screen recordings can outlast Bash's default 2-minute limit
     const child: ChildProcess = spawn(findClaude()!, args, { cwd: ROOT, windowsHide: true, env: { ...process.env, BASH_DEFAULT_TIMEOUT_MS: '900000', BASH_MAX_TIMEOUT_MS: '900000' } });
@@ -596,14 +628,16 @@ async function viaApi(slug: string, prompt: string, saved: Saved, emit: (e: Chat
     },
   ];
   const messages: Anthropic.Beta.BetaMessageParam[] = [...(saved.api ?? []), { role: 'user', content: prompt }];
+  const effort = aiEffort();
   for (let turn = 0; turn < 24; turn++) {
     const stream = client.beta.messages.stream(
       {
-        model: 'claude-opus-5-5',
-        max_tokens: 16000,
+        model: readAi().models?.anthropic || API_MODELS[0],
+        max_tokens: 64000,
         system: systemPrompt(slug, 'tool'),
         tools,
         messages,
+        ...(effort ? { output_config: { effort } } : {}),
         betas: ['server-side-fallback-2026-07-01'],
         fallbacks: 'default',
       } as Anthropic.Beta.MessageCreateParamsStreaming,
@@ -682,6 +716,7 @@ async function viaAgent(slug: string, prompt: string, saved: Saved, emit: (e: Ch
         emit({ type: 'done', ms: Date.now() - t0 });
         resolve();
       },
+      aiEffort(),
     );
     if (!r) {
       emit({ type: 'error', message: L(`${def.en} is not installed`, `${def.zh} 没有安装`) });

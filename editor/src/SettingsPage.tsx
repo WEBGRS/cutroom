@@ -244,12 +244,13 @@ export function SettingsPage({ tab, setTab, onClose, variant, setVariant }: { ta
       <>
         <Connection st={ai} onChange={setAi} onClose={onClose} />
         {ai?.claude ? (
-          <Row label={tr('Claude Code model', 'Claude Code 模型')} desc={tr('Used when the AI runs through your Claude Code login', '通过 Claude Code 登录运行时用哪个模型')}>
-            <select value={prefs.claudeModel} onChange={(e) => set({ claudeModel: e.target.value })}>
-              <option value="">{tr('Default', '默认')}</option>
-              <option value="opus">Opus</option>
-              <option value="sonnet">Sonnet</option>
-              <option value="haiku">Haiku</option>
+          <Row label={tr('Claude Code model', 'Claude Code 模型')} desc={tr('Used when the AI runs through your Claude Code login; also in the chat header', '通过 Claude Code 登录运行时用哪个模型；聊天面板顶部也能改')}>
+            <select value={ai.models['claude-code']} onChange={async (e) => setAi(await (await fetch('/api/ai', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: { provider: 'claude-code', value: e.target.value } }) })).json())}>
+              {ai.modelChoices['claude-code'].map((m) => (
+                <option key={m} value={m}>
+                  {m === '' ? tr('Default', '默认') : m === 'claude-fable-5-1' ? 'Fable 5.1' : m[0].toUpperCase() + m.slice(1)}
+                </option>
+              ))}
             </select>
           </Row>
         ) : null}

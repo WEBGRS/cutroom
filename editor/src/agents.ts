@@ -172,14 +172,17 @@ function antigravityHome(slug: string): string {
   return home;
 }
 
-export function agentArgs(id: AgentId, slug: string, model: string | undefined): { args: string[]; cwd: string; env: Record<string, string> } {
+// Codex has no "max"; its top level is xhigh
+const CODEX_EFFORT: Record<string, string> = { low: 'low', medium: 'medium', high: 'high', xhigh: 'xhigh', max: 'xhigh' };
+
+export function agentArgs(id: AgentId, slug: string, model: string | undefined, effort?: string): { args: string[]; cwd: string; env: Record<string, string> } {
   if (id === 'antigravity') {
     const home = antigravityHome(slug);
     return {
       cwd: path.join(home, 'work'),
       env: { HOME: home, USERPROFILE: home },
       // The prompt arrives on stdin as one stream-json message
-      args: ['--input-format', 'stream-json', '--output-format', 'stream-json', '--disable-slash-commands', ...(model ? ['--model', model] : []), '-p', ''],
+      args: ['--input-format', 'stream-json', '--output-format', 'stream-json', '--disable-slash-commands', ...(model ? ['--model', model] : []), ...(effort ? ['--effort', effort] : []), '-p', ''],
     };
   }
   if (id === 'codex') {
@@ -218,6 +221,7 @@ export function agentArgs(id: AgentId, slug: string, model: string | undefined):
         // Extra `-c key=value` lines, e.g. openai_base_url for a proxy
         ...(process.env.CUTROOM_CODEX_CONFIG ?? '').split('\n').filter((x) => x.trim()).flatMap((x) => ['-c', x.trim()]),
         ...(model ? ['-m', model] : []),
+        ...(effort && CODEX_EFFORT[effort] ? ['-c', `model_reasoning_effort=${toml(CODEX_EFFORT[effort])}`] : []),
         '-',
       ],
     };
@@ -309,10 +313,10 @@ export interface AgentRun {
 }
 
 // Start the agent with the whole prompt on stdin (instructions are too long for a Windows command line)
-export function startAgent(id: AgentId, slug: string, model: string | undefined, prompt: string, onEvent: (e: AgentEvent) => void, onExit: (code: number | null, stderr: string) => void): AgentRun | null {
+export function startAgent(id: AgentId, slug: string, model: string | undefined, prompt: string, onEvent: (e: AgentEvent) => void, onExit: (code: number | null, stderr: string) => void, effort?: string): AgentRun | null {
   const l = cliOf(agentDef(id)!);
   if (!l) return null;
-  const { args, cwd, env } = agentArgs(id, slug, model);
+  const { args, cwd, env } = agentArgs(id, slug, model, effort);
   const child = spawn(l.cmd, [...l.pre, ...args], { cwd, windowsHide: true, env: { ...process.env, ...env } });
   const state = { textSince: false, wrote: false };
   let buf = '';

@@ -430,7 +430,7 @@ const server = http.createServer(async (req, res) => {
     if (p === '/api/ai' && req.method === 'POST') {
       const b = await body(req);
       try {
-        writeAi({ pref: b.pref, apiKey: b.apiKey, compat: b.compat, agent: b.agent });
+        writeAi({ pref: b.pref, apiKey: b.apiKey, compat: b.compat, agent: b.agent, effort: b.effort, model: b.model });
       } catch (e) {
         return send(res, 400, { error: (e as Error).message });
       }

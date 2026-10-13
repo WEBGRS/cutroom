@@ -1,4 +1,4 @@
-import React, { useId } from 'react';
+import React, { useContext, useId } from 'react';
 import { AbsoluteFill, Easing, Freeze, interpolate, random, useCurrentFrame, useVideoConfig } from 'remotion';
 import { CameraMotionBlur } from '@remotion/motion-blur';
 import type { TransitionPresentation, TransitionPresentationComponentProps } from '@remotion/transitions';
@@ -11,6 +11,7 @@ import { iris } from '@remotion/transitions/iris';
 import { pushCut } from '@remotion/transitions/push-cut';
 import type { Dir, Fx, Look, Transition } from '../lib/types';
 import { extraPresentation } from '../fx/transitions';
+import { IdleContext } from './Cuts';
 import { FxOverlays, NEW_FX_KEYS, fxFilter, fxMotion } from '../fx/scenefx';
 import { EASE, clamp01 } from '../fx/ease';
 
@@ -130,20 +131,22 @@ export const FxLayer: React.FC<{ fx?: Fx; dur: number; children: React.ReactNode
 // ---- transitions ----
 type Empty = Record<string, never>;
 const ZoomT: React.FC<TransitionPresentationComponentProps<Empty>> = ({ children, presentationDirection, presentationProgress: p }) => (
-  <AbsoluteFill style={presentationDirection === 'exiting' ? { transform: `scale(${1 + 0.25 * p})`, opacity: 1 - p } : { transform: `scale(${0.86 + 0.14 * p})`, opacity: p }}>{children}</AbsoluteFill>
+  <AbsoluteFill style={useContext(IdleContext) ? undefined : presentationDirection === 'exiting' ? { transform: `scale(${1 + 0.25 * p})`, opacity: 1 - p } : { transform: `scale(${0.86 + 0.14 * p})`, opacity: p }}>{children}</AbsoluteFill>
 );
 // Dip to black: down in 0.15 s, 2 frames of pure black, up over the rest (video playbook L2 cut)
 const DipT: React.FC<TransitionPresentationComponentProps<Empty>> = ({ children, presentationDirection, presentationProgress: p, presentationDurationInFrames: n }) => {
   const { fps } = useVideoConfig();
   const down = Math.min(0.45, (0.15 * fps) / Math.max(1, n));
   const hold = Math.min(0.2, 2 / Math.max(1, n));
+  // Outside the transition: no black behind the scene
+  const idle = useContext(IdleContext);
   if (presentationDirection === 'exiting')
     return (
-      <AbsoluteFill style={{ background: '#000' }}>
-        <AbsoluteFill style={{ opacity: 1 - Math.min(1, p / down) }}>{children}</AbsoluteFill>
+      <AbsoluteFill style={idle ? undefined : { background: '#000' }}>
+        <AbsoluteFill style={idle ? undefined : { opacity: 1 - Math.min(1, p / down) }}>{children}</AbsoluteFill>
       </AbsoluteFill>
     );
-  return <AbsoluteFill style={{ opacity: Math.max(0, (p - down - hold) / Math.max(0.01, 1 - down - hold)) }}>{children}</AbsoluteFill>;
+  return <AbsoluteFill style={idle ? undefined : { opacity: Math.max(0, (p - down - hold) / Math.max(0.01, 1 - down - hold)) }}>{children}</AbsoluteFill>;
 };
 const zoomT = (): TransitionPresentation<Empty> => ({ component: ZoomT, props: {} });
 const dipT = (): TransitionPresentation<Empty> => ({ component: DipT, props: {} });

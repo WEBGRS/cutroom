@@ -1,10 +1,11 @@
 import React from 'react';
 import { AbsoluteFill, Img, staticFile, useCurrentFrame, useVideoConfig } from 'remotion';
-import { TransitionSeries, linearTiming } from '@remotion/transitions';
+import { linearTiming } from '@remotion/transitions';
 import { Backdrop } from './components/Chrome';
 import { FlowScene, OutroScene, StatsScene, TitleScene } from './components/Cards';
 import { Overlays } from './components/Captions';
 import { FxLayer, presentation } from './components/Fx';
+import { Cuts, type Join } from './components/Cuts';
 import { FxCard } from './fx/cards';
 import { AnimText } from './fx/text';
 import { DEMO_CARDS, DEMO_THEME, FX_DEMO, textSample } from './fx/demo';
@@ -89,15 +90,12 @@ export const FxPreview: React.FC<PreviewProps> = ({ cat, id, dir }) => {
   if (cat === 'transition') {
     return (
       <AbsoluteFill style={{ background: '#000' }}>
-        <TransitionSeries>
-          <TransitionSeries.Sequence durationInFrames={50}>
-            <Photo />
-          </TransitionSeries.Sequence>
-          <TransitionSeries.Transition presentation={presentation(id === 'none' ? 'none' : id || undefined, dir, layout.W, layout.H) as never} timing={linearTiming({ durationInFrames: id === 'none' ? 1 : 22 })} />
-          <TransitionSeries.Sequence durationInFrames={id === 'none' ? 26 : 47}>
-            <TitleB />
-          </TransitionSeries.Sequence>
-        </TransitionSeries>
+        <Cuts
+          cuts={[
+            { key: 'a', dur: 50, children: <Photo /> },
+            { key: 'b', dur: id === 'none' ? 26 : 47, join: { presentation: presentation(id === 'none' ? 'none' : id || undefined, dir, layout.W, layout.H) as Join['presentation'], timing: linearTiming({ durationInFrames: id === 'none' ? 1 : 22 }) }, children: <TitleB /> },
+          ]}
+        />
       </AbsoluteFill>
     );
   }

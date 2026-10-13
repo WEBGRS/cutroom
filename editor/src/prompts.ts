@@ -103,5 +103,12 @@ export const FEATURED: [string, number][] = [
   ['look', 0],
 ];
 
+// Above the input once a conversation has started, chosen by what the editor shows
+export function chipsFor(c: { sel: boolean; beat: boolean }): [string, number][] {
+  if (c.sel) return [['pace', 1], ['look', 1]];
+  if (c.beat) return [['pace', 3], ['review', 0]];
+  return [['review', 0], ['review', 1]];
+}
+
 // Placeholder to select after inserting a prompt
 export const SLOT = /【[^】]*】/;

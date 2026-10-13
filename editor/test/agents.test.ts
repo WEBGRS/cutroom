@@ -140,3 +140,12 @@ test('agents get only the editor tool', () => {
   assert.deepEqual(a.args.slice(0, 4), ['--input-format', 'stream-json', '--output-format', 'stream-json']);
   assert.deepEqual(a.args.slice(-4), ['--model', 'gemini-3.1-pro-high', '-p', '']);
 });
+
+test('reasoning effort reaches Codex (max becomes xhigh) and Antigravity, not Gemini CLI', () => {
+  assert.match(agentArgs('codex', 'demo', 'gpt-x', 'max').args.join(' '), /-m gpt-x -c model_reasoning_effort="xhigh" -$/);
+  assert.match(agentArgs('codex', 'demo', undefined, 'low').args.join(' '), /model_reasoning_effort="low"/);
+  assert.doesNotMatch(agentArgs('codex', 'demo', undefined).args.join(' '), /reasoning_effort/);
+  const a = agentArgs('antigravity', 'demo', undefined, 'high').args;
+  assert.equal(a[a.indexOf('--effort') + 1], 'high');
+  assert.ok(!agentArgs('gemini', 'demo', undefined, 'high').args.includes('--effort'));
+});

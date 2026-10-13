@@ -293,23 +293,67 @@ try {
   await step('chat tab', async () => {
     await page.getByRole('tab', { name: 'AI 助手' }).click();
     await page.locator('.chat-head').waitFor();
-    // Prompt library: a pick fills the input with its first blank selected
+    // Prompt library: a search, then a pick fills the input with its first blank selected
     if (await page.locator('.prompt-btn:not([disabled])').count()) {
       await page.locator('.prompt-btn').click();
-      await page.locator('.pm-tabs button', { hasText: '录屏' }).click();
+      await page.locator('.pm-search input').fill('网址');
       await page.locator('.pm-item').first().click();
       const picked = await page.evaluate(() => {
         const t = document.querySelector('.chat-input textarea');
         return t.value.slice(t.selectionStart, t.selectionEnd);
       });
       if (picked !== '【网址】') throw new Error(`prompt library selected "${picked}"`);
+      // "/" in the input searches too; Enter takes the highlighted prompt
+      await page.locator('.chat-input textarea').fill('/配音');
+      await page.locator('.prompt-menu .pm-item').first().waitFor();
+      await page.keyboard.press('Enter');
+      const v = await page.locator('.chat-input textarea').inputValue();
+      if (v.startsWith('/') || !v.includes('配音')) throw new Error(`"/" search put "${v}" in the box`);
       await page.locator('.chat-input textarea').fill('');
+      // Model and reasoning effort right in the header
+      if ((await page.locator('.chat-head .hsel').count()) !== 2) throw new Error('model and effort pickers missing');
     }
+    // Wide chat and back
+    const w0 = (await page.locator('aside.side').boundingBox()).width;
+    await page.locator('.chat-head button[aria-pressed]').click();
+    const w1 = (await page.locator('aside.side').boundingBox()).width;
+    await page.locator('.chat-head button[aria-pressed]').click();
+    if (!(w1 > w0 + 100)) throw new Error(`wide chat ${w0} → ${w1} px`);
     if (process.env.E2E_AI) {
       await page.locator('.chat-input textarea').fill(`把 ${R.chat} 这一段的滤镜改成黑白`);
       await page.keyboard.press('Enter');
       await until('ai edit', () => sceneOf(R.chat).fx?.look === 'mono', 120000);
       await page.locator('.msg.bot .txt').first().waitFor({ timeout: 30000 });
+    }
+  });
+
+  // A transition must not remount the scenes on either side (the preview would reload their media and stall)
+  await step('scenes stay mounted through transitions', async () => {
+    const ls = execFileSync(process.execPath, ['editor/dist/cli.mjs', SLUG, 'ls', '--mode', 'beat'], { encoding: 'utf8' });
+    const m = new RegExp(`^\\s*\\d+\\s+${R.beat}\\s+(\\d+):(\\d+\\.\\d+)`, 'm').exec(ls);
+    if (!m) throw new Error(`no ${R.beat} in the beat cut`);
+    const start = Math.round((Number(m[1]) * 60 + Number(m[2])) * 60);
+    const p2 = await browser.newPage({ viewport: { width: 960, height: 540 } });
+    try {
+      await p2.goto(`${BASE}/?oracle=1&slug=${SLUG}&format=wide&mode=beat&lang=zh&variant=default`);
+      await p2.waitForFunction(() => !!window.__player, null, { timeout: 30000 });
+      const seen = [];
+      for (const f of [start - 20, start + 3, start + 30]) {
+        await p2.evaluate((f) => window.__player.seekTo(f), f);
+        await p2.waitForTimeout(400);
+        seen.push(
+          await p2.evaluate((id) => {
+            const el = document.querySelector(`[data-scene="${id}"]`);
+            if (!el) return 'missing';
+            window.__seen ??= [];
+            if (!window.__seen.includes(el)) window.__seen.push(el);
+            return window.__seen.indexOf(el);
+          }, R.beat),
+        );
+      }
+      if (seen.join() !== '0,0,0') throw new Error(`scene element per frame: ${seen.join(', ')} (a new number = remounted)`);
+    } finally {
+      await p2.close();
     }
   });
 

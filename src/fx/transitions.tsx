@@ -1,8 +1,9 @@
-import React, { useId } from 'react';
+import React, { useContext, useId } from 'react';
 import { AbsoluteFill } from 'remotion';
 import type { TransitionPresentation, TransitionPresentationComponentProps } from '@remotion/transitions';
 import type { Dir } from '../lib/types';
 import { EASE, clamp01, hash } from './ease';
+import { IdleContext } from '../components/Cuts';
 
 // Extra transitions ported from HyperFrames (transitions-* blocks and transition primitives).
 // Each one wraps the scene it is given; nothing is rendered twice, so scene audio is never doubled.
@@ -22,7 +23,8 @@ const fid = (id: string) => id.replace(/[^a-zA-Z0-9]/g, '');
 const half = (enter: boolean, p: number) => (enter ? (p >= 0.5 ? 1 : 0) : p < 0.5 ? 1 : 0);
 const bump = (p: number) => Math.sin(Math.PI * clamp01(p));
 
-const Fill: React.FC<{ style?: React.CSSProperties; children: React.ReactNode }> = ({ style, children }) => <AbsoluteFill style={style}>{children}</AbsoluteFill>;
+// Outside its transition the wrapper stays mounted but changes nothing
+const Fill: React.FC<{ style?: React.CSSProperties; children: React.ReactNode }> = ({ style, children }) => <AbsoluteFill style={useContext(IdleContext) ? undefined : style}>{children}</AbsoluteFill>;
 
 const Blur: React.FC<Props> = ({ children, presentationDirection: d, presentationProgress: p }) => {
   const k = d === 'exiting' ? p : 1 - p;
@@ -57,7 +59,7 @@ const Whip: React.FC<Props> = ({ children, presentationDirection: d, presentatio
 const Flash: React.FC<Props> = ({ children, presentationDirection: d, presentationProgress: p }) => (
   <Fill style={{ opacity: half(d === 'entering', p) }}>
     {children}
-    <AbsoluteFill style={{ background: '#fff', opacity: Math.pow(bump(p), 1.6), filter: 'blur(0px)' }} />
+    {useContext(IdleContext) ? null : <AbsoluteFill style={{ background: '#fff', opacity: Math.pow(bump(p), 1.6), filter: 'blur(0px)' }} />}
   </Fill>
 );
 
@@ -66,7 +68,7 @@ const Leak: React.FC<Props> = ({ children, presentationDirection: d, presentatio
   return (
     <Fill style={{ opacity: d === 'exiting' ? 1 : io(p) }}>
       {children}
-      {d === 'entering' ? (
+      {d === 'entering' && !useContext(IdleContext) ? (
         <AbsoluteFill style={{ mixBlendMode: 'screen', opacity: Math.min(1, bump(p) * 1.3), background: `radial-gradient(55% 90% at ${x}% 40%, rgba(255,214,140,1), rgba(255,120,60,.8) 40%, rgba(255,60,40,0) 75%), radial-gradient(35% 60% at ${x - 28}% 70%, rgba(255,240,190,.9), rgba(255,200,120,0) 70%)` }} />
       ) : null}
     </Fill>
