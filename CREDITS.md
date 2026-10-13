@@ -6,6 +6,7 @@ The Cutroom source code is MIT-licensed (see LICENSE). Bundled assets and depend
 |---|---|---|
 | Remotion | npm dependency | [Remotion License](https://www.remotion.dev/license): free for individuals and companies with up to 3 employees; larger companies need a company license |
 | "Aerosol of my Love", Kevin MacLeod (incompetech.com) | `public/music/` | [CC BY 4.0](http://creativecommons.org/licenses/by/4.0/): keep this credit when you publish videos that use it |
+| Music you compose with `music compose`: the studio and the instrument recordings | not included; installed separately | [XSXB-Band](https://github.com/sparklecatta-lang/XSXB-Band) by sparklecatta-lang, MIT; its instrument recordings are CC0 and download on first use (guitar-amp models are GPL-3.0 and only used for metal guitar). Cutroom talks to the studio over HTTP and runs its render script; it contains none of its code |
 | Interface click sound, Kenney (kenney.nl) | `public/sfx/click.wav` | CC0 |
 | Sound effect library: interface, impact, digital and sci-fi sounds by Kenney (kenney.nl) | `public/sfx/lib/` (listed in `src/fx/sounds.ts` with `by: "Kenney (CC0)"`) | CC0 |
 | Sound effect library: whooshes, risers, booms, hits, dings, typing and the rest | `public/sfx/lib/` (`by: "Cutroom"`) | Synthesized by `tools/build_sfx.py` for this project, MIT |

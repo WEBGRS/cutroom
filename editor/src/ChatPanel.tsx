@@ -21,11 +21,20 @@ interface Tool {
   out?: string;
 }
 
+// Full access: a step waiting for the user's go-ahead
+interface Ask {
+  id: string;
+  cmd: string;
+  detail: string;
+  answer?: boolean;
+}
+
 interface Item {
   role: 'user' | 'assistant';
   text: string;
   refs?: string[];
   tools: Tool[];
+  asks?: Ask[];
   pending?: boolean;
   error?: string;
   // Notes the model wrote between commands; shown only when no answer follows
@@ -72,6 +81,30 @@ export interface AiStatus {
   effort: string;
   models: { 'claude-code': string; anthropic: string };
   modelChoices: { 'claude-code': string[]; anthropic: string[] };
+  access: 'editor' | 'full';
+}
+
+// What the AI may do: only Cutroom's commands, or everything with risky steps asked first
+function AccessPick({ st, onChange }: { st: AiStatus; onChange: (s: AiStatus) => void }) {
+  const gemini = st.provider === 'agent' && st.agent === 'gemini';
+  return (
+    <select
+      className={`hsel${st.access === 'full' ? ' full' : ''}`}
+      value={st.access}
+      title={
+        st.access === 'full'
+          ? gemini
+            ? tr('Gemini CLI has no sandbox here, so it stays on Cutroom’s commands', 'Gemini CLI 在这里没有沙箱可用，仍然只能用剪辑命令')
+            : tr('Full access: files, programs, the web, your skills. Risky steps ask you first or run in a sandbox', '完全权限：能写文件、跑程序、上网、用你的技能；高风险操作先问你或在沙箱里跑')
+          : tr('Editor only: the AI runs Cutroom’s own commands on this project, nothing else', '仅剪辑：AI 只能运行剪辑台自己的命令，动不了别的')
+      }
+      aria-label={tr('What the AI may do', 'AI 权限')}
+      onChange={async (e) => onChange(await (await post('/api/ai', { access: e.target.value })).json())}
+    >
+      <option value="editor">{tr('Editor only', '仅剪辑')}</option>
+      <option value="full">{tr('Full access', '完全权限')}</option>
+    </select>
+  );
 }
 
 const MODEL_NAMES: Record<string, string> = { 'claude-fable-5-1': 'Fable 5.1', opus: 'Opus', sonnet: 'Sonnet', haiku: 'Haiku', 'claude-opus-5-5': 'Opus 5.5', 'claude-sonnet-5-5': 'Sonnet 5.5', 'claude-haiku-5-5': 'Haiku 5.5' };
@@ -554,7 +587,25 @@ export function Connection({ st, onChange, onClose }: { st: AiStatus | null; onC
         ) : null}
       </section>
 
-      <p className="hint">{tr('The AI can only run Cutroom’s own commands (reading and editing this project’s storyboard). It cannot touch other files on your computer.', 'AI 只能运行剪辑台自己的命令（读写这个项目的分镜），不能动电脑上的其他文件。')}</p>
+      <section>
+        <h4>{tr('What the AI may do', 'AI 能做什么')}</h4>
+        <div className="rcards" role="radiogroup">
+          {(
+            [
+              ['editor', tr('Editor only', '仅剪辑'), tr('Cutroom’s own commands on this project (reading and editing its storyboard). It cannot touch other files on your computer.', '只能运行剪辑台自己的命令（读写这个项目的分镜），不能动电脑上的其他文件。')],
+              ['full', tr('Full access', '完全权限'), tr('Like an assistant in your own terminal: it writes files, runs programs such as ffmpeg, reads your code, searches the web and uses your skills. Edits in the project folder run at once; shell commands and changes elsewhere wait for you to allow them in the chat. Codex and Antigravity run in their own sandboxes instead; Gemini CLI stays on the editor.', '像在你自己的终端里用 AI 一样：能写文件、跑 ffmpeg 等程序、读你的代码、上网查资料、用你装的技能。项目文件夹里的改动直接做；跑命令、改项目外的文件会先在对话里问你。Codex 和 Antigravity 改为在各自的沙箱里运行；Gemini CLI 仍然只能剪辑。')],
+            ] as const
+          ).map(([v, l, d]) => (
+            <label key={v} className={`rc${st.access === v ? ' on' : ''}`}>
+              <input type="radio" name="access" checked={st.access === v} onChange={() => save({ access: v })} />
+              <span>
+                <b>{l}</b>
+                <small>{d}</small>
+              </span>
+            </label>
+          ))}
+        </div>
+      </section>
       <div className="conn-acts">
         <button className="primary" onClick={onClose} disabled={!st.provider}>
           {tr('Done', '完成')}
@@ -633,7 +684,10 @@ export function ChatPanel({ slug, context, where, refs, onRemoveRef, onClearRefs
       .then((j) => {
         if (!alive) return;
         setRunning(!!j.running);
-        setItems((j.history ?? []).map((h: { role: 'user' | 'assistant'; text: string; refs?: string[]; tools?: { cmd: string; ok: boolean }[] }) => ({ role: h.role, text: h.text, refs: h.refs, tools: (h.tools ?? []).map((t, i) => ({ id: String(i), cmd: t.cmd, ok: t.ok })) })));
+        const items: Item[] = (j.history ?? []).map((h: { role: 'user' | 'assistant'; text: string; refs?: string[]; tools?: { cmd: string; ok: boolean }[] }) => ({ role: h.role, text: h.text, refs: h.refs, tools: (h.tools ?? []).map((t, i) => ({ id: String(i), cmd: t.cmd, ok: t.ok })) }));
+        // A reply still working (the page was reloaded) with steps waiting for an answer
+        if (j.running && j.asks?.length) items.push({ role: 'assistant', text: '', tools: [], asks: j.asks, pending: true });
+        setItems(items);
       })
       .catch(() => undefined);
     return () => {
@@ -689,6 +743,8 @@ export function ChatPanel({ slug, context, where, refs, onRemoveRef, onClearRefs
           else if (e.type === 'tool') patchLast((it) => ({ ...it, aside: [it.aside, it.text.trim()].filter(Boolean).join('\n\n'), text: '', tools: [...it.tools, { id: e.id, cmd: e.cmd }] }));
           else if (e.type === 'tool_result') patchLast((it) => ({ ...it, tools: it.tools.map((t) => (t.id === e.id ? { ...t, ok: e.ok, out: e.out } : t)) }));
           else if (e.type === 'error') patchLast((it) => ({ ...it, error: e.message }));
+          else if (e.type === 'ask') patchLast((it) => ({ ...it, asks: [...(it.asks ?? []), { id: e.id, cmd: e.cmd, detail: e.detail }] }));
+          else if (e.type === 'asked') patchLast((it) => ({ ...it, asks: (it.asks ?? []).map((a) => (a.id === e.id ? { ...a, answer: e.allow } : a)) }));
         }
       }
     } catch (err) {
@@ -699,6 +755,10 @@ export function ChatPanel({ slug, context, where, refs, onRemoveRef, onClearRefs
   };
 
   const stop = () => post('/api/chat/stop', { slug });
+  const answer = (id: string, allow: boolean, always = false) => {
+    patchLast((it) => ({ ...it, asks: (it.asks ?? []).map((a) => (a.id === id ? { ...a, answer: allow } : a)) }));
+    void post('/api/chat/answer', { slug, id, allow, always });
+  };
   const [menu, setMenu] = useState(false);
   const slash = input.startsWith('/') ? input.slice(1) : null;
   const [hit, setHit] = useState(0);
@@ -740,10 +800,14 @@ ${text}` : text));
         <button className={`conn${provider ? ' ok' : ' off'}`} onClick={onSettings} title={tr('AI connection (Settings)', 'AI 连接（设置）')}>
           <i />
           {status ? providerName(status) : tr('Checking', '检查中')}
-          <Icon name="gear" size={13} />
         </button>
-        {status && provider ? <ModelPick st={status} onChange={setStatus} /> : null}
-        {status && provider ? <EffortPick st={status} onChange={setStatus} /> : null}
+        {status && provider ? (
+          <div className="hpicks">
+            <ModelPick st={status} onChange={setStatus} />
+            <EffortPick st={status} onChange={setStatus} />
+            <AccessPick st={status} onChange={setStatus} />
+          </div>
+        ) : null}
         <span className="grow" />
         <button className="icon" onClick={fresh} disabled={running || !items.length} title={tr('New chat: clear the conversation and start fresh', '新对话：清空对话，开始新的上下文')} aria-label={tr('New chat', '新对话')}>
           <Icon name="plus" size={14} />
@@ -809,6 +873,29 @@ ${text}` : text));
             ) : (
               <div key={i} className="msg bot">
                 {it.tools.length ? <ToolList tools={it.tools} live={!!it.pending} /> : null}
+                {(it.asks ?? []).map((a) => (
+                  <div key={a.id} className={`ask${a.answer === undefined ? '' : a.answer ? ' yes' : ' no'}`}>
+                    <div className="ask-head">
+                      <Icon name="warn" size={13} />
+                      {a.answer === undefined ? tr('The AI wants to run this. Allow it?', 'AI 想执行这一步，允许吗？') : a.answer ? tr('Allowed', '已允许') : tr('Declined', '已拒绝')}
+                    </div>
+                    <code className="ask-cmd">{a.cmd}</code>
+                    {a.detail ? <pre className="ask-detail">{a.detail}</pre> : null}
+                    {a.answer === undefined ? (
+                      <div className="ask-acts">
+                        <button className="primary" onClick={() => answer(a.id, true)}>
+                          {tr('Allow', '允许')}
+                        </button>
+                        <button className="btn" onClick={() => answer(a.id, true, true)} title={tr('Allow every step until you start a new chat', '在开始新对话之前，后面的步骤都不再问')}>
+                          {tr('Allow all in this chat', '本次对话都允许')}
+                        </button>
+                        <button className="btn" onClick={() => answer(a.id, false)}>
+                          {tr('Decline', '拒绝')}
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
+                ))}
                 {it.text ? (
                   <div className="txt">
                     <Rich text={it.text.trim()} />

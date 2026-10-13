@@ -310,8 +310,9 @@ try {
       const v = await page.locator('.chat-input textarea').inputValue();
       if (v.startsWith('/') || !v.includes('配音')) throw new Error(`"/" search put "${v}" in the box`);
       await page.locator('.chat-input textarea').fill('');
-      // Model and reasoning effort right in the header
-      if ((await page.locator('.chat-head .hsel').count()) !== 2) throw new Error('model and effort pickers missing');
+      // Model, reasoning effort and access right in the header; access starts on editor only
+      if ((await page.locator('.chat-head .hsel').count()) !== 3) throw new Error('model, effort and access pickers missing');
+      if ((await page.locator('.chat-head .hsel').nth(2).inputValue()) !== 'editor') throw new Error('access does not start on editor only');
     }
     // Wide chat and back
     const w0 = (await page.locator('aside.side').boundingBox()).width;

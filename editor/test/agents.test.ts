@@ -3,8 +3,11 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { AGY_DENY, agentArgs, findCli, parseAgentLine, type AgentEvent } from '../src/agents';
+import { AGY_DENY, AGY_FULL_ALLOW, agentArgs, findCli, parseAgentLine, type AgentEvent } from '../src/agents';
 import { lookDir } from '../src/look';
+import { runFullTool } from '../src/fulltools';
+import { fullStep, toolLabel } from '../src/chat';
+import { PUBLIC } from '../src/store';
 
 // Lines as Codex 0.162 and Gemini CLI 0.63 print them (captured against a mock model)
 const CODEX = [
@@ -142,10 +145,121 @@ test('agents get only the editor tool', () => {
 });
 
 test('reasoning effort reaches Codex (max becomes xhigh) and Antigravity, not Gemini CLI', () => {
-  assert.match(agentArgs('codex', 'demo', 'gpt-x', 'max').args.join(' '), /-m gpt-x -c model_reasoning_effort="xhigh" -$/);
-  assert.match(agentArgs('codex', 'demo', undefined, 'low').args.join(' '), /model_reasoning_effort="low"/);
+  assert.match(agentArgs('codex', 'demo', 'gpt-x', { effort: 'max' }).args.join(' '), /-m gpt-x -c model_reasoning_effort="xhigh" -$/);
+  assert.match(agentArgs('codex', 'demo', undefined, { effort: 'low' }).args.join(' '), /model_reasoning_effort="low"/);
   assert.doesNotMatch(agentArgs('codex', 'demo', undefined).args.join(' '), /reasoning_effort/);
-  const a = agentArgs('antigravity', 'demo', undefined, 'high').args;
+  const a = agentArgs('antigravity', 'demo', undefined, { effort: 'high' }).args;
   assert.equal(a[a.indexOf('--effort') + 1], 'high');
-  assert.ok(!agentArgs('gemini', 'demo', undefined, 'high').args.includes('--effort'));
+  assert.ok(!agentArgs('gemini', 'demo', undefined, { effort: 'high' }).args.includes('--effort'));
+});
+
+test('full access: Codex and Antigravity get Cutroom’s shell and file tools; their own shell stays off', () => {
+  const env = { CUTROOM_SERVER: 'http://127.0.0.1:1', CUTROOM_ASK_TOKEN: 'tok' };
+  const c = agentArgs('codex', 'demo', undefined, { full: true, mcp: env }).args.join(' ');
+  for (const f of ['--sandbox read-only', '--disable shell_tool', '--disable unified_exec', 'CUTROOM_FULL = "1"', 'CUTROOM_ASK_TOKEN = "tok"', 'tool_timeout_sec=1500']) assert.ok(c.includes(f), f);
+  assert.ok(!c.includes('web_search="disabled"'), 'its web search stays on');
+  // No way to reach the editor: no full-access tools
+  assert.doesNotMatch(agentArgs('codex', 'demo', undefined, { full: true }).args.join(' '), /CUTROOM_FULL/);
+  const a = agentArgs('antigravity', 'demo', undefined, { full: true, mcp: env });
+  const read = (rel: string) => JSON.parse(fs.readFileSync(path.join(a.env.HOME, rel), 'utf8'));
+  const perm = read('.gemini/antigravity-cli/settings.json').permissions;
+  for (const r of AGY_FULL_ALLOW) assert.ok(perm.allow.includes(r), r);
+  for (const r of ['command(*)', 'write_file(*)', 'unsandboxed(*)', 'execute_url(*)']) assert.ok(perm.deny.includes(r), r);
+  assert.equal(read('.gemini/config/mcp_config.json').mcpServers.cutroom.env.CUTROOM_FULL, '1');
+  // Back to editor only: the old limits return
+  agentArgs('antigravity', 'demo', undefined);
+  assert.deepEqual(read('.gemini/antigravity-cli/settings.json').permissions.deny, AGY_DENY);
+  assert.equal(read('.gemini/config/mcp_config.json').mcpServers.cutroom.env.CUTROOM_FULL, undefined);
+});
+
+test('MCP server: full access adds shell and file tools that the editor runs (with its token)', async (t) => {
+  const http = await import('node:http');
+  const seen: { route: string; token: string; body: Record<string, unknown> }[] = [];
+  const editor = http.createServer((req, res) => {
+    let b = '';
+    req.on('data', (d) => (b += d));
+    req.on('end', () => {
+      seen.push({ route: req.url ?? '', token: String(req.headers['x-cutroom-ask'] ?? ''), body: JSON.parse(b) });
+      res.end(JSON.stringify({ ok: false, out: 'The user declined this step in the chat panel.' }));
+    });
+  });
+  await new Promise<void>((r) => editor.listen(0, '127.0.0.1', r));
+  t.after(() => editor.close());
+  const port = (editor.address() as { port: number }).port;
+  const { spawn } = await import('node:child_process');
+  const talk = async (env: Record<string, string>, msgs: object[]) => {
+    const p = spawn(process.execPath, [path.join(process.cwd(), 'editor', 'dist', 'mcp.mjs'), 'demo'], { env: { ...process.env, ...env } });
+    let out = '';
+    p.stdout.on('data', (d) => (out += d));
+    for (const m of msgs) p.stdin.write(JSON.stringify({ jsonrpc: '2.0', ...m }) + '\n');
+    for (let i = 0; i < 100 && out.split('\n').filter(Boolean).length < msgs.length; i++) await new Promise((r) => setTimeout(r, 50));
+    p.kill();
+    return out.split('\n').filter(Boolean).map((l) => JSON.parse(l));
+  };
+  const list = { id: 1, method: 'tools/list' };
+  const plain = await talk({ CUTROOM_FULL: '' }, [list]);
+  assert.deepEqual(plain[0].result.tools.map((x: { name: string }) => x.name), ['editor']);
+  const full = await talk({ CUTROOM_FULL: '1', CUTROOM_SERVER: `http://127.0.0.1:${port}`, CUTROOM_ASK_TOKEN: 'tok' }, [list, { id: 2, method: 'tools/call', params: { name: 'shell', arguments: { command: 'echo hi' } } }]);
+  assert.deepEqual(full.find((x) => x.id === 1).result.tools.map((x: { name: string }) => x.name), ['editor', 'shell', 'read_file', 'write_file']);
+  const call = full.find((x) => x.id === 2).result;
+  assert.equal(call.isError, true);
+  assert.match(call.content[0].text, /declined/);
+  assert.deepEqual(seen[0], { route: '/api/chat/full-step', token: 'tok', body: { slug: 'demo', name: 'shell', input: { command: 'echo hi' } } });
+});
+
+test('full access: agents show their own commands, file edits and searches', () => {
+  const codex = [
+    '{"type":"item.started","item":{"id":"c1","type":"command_execution","command":"ffprobe cap/a.mp4","aggregated_output":"","exit_code":null,"status":"in_progress"}}',
+    '{"type":"item.completed","item":{"id":"c1","type":"command_execution","command":"ffprobe cap/a.mp4","aggregated_output":"Duration: 00:00:12","exit_code":0,"status":"completed"}}',
+    '{"type":"item.completed","item":{"id":"f1","type":"file_change","changes":[{"path":"scenes/x/index.html","kind":"add"}],"status":"completed"}}',
+  ];
+  const ev = parse('codex', codex);
+  assert.deepEqual(ev.filter((e) => e.type === 'tool').map((e) => (e as { args: string[] }).args[0]), ['ffprobe cap/a.mp4', 'edit scenes/x/index.html']);
+  assert.ok(ev.some((e) => e.type === 'tool_result' && e.id === 'c1' && e.ok));
+  // Antigravity's own tools show only with full access
+  const own = step({ step_index: 9, state: 'DONE', step_type: 'tool', tool_name: 'run_command', tool_info: { name: 'run_command', parameters: { CommandLine: 'ffmpeg -version' }, output: 'ffmpeg 9' } });
+  assert.equal(parse('antigravity', [own]).length, 0);
+  const st = { textSince: false, wrote: false, full: true };
+  const shown = parseAgentLine('antigravity', own, st);
+  assert.deepEqual(shown.map((e) => e.type), ['tool', 'tool_result']);
+  assert.deepEqual((shown[0] as { args: string[] }).args, ['run_command ffmpeg -version']);
+});
+
+test('full access tools: files and a shell; the timeline is changed only through the editor', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cutroom-full-'));
+  assert.ok((await runFullTool('write_file', { path: 'scenes/a/index.html', content: '<p>hi</p>' }, dir)).ok);
+  assert.equal((await runFullTool('read_file', { path: 'scenes/a/index.html' }, dir)).out, '<p>hi</p>');
+  const sb = await runFullTool('write_file', { path: 'storyboard.json', content: '{}' }, dir);
+  assert.ok(!sb.ok && /editor tool/.test(sb.out));
+  assert.ok(!fs.existsSync(path.join(dir, 'storyboard.json')));
+  const sh = await runFullTool('shell', { command: 'echo cutroom-ok' }, dir);
+  assert.ok(sh.ok && sh.out.includes('cutroom-ok'), sh.out);
+  assert.ok(!(await runFullTool('shell', { command: '' }, dir)).ok);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('full access gate: the project folder runs at once; shell commands and writes elsewhere need the panel', async () => {
+  const project = fs.mkdtempSync(path.join(os.tmpdir(), 'cutroom-proj-'));
+  const outside = path.join(os.tmpdir(), `cutroom-outside-${process.pid}.txt`);
+  // Nobody is in the chat panel for this project, so anything that must be asked is declined
+  assert.ok((await fullStep('nobody-here', project, 'write_file', { path: 'media/notes.txt', content: 'x' })).ok);
+  assert.ok((await fullStep('nobody-here', project, 'read_file', { path: 'media/notes.txt' })).ok);
+  const w = await fullStep('nobody-here', project, 'write_file', { path: outside, content: 'x' });
+  assert.ok(!w.ok && /chat panel/.test(w.out), w.out);
+  assert.ok(!fs.existsSync(outside), 'nothing written outside without an answer');
+  const up = await fullStep('nobody-here', project, 'write_file', { path: '../escape.txt', content: 'x' });
+  assert.ok(!up.ok && !fs.existsSync(path.join(project, '..', 'escape.txt')));
+  // A malformed call is sent back without asking anyone
+  assert.match((await fullStep('nobody-here', project, 'shell', { cmd: 'echo hi' })).out, /command must be/);
+  const sh = await fullStep('nobody-here', project, 'shell', { command: 'echo should-not-run > ran.txt' });
+  assert.ok(!sh.ok && !fs.existsSync(path.join(project, 'ran.txt')), 'no shell command without an answer');
+  fs.rmSync(project, { recursive: true, force: true });
+});
+
+test('panel labels for Claude Code tools', () => {
+  const proj = path.join(PUBLIC, 'showcase');
+  assert.equal(toolLabel('Write', { file_path: path.join(proj, 'scenes', 'a', 'index.html') }, 'showcase'), `write ${path.join('scenes', 'a', 'index.html')}`);
+  assert.equal(toolLabel('Bash', { command: 'node editor/dist/cli.mjs showcase ls' }, 'showcase'), 'ls');
+  assert.equal(toolLabel('WebSearch', { query: 'remotion premount' }, 'showcase'), 'search remotion premount');
+  assert.equal(toolLabel('mcp__firecrawl__scrape', {}, 'showcase'), 'firecrawl › scrape');
 });

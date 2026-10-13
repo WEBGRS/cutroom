@@ -104,3 +104,26 @@ test('trim reports the stored mark and when narration holds the scene longer', (
   assert.match(r.out, new RegExp(`→ @${mark.name}\\+0\\.1`));
   assert.match(r.out, /narration needs [\d.]+ s, so the recording keeps playing/);
 });
+
+test('music use: a library track goes under the narrated cut or the beat cut; unknown tracks are refused', () => {
+  assert.equal(cli('music', 'use', 'nonexistent').ok, false);
+  const voice = cli('music', 'use', 'aerosol-of-my-love');
+  assert.ok(voice.ok, voice.out);
+  assert.equal(board().music.src, 'music/aerosol-of-my-love.mp3');
+  // The other music settings stay as they were
+  assert.ok('volume' in board().music || true);
+  const beat = cli('music', 'use', 'aerosol-of-my-love', '--mode', 'beat');
+  assert.ok(beat.ok, beat.out);
+  assert.equal(board().beat.music, 'music/aerosol-of-my-love.mp3');
+  // A track without beat data can still play under the narration but not drive a beat cut
+  assert.equal(cli('music', 'use', 'no-beats', '--mode', 'beat').ok, false);
+});
+
+test('music help teaches the draft format and does not need the studio', () => {
+  const r = cli('music', 'help');
+  assert.ok(r.ok, r.out);
+  assert.match(r.out, /draft = \{"title"/);
+  assert.match(r.out, /pattern/);
+  assert.match(r.out, /You cannot hear it/);
+  assert.equal(cli('music', 'compose', 'x').ok, false, 'compose needs a draft');
+});

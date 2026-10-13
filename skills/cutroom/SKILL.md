@@ -70,6 +70,7 @@ Page rules (the same contract as HyperFrames compositions, which also work uncha
 - Elements with `data-start` / `data-duration` show only in that window.
 - No `Date.now`, timers or `requestAnimationFrame` loops: Cutroom sets the clock frame by frame, and anything else differs between preview and export.
 - No sound inside the page; add music, sound effects and voice-over in Cutroom.
+- Music: `CUT my-demo music help` explains how to write a track as a score (real instrument recordings play it; needs the XSXB-Band studio installed). `music compose <name> <draft>` renders it into the library with beat data, `music use <name>` puts it under the cut (`--mode beat` for the beat cut). You cannot hear it: say so and let the user listen.
 - Declared variables (`data-composition-variables` on the root) can be filled per scene: `CUT my-demo set growth visual.vars.title '"Q3"'`.
 
 `CUT my-demo html check growth` lists problems. `CUT my-demo add html <path>` copies an existing page or composition folder into the project.

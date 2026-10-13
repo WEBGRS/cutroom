@@ -18,11 +18,13 @@ export function imagesIn(out: string): { path: string; data: string; mime: strin
 }
 
 // Claude Code permission rule for reading the frames: //c/Users/... on Windows, //home/... elsewhere
-export const lookReadRule = () => {
-  const d = path.resolve(lookDir()).replace(/\\/g, '/');
+// A Claude Code permission rule for everything under a folder (on Windows the drive is written //c/…)
+export const pathRule = (tool: string, dir: string) => {
+  const d = path.resolve(dir).replace(/\\/g, '/');
   const posix = /^[A-Za-z]:\//.test(d) ? `/${d[0].toLowerCase()}${d.slice(2)}` : d;
-  return `Read(/${posix}/**)`;
+  return `${tool}(/${posix}/**)`;
 };
+export const lookReadRule = () => pathRule('Read', lookDir());
 
 export interface Frame {
   f: number;

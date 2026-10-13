@@ -27,6 +27,7 @@ import { speechRanges } from './silence';
 import { renderFrames } from './look';
 import { importHtml, isHtml, lintHtml, listHtml, pageName, readHtml, starterHtml, writeHtml } from './htmlfiles';
 import { varValues } from '../../src/lib/html';
+import { MUSIC_LUFS, STUDIO_URL, api, ensureStudio, expand, installTrack, libraryText, rangeWarnings, renderProject, slugOf, studioHome, type Draft, type Inst } from './compose';
 
 const HELP = `Cutroom CLI\n${HELP_TEXT}\n`;
 
@@ -328,6 +329,8 @@ async function main() {
       return checkCmd();
     case 'beat':
       return beatCmd(rest);
+    case 'music':
+      return musicCmd(rest);
     case 'look':
       return lookCmd(rest);
     case 'export':
@@ -735,6 +738,87 @@ async function lookCmd(rest: string[]) {
   const shots = await renderFrames({ slug, format, mode, lang, frames, log: (s) => console.log(s) });
   for (const x of shots) console.log(`image: ${path.resolve(x.file)}  (${x.label})`);
   console.log('Each image is one frame exactly as exported. Look at them before judging layout, text or colour.');
+}
+
+// Music written as a score and played by real instrument recordings: instruments / compose / use
+async function musicCmd(rest: string[]) {
+  const sub = rest[0];
+  const dir = path.join(PUBLIC, 'music');
+  if (sub === 'instruments' || sub === 'library') {
+    await ensureStudio();
+    const lib = await api<Inst[]>('/api/library');
+    return console.log(`instruments (id, family, drums are written at midi 60, pitched range, articulations):\n${libraryText(lib)}`);
+  }
+  if (sub === 'compose') {
+    const name = slugOf(rest[1] ?? '');
+    const src = rest[2];
+    if (!name || src === undefined) throw new Error("music compose <name> '<draft json>'  (or a file path, or - to read stdin); music help shows the draft format");
+    const text = src === '-' ? fs.readFileSync(0, 'utf8') : !src.trim().startsWith('{') && fs.existsSync(src) ? fs.readFileSync(src, 'utf8') : src;
+    let draft: Draft;
+    try {
+      draft = JSON.parse(text) as Draft;
+    } catch (e) {
+      throw new Error(`the draft is not valid JSON: ${(e as Error).message}`);
+    }
+    if (fs.existsSync(path.join(dir, `${name}.mp3`)) && !replace) throw new Error(`music/${name}.mp3 exists; pick another name or add --replace`);
+    await ensureStudio();
+    const home = studioHome();
+    if (!home) throw new Error('XSXB-Band is not installed here (set XSXB_BAND_HOME)');
+    const lib = await api<Inst[]>('/api/library');
+    const project = expand(draft, lib);
+    const work = path.join(STATE, 'music', name);
+    fs.rmSync(work, { recursive: true, force: true });
+    fs.mkdirSync(work, { recursive: true });
+    const file = path.join(work, 'project.json');
+    fs.writeFileSync(file, JSON.stringify(project));
+    const need = (project.tracks as { instrumentId: string }[]).map((t) => t.instrumentId).filter((id) => lib.find((i) => i.id === id && !i.installed));
+    console.log(`rendering ${draft.title}: ${draft.bars} bars at ${draft.bpm} BPM, ${draft.tracks.length} track(s)${need.length ? `; first use downloads the recordings for ${[...new Set(need)].join(', ')}` : ''}…`);
+    const r = await renderProject(home, file, path.join(work, 'render'));
+    const seconds = r.mix.scoreSeconds;
+    const out = installTrack(name, r.wav, draft, seconds, { score: JSON.stringify(project) });
+    for (const w of [...rangeWarnings(draft, lib), ...r.warnings]) console.log(`warning: ${w}`);
+    const peaks = r.mix.secondPeakDbFS.filter((x): x is number => typeof x === 'number');
+    // Only the seconds of the score itself; the reverb tail after it is meant to fade
+    const quiet = peaks.slice(0, Math.floor(seconds)).filter((x) => x < -40).length;
+    console.log(`music/${name}.mp3  ${Math.round(seconds * 10) / 10} s, ${Math.round(draft.bpm)} BPM, ${draft.bars} bars  ${out.i.toFixed(1)} LUFS (target ${MUSIC_LUFS}${out.limited ? '; the peaks stop it being louder, so thin out the loudest hits if it must be' : ''}), true peak ${out.tp.toFixed(1)} dBTP`);
+    console.log(`render: peak ${r.mix.peakDbFS.toFixed(1)} dBFS, clipped frames ${r.mix.saturatedFrames}${quiet > 1 ? `, ${quiet} near-silent second(s) of ${peaks.length}: check for gaps` : ''}`);
+    if (r.mix.saturatedFrames > 0) console.log('warning: the render clips; lower the loudest tracks (vol) and compose again with --replace');
+    console.log(`beat data written (one beat per quarter note, bar lines are downbeats); score kept as music/${name}.score.json`);
+    return console.log(`next: music use ${name}${mode === 'beat' ? ' [--bar N]' : ''}   (--mode beat for the beat cut). You cannot hear it: say so, and let the user listen.`);
+  }
+  if (sub === 'use') {
+    const name = rest[1]?.replace(/^music\//, '').replace(/\.mp3$/, '');
+    if (!name || !fs.existsSync(path.join(dir, `${name}.mp3`))) throw new Error(`music use <name>: no such track in music/ (media lists them)`);
+    if (mode === 'beat') return beatCmd(['use', `music/${name}.mp3`]);
+    const { doc } = readDoc(slug);
+    const board = structuredClone(doc.board);
+    board.music = { ...(board.music ?? {}), src: `music/${name}.mp3` };
+    return save({ doc: { ...doc, board }, desc: `配乐 → music/${name}.mp3` });
+  }
+  if (sub === 'help' || sub === undefined) {
+    return console.log(`music instruments                list the instruments you can write for
+music compose <name> <draft|file|->  render a score into music/<name>.mp3 (+ beat data); --replace overwrites
+music use <name> [--mode beat]   put the track under this project's narrated cut (or the beat cut)
+
+draft = {"title":"…","bpm":96,"bars":16,"key":"A minor","tracks":[ track, … ]}
+track = {"inst":"<instrument id>","name":"…","vol":0.7,"pan":0,"reverb":0.2,"art":"<articulation>",
+         "notes":[[start beat, length in beats, midi, velocity 0-1, "articulation"?], …],
+         "pattern":"x...x...x...x.x.",      drums: 16 steps a bar (x hit, X accent, . rest); an array gives one string per bar, repeated
+         "loop":4,"from":0,"to":16}          notes/pattern describe ${'`loop`'} bars and repeat from bar from up to bar to
+Beats count quarter notes from 0 (bar 2 starts at beat 4); midi 60 = C4; drums are written at midi 60.
+Studio ${STUDIO_URL}. Samples are CC0, downloaded on first use (about 20-250 MB per song).
+
+Writing it well (read before the first compose):
+- Length: bars x 4 x 60 / bpm seconds. The narrated cut loops a short track; the beat cut plays it once from its start bar and goes silent when it runs out, so make it at least as long as the scenes' bars add up to.
+- Shape: even 30 s needs a start, a change (add or drop a layer every 4 bars) and an ending. A loop of one bar is not music.
+- Split the jobs: melody (leave breath between phrases), chords, bass, rhythm. More tracks is not more energy.
+- Under a voice-over keep the middle thin: a sparse melody, soft chords, no busy lead. The narrated cut lowers the music under the voice by itself.
+- Stay inside each instrument's listed range. Long notes: sustain or vibrato; do not scatter staccato inside a smooth melody.
+- Feel: vary velocity (0.4-0.9), start phrases off the beat sometimes, leave gaps. Drums: kick and snare make the skeleton, hats fill.
+- Check the report: clipped frames must be 0; if it says the peaks cap the loudness, thin the loudest hits. You cannot hear it: say so, and offer another take.
+- Several takes: compose with another <name> and keep both; the user picks by ear.`);
+  }
+  throw new Error('music instruments | compose <name> <draft|file|-> | use <name> | help');
 }
 
 // Beat cut setup: the tempo comes from the track's own beat data, so there is no BPM to choose

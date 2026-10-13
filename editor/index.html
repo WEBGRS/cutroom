@@ -582,6 +582,10 @@ details[open] > summary { margin-bottom: 8px; }
 .chat-head { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; min-height: 42px; padding: 7px 10px; border-bottom: 1px solid var(--line2); flex: none; }
 .hsel { width: auto; max-width: 104px; height: 26px; padding: 0 20px 0 8px; border-radius: 999px; font-size: 12px; background-position: right 7px center; }
 .hsel:disabled { opacity: .45; }
+.chat { container-type: inline-size; }
+.hpicks { display: flex; align-items: center; gap: 4px; }
+/* A narrow panel puts the three pickers on their own row under the connection and the buttons */
+@container (max-width: 470px) { .hpicks { order: 5; flex-basis: 100%; } }
 .chat-head .icon { width: 28px; height: 26px; }
 .conn { display: inline-flex; align-items: center; gap: 7px; height: 26px; padding: 0 9px; border: 1px solid var(--line); border-radius: 999px; background: var(--field); color: var(--ink2); font-size: 12px; font-weight: 500; }
 .conn i { width: 7px; height: 7px; border-radius: 50%; background: var(--ink3); }
@@ -613,6 +617,17 @@ details[open] > summary { margin-bottom: 8px; }
 .tool-sum svg { transform: rotate(-90deg); transition: transform .15s; }
 .tool-sum.open svg { transform: none; }
 .tool-sum .bad { color: #ffb4ab; }
+.ask { display: flex; flex-direction: column; gap: 7px; margin: 0 0 8px; padding: 10px 12px; border: 1px solid #6b5420; border-radius: 8px; background: #221c10; white-space: normal; }
+.ask.yes { border-color: var(--line2); background: var(--field); }
+.ask.no { border-color: #4d2427; background: var(--err-soft); }
+.ask-head { display: flex; align-items: center; gap: 7px; font-size: 12.5px; font-weight: 600; color: #ffd479; }
+.ask.yes .ask-head { color: var(--ok); }
+.ask.no .ask-head { color: #ffb4ab; }
+.ask-cmd { display: block; padding: 6px 8px; border-radius: 5px; background: rgba(0,0,0,.3); font: 11.5px/1.5 var(--mono); color: var(--ink); white-space: pre-wrap; word-break: break-all; }
+.ask-detail { margin: 0; max-height: 120px; overflow: auto; padding: 6px 8px; border-radius: 5px; background: rgba(0,0,0,.2); font: 11px/1.45 var(--mono); color: var(--ink2); white-space: pre-wrap; }
+.ask-acts { display: flex; flex-wrap: wrap; gap: 6px; }
+.ask-acts button { height: 28px; padding: 0 12px; font-size: 12px; }
+.hsel.full { border-color: #8a6a2a; color: #ffd479; }
 .typing { color: var(--ink3); font-size: 12px; }
 .err { margin-top: 6px; color: var(--err); font-size: 12px; }
 .chat-input { padding: 10px 10px 12px; border-top: 1px solid var(--line2); flex: none; }

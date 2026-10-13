@@ -1,4 +1,5 @@
 // Other model providers through the OpenAI-compatible Chat Completions API (plain fetch + SSE, no SDK)
+import { fullLabel, type FullResult, type FullTool } from './fulltools';
 
 export interface Preset {
   id: string;
@@ -110,6 +111,10 @@ export interface LoopOpts {
   onTool: (id: string, args: string[]) => void;
   onToolResult: (id: string, ok: boolean, out: string) => void;
   signal: AbortSignal;
+  // Full access: shell and file tools next to the editor, and room for long jobs
+  extra?: FullTool[];
+  runExtra?: (name: string, input: unknown) => Promise<FullResult>;
+  maxTurns?: number;
 }
 
 // Read an SSE stream of chat-completion chunks into one assistant message
@@ -189,13 +194,14 @@ export async function chatLoop(o: LoopOpts): Promise<Msg[]> {
         parameters: { type: 'object', properties: { args: { type: 'array', items: { type: 'string' }, description: 'The command and its arguments' } }, required: ['args'] },
       },
     },
+    ...(o.extra ?? []).map((t) => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.schema } })),
   ];
   const messages: Msg[] = [...o.history, { role: 'user', content: o.prompt }];
   let wrote = false;
   const pics: { mime: string; data: string }[] = [];
   let seeing = true;
   const isPics = (m: Msg) => m.role === 'user' && Array.isArray(m.content);
-  for (let turn = 0; turn < 24; turn++) {
+  for (let turn = 0; turn < (o.maxTurns ?? 24); turn++) {
     const r = await fetch(join(o.c.base, '/chat/completions'), {
       method: 'POST',
       headers: headers(o.c),
@@ -233,6 +239,21 @@ export async function chatLoop(o: LoopOpts): Promise<Msg[]> {
     messages.push(msg);
     if (!m.calls.length) break;
     for (const x of m.calls) {
+      if (x.name && x.name !== 'editor' && o.runExtra && o.extra?.some((t) => t.name === x.name)) {
+        let input: unknown = null;
+        try {
+          input = JSON.parse(x.args || '{}');
+        } catch {
+          messages.push({ role: 'tool', tool_call_id: x.id, content: 'Error: arguments must be a JSON object' });
+          continue;
+        }
+        o.onTool(x.id, [fullLabel(x.name, (input ?? {}) as Record<string, unknown>)]);
+        const res = await o.runExtra(x.name, input);
+        o.onToolResult(x.id, res.ok, res.out.slice(0, 600));
+        messages.push({ role: 'tool', tool_call_id: x.id, content: (res.ok ? '' : 'Error: ') + res.out });
+        if (res.images?.length) pics.push(...res.images);
+        continue;
+      }
       const args = parseArgs(x.args);
       if (!args) {
         messages.push({ role: 'tool', tool_call_id: x.id, content: 'Error: arguments must be {"args": ["command", "arg", ...]}' });
@@ -245,7 +266,7 @@ export async function chatLoop(o: LoopOpts): Promise<Msg[]> {
       if (res.images?.length) pics.push(...res.images);
     }
     // Frames from look: vision models see them; others get told once and go on with text
-    if (pics.length && seeing) messages.push({ role: 'user', content: [{ type: 'text', text: 'The frames look rendered, in order:' }, ...pics.splice(0).map((x) => ({ type: 'image_url' as const, image_url: { url: `data:${x.mime};base64,${x.data}` } }))] });
+    if (pics.length && seeing) messages.push({ role: 'user', content: [{ type: 'text', text: 'The images from the tool calls above (frames from look, files you read), in order:' }, ...pics.splice(0).map((x) => ({ type: 'image_url' as const, image_url: { url: `data:${x.mime};base64,${x.data}` } }))] });
     pics.length = 0;
   }
   // Earlier turns' reasoning and frames are not sent again

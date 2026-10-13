@@ -685,6 +685,7 @@ export function Library(p: Props & { tab: LibTab; setTab: (t: LibTab) => void })
             </button>
             {hints ? <span className="lib-note">{p.mode === 'beat' ? tr('Beat cut needs a track with beat data', '卡点版只能用分析过节拍的曲子') : tr('Background music for the narrated cut', '旁白版的背景音乐')}</span> : null}
           </div>
+          <div className="lib-note pad">{tr('Or have the AI write one: in the AI panel type / and pick Music. It is played by real instrument recordings (XSXB-Band), needs no credit, and comes with beat data.', '也可以让 AI 写一首：在 AI 助手里输入 / 选「配乐」。用真实乐器的录音演奏（需要装 XSXB-Band），不用署名，自带节拍数据。')}</div>
           {tracks.length ? (
             tracks.map((t) => (
               <AudioRow

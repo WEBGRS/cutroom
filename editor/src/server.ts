@@ -9,7 +9,7 @@ import type { EngineId } from './voices';
 import { findBrowser, recordPage } from './record';
 import { cleanName, desktopSupported, ffmpegStatus, listMonitors, listWindows, recordDesktop, stopActive } from './desktop';
 import type { Doc } from './ops';
-import { aiStatus, aiTest, chat, compatModels, history, isRunning, provider, reset, stop, writeAi } from './chat';
+import { ASK_TOKEN, aiStatus, aiTest, answerAsk, askDetail, askUser, chat, compatModels, fullStep, history, isRunning, pendingAsks, provider, reset, stop, toolLabel, writeAi } from './chat';
 import { agentDef, installAgent, openSignIn, forgetAgents, type AgentId } from './agents';
 import { boardTemplate } from './templates';
 import { L, readSettings, uiLang, writeSettings } from './settings';
@@ -430,7 +430,7 @@ const server = http.createServer(async (req, res) => {
     if (p === '/api/ai' && req.method === 'POST') {
       const b = await body(req);
       try {
-        writeAi({ pref: b.pref, apiKey: b.apiKey, compat: b.compat, agent: b.agent, effort: b.effort, model: b.model });
+        writeAi({ pref: b.pref, apiKey: b.apiKey, compat: b.compat, agent: b.agent, effort: b.effort, model: b.model, access: b.access });
       } catch (e) {
         return send(res, 400, { error: (e as Error).message });
       }
@@ -563,7 +563,27 @@ const server = http.createServer(async (req, res) => {
       return send(res, 200, { ok: true });
     }
     if (p === '/api/ai/test' && req.method === 'POST') return send(res, 200, await aiTest());
-    if (p === '/api/chat' && req.method === 'GET') return send(res, 200, { provider: provider(), history: history(slug), running: isRunning(slug) });
+    if (p === '/api/chat' && req.method === 'GET') return send(res, 200, { provider: provider(), history: history(slug), running: isRunning(slug), asks: pendingAsks(slug) });
+    // Full access: Claude Code asks through the MCP helper (with this server's token) and waits for the panel's answer
+    if (p === '/api/chat/permission' && req.method === 'POST') {
+      if (req.headers['x-cutroom-ask'] !== ASK_TOKEN) return send(res, 403, { error: 'forbidden' });
+      const b = await body(req);
+      checkSlug(b.slug);
+      const input = b.input && typeof b.input === 'object' ? b.input : {};
+      const tool = String(b.tool ?? '');
+      return send(res, 200, await askUser(b.slug, toolLabel(tool, input, b.slug), askDetail(tool, input)));
+    }
+    // Full access for Codex and Antigravity: Cutroom's shell and file tools, called through their MCP server
+    if (p === '/api/chat/full-step' && req.method === 'POST') {
+      if (req.headers['x-cutroom-ask'] !== ASK_TOKEN) return send(res, 403, { error: 'forbidden' });
+      const b = await body(req);
+      checkSlug(b.slug);
+      return send(res, 200, await fullStep(b.slug, path.join(PUBLIC, b.slug), String(b.name ?? ''), b.input));
+    }
+    if (p === '/api/chat/answer' && req.method === 'POST') {
+      const b = await body(req);
+      return send(res, answerAsk(String(b.slug ?? ''), String(b.id ?? ''), !!b.allow, !!b.always) ? 200 : 404, { ok: true });
+    }
     if (p === '/api/chat/reset' && req.method === 'POST') {
       reset((await body(req)).slug);
       return send(res, 200, { ok: true });

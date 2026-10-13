@@ -70,6 +70,7 @@ Open the project in the editor afterwards to adjust it by hand; the agent sees y
 - **Image overlays**: logos, stickers and product shots on any scene, with an entrance (pop, rise, slide, spin, fade), a turn and an optional float. `imagine` draws one with an OpenAI or Gemini key, with a transparent background on OpenAI.
 - **Shot breakdown**: `shots <video>` finds every cut in a reference video (or your own export), gives each shot's length and camera move (static, pan, push in, pull out, handheld) with three keyframes, and writes a page where clicking a shot plays it.
 - **Footage tools**: `reframe` crops a wide image or clip for 9:16 around the part with the most motion and detail; `cut-silence` turns a talking clip into jump cuts without the long pauses; `export --max-mb` fits the file under a size limit.
+- **Music written for your video**: ask the assistant for a track and it writes the score; real instrument recordings (CC0, from [XSXB-Band](https://github.com/sparklecatta-lang/XSXB-Band), installed separately) play it. The result lands in the music library at the right level, with beat data for the beat cut and no credit line to print. `cutroom my-app music help` shows how.
 - **58 sound effects**: whooshes, risers, booms, hits, clicks, typing, notification dings and digital blips. Listen in the library, drag one onto the Sound FX lane, then drag it to the exact frame.
 - **Captions**: box, outline or plain styles, any position and size, and most text animations; a Screen Studio-style frame for recordings, frosted cards and a chapter bar.
 - **AI voice-over**: pick a voice in Library › Voiceover and press Voice. The built-in voices are free and run offline (100 Chinese, 3 English; a 147 MB model downloads once); OpenAI, Gemini and Qwen voices use your key from Settings › AI. Only lines without current audio are voiced, so editing a line re-voices just that line.
@@ -152,9 +153,14 @@ Open the **AI assistant** tab and click the connection pill at its top, or go to
 - **Keys**: a pasted key is stored only in `.editor/settings.json` on your machine (git-ignored) and is never sent back to the page in full. Keys can also come from `OPENAI_API_KEY`, `GEMINI_API_KEY`, `DEEPSEEK_API_KEY`, `DASHSCOPE_API_KEY`, `MOONSHOT_API_KEY`, `ZHIPUAI_API_KEY` or `OPENROUTER_API_KEY`. For Ollama, pull a tool-capable model first, e.g. `ollama pull qwen3`.
 - **Not supported**: Chinese "Coding Plan" keys, because their terms only allow interactive coding tools.
 
-**Test connection** sends one short request through whichever option is active. In auto mode the editor prefers the Claude Code login, then the Claude API key, then a configured other provider. Whichever model answers, the assistant can only run the editor's own CLI on the open project.
+**Test connection** sends one short request through whichever option is active. In auto mode the editor prefers the Claude Code login, then the Claude API key, then a configured other provider.
 
-In the chat panel's header you pick the model and the reasoning effort (Claude Code, the Claude API, Codex and Antigravity take an effort; higher thinks longer and uses more of your plan). Type `/` in the message box to search the prompt library, or open it with the lightbulb; the expand button gives the chat half the window.
+In the chat panel's header you pick the model, the reasoning effort (Claude Code, the Claude API, Codex and Antigravity take an effort; higher thinks longer and uses more of your plan) and what the AI may do. Type `/` in the message box to search the prompt library, or open it with the lightbulb; the expand button gives the chat half the window.
+
+### What the AI may do
+
+- **Editor only** (the default): the assistant runs the editor's own CLI on the open project and nothing else, as described above.
+- **Full access**: it works like an assistant in your own terminal. It can write files (HTML scenes, SVG, scripts, subtitles), run programs such as ffmpeg, read your code, search the web and, with Claude Code, use your own skills and MCP servers. Reads and edits inside the project folder run at once. Shell commands and changes outside the project folder stop and ask in the chat: **Allow**, **Allow all in this chat** or **Decline**; a declined step does not run, and nothing is asked or run while no one is in the panel. The timeline itself still changes only through the editor CLI, so versions, undo and the live preview stay in sync. Claude Code keeps its own tools and asks through its permission prompt (`--permission-prompt-tool`); the Claude API, other models, Codex and Antigravity get Cutroom's `shell`, `read_file` and `write_file` tools, with their own shell and file tools still off. Gemini CLI stays on editor only.
 
 ## A storyboard
 

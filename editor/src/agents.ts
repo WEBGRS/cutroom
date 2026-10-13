@@ -1,5 +1,6 @@
 // Subscriptions through the vendors' own command-line agents (ChatGPT via Codex CLI, Google via Gemini CLI or Antigravity).
-// The agent gets exactly one tool, the editor CLI, served by editor/dist/mcp.mjs; its own shell and file tools are switched off.
+// The editor CLI is served to them by editor/dist/mcp.mjs; their own shell and file tools are off. With full access the
+// same server adds Cutroom's shell and file tools, whose risky steps the user allows in the chat panel.
 import { execFile, spawn, type ChildProcess } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -129,7 +130,7 @@ const toml = (s: string) => JSON.stringify(s);
 const MCP = () => path.join(ROOT, 'editor', 'dist', 'mcp.mjs');
 // The CLIs start the MCP server with a trimmed environment: where the projects live, and (desktop app) run Electron as Node
 // Some agents start MCP servers with a trimmed environment; desktop recording needs Windows' folders and its FFmpeg
-const mcpEnv = (): Record<string, string> => {
+export const mcpEnv = (): Record<string, string> => {
   const env = Object.fromEntries(['VS_DATA', 'VS_ROOT', 'ELECTRON_RUN_AS_NODE', 'SystemRoot', 'LOCALAPPDATA', 'CUTROOM_APPDIR', 'CUTROOM_DESK_FAKE'].filter((k) => process.env[k]).map((k) => [k, process.env[k]!]));
   const ff = desktopSupported() ? captureFfmpeg() : null;
   if (ff) env.CUTROOM_FFMPEG = ff;
@@ -153,18 +154,21 @@ function geminiWorkspace(slug: string): string {
 // the sign-in lives in the system keyring and still works. Its own tools are denied (the model gets an error
 // and carries on); web search remains, which reads nothing on this computer.
 export const AGY_DENY = ['command(*)', 'unsandboxed(*)', 'write_file(*)', 'read_url(*)', 'execute_url(*)'];
-function antigravityHome(slug: string): string {
+// Full access: Cutroom's shell and file tools (each risky step asked in the panel) and web pages; its own shell and writes stay off
+export const AGY_FULL_ALLOW = ['mcp(cutroom/shell)', 'mcp(cutroom/read_file)', 'mcp(cutroom/write_file)', 'read_url(*)'];
+function antigravityHome(slug: string, mcp?: Record<string, string>): string {
   const home = path.join(os.tmpdir(), 'cutroom-agy');
   const put = (rel: string, v: object) => {
     fs.mkdirSync(path.dirname(path.join(home, rel)), { recursive: true });
     fs.writeFileSync(path.join(home, rel), JSON.stringify(v, null, 2));
   };
   // The editor itself runs with the real home folder; Antigravity drops images in tool results, so `look` says where the frames are
-  const env = { ...mcpEnv(), HOME: os.homedir(), USERPROFILE: os.homedir(), CUTROOM_LOOK_FILES: '1' };
+  const env = { ...mcpEnv(), ...(mcp ?? {}), HOME: os.homedir(), USERPROFILE: os.homedir(), CUTROOM_LOOK_FILES: '1' };
   // Its own limit per tool call is 3 minutes; voice-over and recordings take longer
-  put('.gemini/config/mcp_config.json', { mcpServers: { cutroom: { command: process.execPath, args: [MCP(), slug], cwd: ROOT, env, timeoutSeconds: 900 } } });
-  // It may open the rendered frames, nothing else outside its empty workspace
-  put('.gemini/antigravity-cli/settings.json', { permissions: { allow: ['mcp(cutroom/editor)', `read_file(${path.resolve(lookDir())})`], deny: AGY_DENY } });
+  put('.gemini/config/mcp_config.json', { mcpServers: { cutroom: { command: process.execPath, args: [MCP(), slug], cwd: ROOT, env, timeoutSeconds: mcp ? 1500 : 900 } } });
+  // Editor only: it may open the rendered frames, nothing else outside its empty workspace
+  const allow = ['mcp(cutroom/editor)', `read_file(${path.resolve(lookDir())})`, ...(mcp ? AGY_FULL_ALLOW : [])];
+  put('.gemini/antigravity-cli/settings.json', { permissions: { allow, deny: mcp ? AGY_DENY.filter((r) => r !== 'read_url(*)') : AGY_DENY } });
   put('.gemini/config/config.json', {
     userSettings: { autoExecutionPolicy: 'CASCADE_COMMANDS_AUTO_EXECUTION_OFF', nonWorkspaceFileAccessPolicy: 'AGENT_SETTING_POLICY_DENY', browserJsExecutionPolicy: 'BROWSER_JS_EXECUTION_POLICY_DISABLED', enableTerminalSandbox: true },
   });
@@ -175,9 +179,19 @@ function antigravityHome(slug: string): string {
 // Codex has no "max"; its top level is xhigh
 const CODEX_EFFORT: Record<string, string> = { low: 'low', medium: 'medium', high: 'high', xhigh: 'xhigh', max: 'xhigh' };
 
-export function agentArgs(id: AgentId, slug: string, model: string | undefined, effort?: string): { args: string[]; cwd: string; env: Record<string, string> } {
+export interface AgentOpts {
+  // Full access: Cutroom's shell and file tools through the MCP server, which reaches the editor with these variables
+  full?: boolean;
+  mcp?: Record<string, string>;
+  effort?: string;
+}
+
+export function agentArgs(id: AgentId, slug: string, model: string | undefined, o: AgentOpts = {}): { args: string[]; cwd: string; env: Record<string, string> } {
+  const { effort } = o;
+  // The MCP server serves the full-access tools only when it can reach the editor
+  const mcp = o.full && o.mcp ? { ...o.mcp, CUTROOM_FULL: '1' } : undefined;
   if (id === 'antigravity') {
-    const home = antigravityHome(slug);
+    const home = antigravityHome(slug, mcp);
     return {
       cwd: path.join(home, 'work'),
       env: { HOME: home, USERPROFILE: home },
@@ -200,9 +214,9 @@ export function agentArgs(id: AgentId, slug: string, model: string | undefined, 
         '--ignore-rules',
         '--sandbox',
         'read-only',
+        // Its own shell stays off in both modes; full access uses Cutroom's tools and keeps its web search
         ...['shell_tool', 'unified_exec', 'view_image', 'goals'].flatMap((f) => ['--disable', f]),
-        '-c',
-        'web_search="disabled"',
+        ...(mcp ? [] : ['-c', 'web_search="disabled"']),
         '-c',
         `mcp_servers.cutroom.command=${toml(process.execPath)}`,
         '-c',
@@ -210,14 +224,14 @@ export function agentArgs(id: AgentId, slug: string, model: string | undefined, 
         '-c',
         `mcp_servers.cutroom.cwd=${toml(ROOT)}`,
         '-c',
-        `mcp_servers.cutroom.env={${Object.entries(mcpEnv())
+        `mcp_servers.cutroom.env={${Object.entries({ ...mcpEnv(), ...(mcp ?? {}) })
           .map(([k, v]) => `${k} = ${toml(v)}`)
           .join(', ')}}`,
         '-c',
         'mcp_servers.cutroom.default_tools_approval_mode="approve"',
         // Voice-over and screen recordings take minutes
         '-c',
-        'mcp_servers.cutroom.tool_timeout_sec=900',
+        `mcp_servers.cutroom.tool_timeout_sec=${mcp ? 1500 : 900}`,
         // Extra `-c key=value` lines, e.g. openai_base_url for a proxy
         ...(process.env.CUTROOM_CODEX_CONFIG ?? '').split('\n').filter((x) => x.trim()).flatMap((x) => ['-c', x.trim()]),
         ...(model ? ['-m', model] : []),
@@ -240,9 +254,16 @@ const argsOf = (a: unknown): string[] => {
   const v = (a as { args?: unknown })?.args;
   return Array.isArray(v) ? v.map(String) : [];
 };
+// A call to one of Cutroom's MCP tools as one line: the editor's arguments, or the full-access shell and file tools
+const mcpLabel = (tool: unknown, a: unknown): string[] => {
+  const o = (a ?? {}) as Record<string, unknown>;
+  if (tool === 'shell') return [String(o.command ?? '')];
+  if (tool === 'read_file' || tool === 'write_file') return [`${tool === 'read_file' ? 'read' : 'write'} ${String(o.path ?? '')}`];
+  return argsOf(a);
+};
 
 // One JSONL line from the agent → editor events
-export function parseAgentLine(id: AgentId, line: string, state: { textSince: boolean; wrote: boolean; seen?: Set<string> }): AgentEvent[] {
+export function parseAgentLine(id: AgentId, line: string, state: { textSince: boolean; wrote: boolean; seen?: Set<string>; full?: boolean }): AgentEvent[] {
   let m: any;
   try {
     m = JSON.parse(line);
@@ -262,8 +283,18 @@ export function parseAgentLine(id: AgentId, line: string, state: { textSince: bo
     const it = m.item;
     if (m.type === 'item.started' && it?.type === 'mcp_tool_call') {
       state.textSince = false;
-      out.push({ type: 'tool', id: it.id, args: argsOf(it.arguments) });
+      out.push({ type: 'tool', id: it.id, args: mcpLabel(it.tool, it.arguments) });
     } else if (m.type === 'item.completed' && it?.type === 'mcp_tool_call') out.push({ type: 'tool_result', id: it.id, ok: it.status === 'completed' && !it.error, out: (textOf(it.result?.content) || it.error?.message || '').slice(0, 600) });
+    // Full access: its own shell commands, file edits and web searches
+    else if (m.type === 'item.started' && it?.type === 'command_execution') {
+      state.textSince = false;
+      out.push({ type: 'tool', id: it.id, args: [String(it.command ?? '')] });
+    } else if (m.type === 'item.completed' && it?.type === 'command_execution') out.push({ type: 'tool_result', id: it.id, ok: it.exit_code === 0, out: String(it.aggregated_output ?? '').slice(0, 600) });
+    else if (m.type === 'item.completed' && (it?.type === 'file_change' || it?.type === 'web_search')) {
+      state.textSince = false;
+      const label = it.type === 'web_search' ? `search ${String(it.query ?? '')}` : `edit ${(Array.isArray(it.changes) ? it.changes : []).map((c: { path?: string }) => c.path).filter(Boolean).join(', ')}`;
+      out.push({ type: 'tool', id: it.id, args: [label] }, { type: 'tool_result', id: it.id, ok: it.status !== 'failed', out: '' });
+    }
     else if (m.type === 'item.completed' && it?.type === 'agent_message') text(String(it.text ?? ''));
     else if (m.type === 'turn.failed') out.push({ type: 'error', message: String(m.error?.message ?? 'Codex turn failed').slice(0, 400) });
     // "Reconnecting... 2/5" is Codex retrying on its own, not a failure
@@ -276,13 +307,17 @@ export function parseAgentLine(id: AgentId, line: string, state: { textSince: bo
       const ti = u.tool_info ?? {};
       const p = ti.parameters ?? {};
       const tid = `step-${u.step_index}`;
-      // Only the editor's calls are shown; its own tools are denied or read its tool list
-      if (u.tool_name === 'call_mcp_tool' && p.ServerName === 'cutroom') {
-        if (u.state === 'ACTIVE' && !state.seen?.has(tid)) {
+      // Editor only: just the editor's calls (its own tools are denied or read its tool list). Full access: its own tools too
+      const mine = u.tool_name === 'call_mcp_tool' && p.ServerName === 'cutroom';
+      if (mine || state.full) {
+        const label = mine ? mcpLabel(p.ToolName, p.Arguments) : [`${u.tool_name} ${String(Object.values(p).find((v) => typeof v === 'string') ?? '')}`.trim()];
+        // A step can arrive already finished, without an ACTIVE update first
+        if ((u.state === 'ACTIVE' || u.state === 'DONE' || u.state === 'ERROR') && !state.seen?.has(tid)) {
           (state.seen ??= new Set()).add(tid);
           state.textSince = false;
-          out.push({ type: 'tool', id: tid, args: argsOf(p.Arguments) });
-        } else if (u.state === 'DONE' || u.state === 'ERROR') out.push({ type: 'tool_result', id: tid, ok: u.state === 'DONE', out: String(ti.output ?? ti.error?.message ?? '').slice(0, 600) });
+          out.push({ type: 'tool', id: tid, args: label });
+        }
+        if (u.state === 'DONE' || u.state === 'ERROR') out.push({ type: 'tool_result', id: tid, ok: u.state === 'DONE', out: String(ti.output ?? ti.error?.message ?? '').slice(0, 600) });
       }
     } else if (m.event === 'result') {
       const r = m.result ?? {};
@@ -313,12 +348,12 @@ export interface AgentRun {
 }
 
 // Start the agent with the whole prompt on stdin (instructions are too long for a Windows command line)
-export function startAgent(id: AgentId, slug: string, model: string | undefined, prompt: string, onEvent: (e: AgentEvent) => void, onExit: (code: number | null, stderr: string) => void, effort?: string): AgentRun | null {
+export function startAgent(id: AgentId, slug: string, model: string | undefined, prompt: string, onEvent: (e: AgentEvent) => void, onExit: (code: number | null, stderr: string) => void, o: AgentOpts = {}): AgentRun | null {
   const l = cliOf(agentDef(id)!);
   if (!l) return null;
-  const { args, cwd, env } = agentArgs(id, slug, model, effort);
+  const { args, cwd, env } = agentArgs(id, slug, model, o);
   const child = spawn(l.cmd, [...l.pre, ...args], { cwd, windowsHide: true, env: { ...process.env, ...env } });
-  const state = { textSince: false, wrote: false };
+  const state = { textSince: false, wrote: false, full: !!o.full };
   let buf = '';
   let err = '';
   child.stdout!.on('data', (d) => {

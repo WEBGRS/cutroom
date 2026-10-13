@@ -27,6 +27,10 @@ export const HELP = `node editor/dist/cli.mjs <slug> <command> [args] [--format 
   media                    the project's recordings (with marks), images, videos, audio and the music library
   beat [use <music/track.mp3> [--bar N] | off]
                            beat cut music: the tempo comes from the track's beat data (no BPM to set); lists tracks
+  music instruments | compose <name> <draft|file|-> [--replace] | use <name> [--mode beat] | help
+                           music you write as a score, played by real instrument recordings (CC0, no credit needed): compose renders
+                           it into music/<name>.mp3 with beat data at the library's level; use puts it under the project's cut.
+                           \`music help\` shows the draft format. You cannot hear it; say so and let the user listen
   look [t | id | id+t ...] render frames exactly as exported and print their image paths (t = seconds or m:ss,
                            id = a scene's middle; up to 8; default: a spread of scenes). Respects --format/--mode/--lang
   check                    problems to fix before export (long captions, missing voice-over, overlapping or silent sounds,

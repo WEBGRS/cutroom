@@ -85,6 +85,16 @@ export const PROMPTS: PromptGroup[] = [
     ],
   },
   {
+    id: 'music',
+    en: 'Music',
+    zh: '配乐',
+    items: [
+      { en: 'Write music for this video: 【mood and style, e.g. warm acoustic, relaxed】, about as long as the video. Real instrument recordings, then put it under the video.', zh: '给这条片子写一段配乐：【情绪和风格，比如温暖的原声乐器、轻松】，长度和片子差不多。用真实乐器的录音演奏，再配到片子里。' },
+      { en: 'Write a beat-cut track at 【120】 BPM, 【16】 bars: a clear bar-1 start and a drop at bar 9. Use it for the beat cut.', zh: '写一首卡点版用的曲子：【120】 BPM、【16】 小节，第 1 小节清楚起拍，第 9 小节进入高潮。配到卡点版里。' },
+      { en: 'Compose the same track again with 【a softer drum pattern】 and keep the old one.', zh: '同一首再写一版：【鼓点更轻】，旧的那首留着，方便我对比。' },
+    ],
+  },
+  {
     id: 'sound',
     en: 'Sound',
     zh: '音效',
@@ -106,7 +116,7 @@ export const FEATURED: [string, number][] = [
 // Above the input once a conversation has started, chosen by what the editor shows
 export function chipsFor(c: { sel: boolean; beat: boolean }): [string, number][] {
   if (c.sel) return [['pace', 1], ['look', 1]];
-  if (c.beat) return [['pace', 3], ['review', 0]];
+  if (c.beat) return [['pace', 3], ['music', 1]];
   return [['review', 0], ['review', 1]];
 }
 

@@ -1,16 +1,18 @@
 import { execFile, spawn, type ChildProcess } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import Anthropic from '@anthropic-ai/sdk';
-import { ROOT, STATE } from './store';
+import { PUBLIC, ROOT, STATE } from './store';
 import { killTree } from './proc';
 import { HELP } from './help';
-import { imagesIn, lookReadRule } from './look';
+import { imagesIn, lookReadRule, pathRule } from './look';
 import { catalogText } from './catalog';
 import { rulesBlock } from './rules';
 import { L, readSettings, writeSettings } from './settings';
 import { PRESETS, chatLoop, listModels, pickModel, ping, preset, trimHistory, type Conn } from './compat';
-import { AGENTS, agentDef, agentState, cliOf, forgetAgents, startAgent, type AgentId } from './agents';
+import { AGENTS, agentDef, agentState, cliOf, forgetAgents, mcpEnv, startAgent, type AgentId } from './agents';
+import { FULL_TOOLS, fullLabel, isFullTool, runFullTool, type FullResult } from './fulltools';
 
 export type ChatEvent =
   | { type: 'start'; provider: string }
@@ -18,7 +20,10 @@ export type ChatEvent =
   | { type: 'tool'; id: string; cmd: string }
   | { type: 'tool_result'; id: string; ok: boolean; out: string }
   | { type: 'done'; ms: number; cost?: number }
-  | { type: 'error'; message: string };
+  | { type: 'error'; message: string }
+  // Full access: a step that needs the user's go-ahead, and the answer
+  | { type: 'ask'; id: string; cmd: string; detail: string }
+  | { type: 'asked'; id: string; allow: boolean };
 
 export interface ChatContext {
   format: string;
@@ -39,6 +44,8 @@ interface LogItem {
 
 interface Saved {
   sessionId?: string;
+  // Folder the Claude Code session runs in (a session resumes only there)
+  cwd?: string;
   api?: Anthropic.Beta.BetaMessageParam[];
   // OpenAI-compatible conversation, kept only while provider, address and model stay the same
   compat?: { id: string; messages: Record<string, unknown>[] };
@@ -46,6 +53,9 @@ interface Saved {
 }
 
 const CLI = 'node editor/dist/cli.mjs';
+// Full access runs Claude Code in the project folder, so the CLI is called by its full path there
+const cliScript = path.join(ROOT, 'editor', 'dist', 'cli.mjs').replace(/\\/g, '/');
+const CLI_ABS = `node ${/\s/.test(cliScript) ? `"${cliScript}"` : cliScript}`;
 const file = (slug: string) => path.join(STATE, slug, 'chat.json');
 const load = (slug: string): Saved => {
   try {
@@ -60,7 +70,10 @@ const save = (slug: string, s: Saved) => {
 };
 
 export const history = (slug: string) => load(slug).log;
-export const reset = (slug: string) => save(slug, { log: [] });
+export const reset = (slug: string) => {
+  allowAll.delete(slug);
+  save(slug, { log: [] });
+};
 
 // Claude Code binary: CLAUDE_BIN, or claude(.exe) on PATH, or the native exe behind an npm shim
 export function findClaude(): string | null {
@@ -86,6 +99,8 @@ interface AiSettings {
   effort?: string;
   // Model for the Claude Code login and the Claude API key
   models?: { 'claude-code'?: string; anthropic?: string };
+  // editor: only Cutroom's own commands; full: every tool, risky steps wait for the user's go-ahead in the panel
+  access?: 'editor' | 'full';
 }
 export interface CompatPatch {
   preset?: string;
@@ -95,8 +110,9 @@ export interface CompatPatch {
 }
 export const readAi = (): AiSettings => readSettings().ai ?? {};
 export const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
-export function writeAi(patch: { pref?: string; apiKey?: string | null; compat?: CompatPatch; agent?: { id?: string; model?: string }; effort?: string; model?: { provider?: string; value?: string } }) {
+export function writeAi(patch: { pref?: string; apiKey?: string | null; compat?: CompatPatch; agent?: { id?: string; model?: string }; effort?: string; model?: { provider?: string; value?: string }; access?: string }) {
   const ai: AiSettings = { ...(readSettings().ai ?? {}) };
+  if (patch.access !== undefined) ai.access = patch.access === 'full' ? 'full' : 'editor';
   if (patch.effort !== undefined) {
     if (EFFORTS.includes(patch.effort)) ai.effort = patch.effort;
     else delete ai.effort;
@@ -192,6 +208,7 @@ const chosenAgent = (): AgentId | null => {
   return def && cliOf(def) ? def.id : null;
 };
 const agentModel = (id: AgentId) => readAi().agent?.models?.[id];
+export const aiAccess = (): 'editor' | 'full' => (readAi().access === 'full' ? 'full' : 'editor');
 const aiEffort = () => {
   const e = readAi().effort;
   return e && EFFORTS.includes(e) ? e : undefined;
@@ -228,6 +245,7 @@ export async function aiStatus() {
     effort: aiEffort() ?? '',
     models: { 'claude-code': readAi().models?.['claude-code'] ?? '', anthropic: readAi().models?.anthropic ?? API_MODELS[0] },
     modelChoices: { 'claude-code': CLAUDE_CODE_MODELS, anthropic: API_MODELS },
+    access: aiAccess(),
     agent: readAi().agent?.id ?? null,
     agents: await Promise.all(AGENTS.map(async (a) => ({ ...(await agentState(a.id)), en: a.en, zh: a.zh, plansEn: a.plansEn, plansZh: a.plansZh, login: a.login, pkg: a.pkg, url: a.url, model: agentModel(a.id) ?? '' }))),
     presets: PRESETS.map(({ id, en, zh, base, keyUrl, env, noKey }) => ({ id, en, zh, base, keyUrl, env, noKey })),
@@ -344,18 +362,29 @@ const TOOL_DESC = (slug: string) =>
   `Run one Cutroom CLI command for project "${slug}". Pass the command and its arguments as an array, e.g. ["ls","--format","tall"], ["trim","record","--to","@filter+0.8"], ["set","intro","fx.look","\\"warm\\""]. Output is the command's stdout. Recording, voice-over, look and export can take minutes (record-window waits for the person to press Stop).`;
 
 // via: bash = Claude Code; tool = an `editor` tool whose results carry the frames; files = an `editor` tool, frames opened as files
-export function systemPrompt(slug: string, via: 'bash' | 'tool' | 'files' = 'bash'): string {
+export function systemPrompt(slug: string, via: 'bash' | 'tool' | 'files' = 'bash', fullAccess?: boolean): string {
+  const full = fullAccess ?? aiAccess() === 'full';
   const how =
     via === 'bash'
-      ? `- Use only the Bash tool, and only this command form (the working directory is already the project root; never cd, never edit files directly, never run other programs):
+      ? full
+        ? `- Edit the video with the Cutroom CLI through Bash (your working directory is the project folder):
+  ${CLI_ABS} ${slug} <command> ...
+  Timeline changes always go through it: it keeps versions, the undo history and the live preview in sync. Never edit storyboard.json by hand.`
+        : `- Use only the Bash tool, and only this command form (the working directory is already the project root; never cd, never edit files directly, never run other programs):
   ${CLI} ${slug} <command> ...`
-      : `- Use only the \`editor\` tool. Give it the command and its arguments as an array of strings, without any program name or project id: ["ls","--format","wide"], ["show","intro"], ["set","intro","fx.look","\\"warm\\""]. JSON values for \`set\` are passed as one string.`;
+      : `- ${full ? 'Edit the video with' : 'Use only'} the \`editor\` tool. Give it the command and its arguments as an array of strings, without any program name or project id: ["ls","--format","wide"], ["show","intro"], ["set","intro","fx.look","\\"warm\\""]. JSON values for \`set\` are passed as one string.${full ? ' Timeline changes always go through it (versions, undo, live preview); never edit storyboard.json by hand.' : ''}`;
+  const access = full
+    ? `
+- You also have the access a developer has in their own terminal: write files (HTML scenes, SVG, scripts, subtitles), run programs (ffmpeg, python, node, git, package managers), read the user's code and documents, search and read the web, and use any skills and MCP servers you have. Use them whenever the editor alone can't do what was asked.${via === 'bash' ? '' : ' Do it with the `shell`, `read_file` and `write_file` tools next to the editor (relative paths are in the project folder); your own shell and file tools are off here. You can write files: `write_file` works inside the project folder at once and elsewhere after the user allows it.'}
+- The project folder is ${path.join(PUBLIC, slug)}: recordings in cap/, images and video in media/, HTML scenes in scenes/<name>/. Files placed there can be used at once (\`add\`, \`swap\`, image overlays).
+- Risky steps (shell commands, writing outside the project folder) wait for the user to approve them in the panel, or run in your sandbox; if one is declined, find another way or say what you need. Ask before deleting or overwriting the user's files outside the project, pushing to git or spending money.`
+    : '';
   const port = process.env.PORT ?? 8814;
   return `You are the editing assistant inside Cutroom, a video editor for software demos: product walkthroughs, launch videos and release clips built from screen recordings. You are talking to the user through a small chat panel next to a live preview of project "${slug}". Every change you make through the CLI appears in the preview within a second.
 
 ## Calling the editor
-${how}
-- One CLI command per Bash call, or several joined with &&. Shell loops and variables are blocked; \`show a b c\` or \`show all\` prints several scenes at once.
+${how}${access}
+- ${full ? '' : 'One CLI command per Bash call, or several joined with &&. Shell loops and variables are blocked; '}\`show a b c\` or \`show all\` prints several scenes at once.
 - Write nothing between commands: no progress notes. Your only text is the final reply, in the user's language.
 - Some commands take minutes (record, record-window, voice, look, export). Wait for them; don't run them twice.
 - When a command fails, read its message: it says what was wrong and usually the command that fixes it.
@@ -389,7 +418,7 @@ ${how}
 - Make the smallest edit that does what was asked. Prefer the dedicated commands (trim/split/mv/add/swap/bars/min) over \`set\`.
 - A scene's \`visual\` is shared by the 16:9 and 9:16 versions. To change only the 9:16 one, run \`tall <id> on\` and edit \`tall.*\` instead.
 - Effects marked [house rule] go against the user's own style guide: don't use them unless the user explicitly asks.
-- You can see the video: \`look\` renders frames exactly as exported (\`look record photo+2.5 0:31\`; no arguments = a spread of scenes; add --format tall or --mode beat for those cuts). ${via === 'bash' ? 'Then open every image path it prints with the Read tool (Read works only there).' : via === 'files' ? 'Then open every image path it prints with your file viewer. Those frames are the only files you can open; any other file read ends your turn, so learn everything else through the editor (`help` lists its commands).' : 'The frames come back to you as images.'} Look after you place text, overlays, circles or crops, after changing looks or colours, and before you call a cut done; fix what you see (unreadable text, things covering each other, a circle that misses its target).
+- You can see the video: \`look\` renders frames exactly as exported (\`look record photo+2.5 0:31\`; no arguments = a spread of scenes; add --format tall or --mode beat for those cuts). ${via === 'bash' ? `Then open every image path it prints with the Read tool${full ? '' : ' (Read works only there)'}.` : via === 'files' ? (full ? 'Then open every image path it prints with your file viewer.' : 'Then open every image path it prints with your file viewer. Those frames are the only files you can open; any other file read ends your turn, so learn everything else through the editor (`help` lists its commands).') : 'The frames come back to you as images.'} Look after you place text, overlays, circles or crops, after changing looks or colours, and before you call a cut done; fix what you see (unreadable text, things covering each other, a circle that misses its target).
 - Voice-over (配音/旁白/narration audio): write or fix the narration lines first (\`set <id> lines.<k>.zh ...\`), then run \`voice\`; it only voices lines without current audio, so run it again after editing lines. Add \`--lang en\` for the second-language track. Change the engine or voice (\`voice list\`, \`voice use\`) only when the user asks for a different voice.
 - Web recordings: run \`inspect <url>\` to see the page's elements and selectors, then \`record <name> <url> '<steps json>'\` with the clicks and typing the user wants shown; put a \`mark\` before each beat you will caption. Keep recordings short (5–20 s of steps); recording takes about real time plus page loading. Only record public pages the user asked for.
 - To show Cutroom itself (a tutorial or demo clip), record this editor's own address, http://127.0.0.1:${port}/?slug=${slug}&format=wide&mode=voice&ui=zh (ui=en for English). The recorder notices it is the editor and records a copy of the project, so clicks in the steps never change the real one. Handy selectors: library tabs \`.lib-tabs button:has-text("Transitions")\` (the label follows ui), scenes \`.clip:has(.name:text-is("<scene-id>"))\`, library tiles \`.lt\`, inspector tabs \`.itabs button\`; \`{"press":"Space"}\` plays the preview.
@@ -465,12 +494,125 @@ class CanaryFilter {
   }
 }
 
-const shortCmd = (cmd: string, slug: string) => cmd.replaceAll(`${CLI} ${slug} `, '').replaceAll(`${CLI} `, '');
+const shortCmd = (cmd: string, slug: string) => cmd.replaceAll(`${CLI_ABS} ${slug} `, '').replaceAll(`${CLI_ABS} `, '').replaceAll(`${CLI} ${slug} `, '').replaceAll(`${CLI} `, '');
+
+// One line per tool call in the panel; paths in the project folder are shown relative to it
+export function toolLabel(name: string, input: Record<string, unknown> | undefined, slug: string): string {
+  const i = input ?? {};
+  const proj = path.join(PUBLIC, slug) + path.sep;
+  const rel = (v: unknown) => (String(v ?? '').startsWith(proj) ? String(v).slice(proj.length) : String(v ?? ''));
+  switch (name) {
+    case 'Bash':
+    case 'PowerShell':
+      return shortCmd(String(i.command ?? ''), slug);
+    case 'Read':
+      return `read ${rel(i.file_path)}`;
+    case 'Write':
+      return `write ${rel(i.file_path)}`;
+    case 'Edit':
+    case 'MultiEdit':
+      return `edit ${rel(i.file_path)}`;
+    case 'NotebookEdit':
+      return `edit ${rel(i.notebook_path)}`;
+    case 'Glob':
+    case 'Grep':
+      return `${name.toLowerCase()} ${String(i.pattern ?? '')}`;
+    case 'WebSearch':
+      return `search ${String(i.query ?? '')}`;
+    case 'WebFetch':
+      return `fetch ${String(i.url ?? '')}`;
+    case 'Skill':
+      return `skill ${String(i.skill ?? i.name ?? '')}`;
+    case 'Task':
+    case 'Agent':
+      return `agent ${String(i.description ?? '')}`;
+    default:
+      return name.startsWith('mcp__') ? name.split('__').slice(1).join(' › ') : name;
+  }
+}
+
+// What the approval card shows under the command
+export function askDetail(name: string, input: Record<string, unknown> | undefined): string {
+  const i = input ?? {};
+  if (name === 'Write' || name === 'write_file') return String(i.content ?? '').slice(0, 400);
+  if (name === 'Edit') return `- ${String(i.old_string ?? '').slice(0, 200)}\n+ ${String(i.new_string ?? '').slice(0, 200)}`;
+  if (name === 'Bash' || name === 'PowerShell') return String(i.description ?? '');
+  return '';
+}
+
+export const inside = (file: string, dir: string) => {
+  const r = path.relative(dir, file);
+  return !!r && !r.startsWith('..') && !path.isAbsolute(r);
+};
+
+// A shell or file step of the API and OpenAI-compatible assistants: reads and writes in the project folder run at
+// once, shell commands and writes elsewhere wait for the user's go-ahead
+export async function fullStep(slug: string, project: string, name: string, input: unknown, signal?: AbortSignal): Promise<FullResult> {
+  const i = (input && typeof input === 'object' ? input : {}) as Record<string, unknown>;
+  // A malformed call goes back to the model instead of asking the user about nothing
+  if (name === 'shell' && !String(i.command ?? '').trim()) return { ok: false, out: 'command must be a non-empty string: {"command": "..."}' };
+  if ((name === 'read_file' || name === 'write_file') && !String(i.path ?? '').trim()) return { ok: false, out: 'path must be a non-empty string' };
+  const free = name === 'read_file' || (name === 'write_file' && typeof i.path === 'string' && inside(path.resolve(project, i.path), project));
+  if (!free) {
+    const a = await askUser(slug, fullLabel(name, i), askDetail(name, i));
+    if (!a.allow) return { ok: false, out: a.message ?? 'The user declined this step.' };
+  }
+  return runFullTool(name, input, project, signal);
+}
 const textOf = (c: unknown): string => (typeof c === 'string' ? c : Array.isArray(c) ? c.map((x) => (typeof x === 'string' ? x : (x?.text ?? ''))).join('') : '');
 
 const running = new Map<string, { kill: () => void }>();
 export const isRunning = (slug: string) => running.has(slug);
+// Full access: steps waiting for the user's go-ahead in the panel
+interface Ask {
+  slug: string;
+  cmd: string;
+  detail: string;
+  done: (a: { allow: boolean; message?: string }) => void;
+}
+const asks = new Map<string, Ask>();
+const emitters = new Map<string, (e: ChatEvent) => void>();
+// "Allow everything in this conversation"
+const allowAll = new Set<string>();
+// Shared with the MCP helpers that ask and run full-access steps through this server
+export const ASK_TOKEN = randomUUID();
+const askEnv = () => ({ CUTROOM_SERVER: `http://127.0.0.1:${process.env.PORT ?? 8814}`, CUTROOM_ASK_TOKEN: ASK_TOKEN });
+
+export function askUser(slug: string, cmd: string, detail = ''): Promise<{ allow: boolean; message?: string }> {
+  if (allowAll.has(slug)) return Promise.resolve({ allow: true });
+  const emit = emitters.get(slug);
+  if (!emit) return Promise.resolve({ allow: false, message: 'Nobody is in the chat panel to approve this step.' });
+  const id = randomUUID();
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => answerAsk(slug, id, false, false, 'No answer within 15 minutes.'), 15 * 60_000);
+    asks.set(id, {
+      slug,
+      cmd,
+      detail,
+      done: (a) => {
+        clearTimeout(timer);
+        asks.delete(id);
+        resolve(a);
+      },
+    });
+    emit({ type: 'ask', id, cmd, detail });
+  });
+}
+
+export function answerAsk(slug: string, id: string, allow: boolean, always = false, message?: string): boolean {
+  const a = asks.get(id);
+  if (!a || a.slug !== slug) return false;
+  if (allow && always) allowAll.add(slug);
+  a.done(allow ? { allow: true } : { allow: false, message: message ?? 'The user declined this step in the chat panel.' });
+  emitters.get(slug)?.({ type: 'asked', id, allow });
+  return true;
+}
+
+export const pendingAsks = (slug: string) => [...asks.entries()].filter(([, a]) => a.slug === slug).map(([id, a]) => ({ id, cmd: a.cmd, detail: a.detail }));
+const dropAsks = (slug: string, message: string) => [...asks.entries()].filter(([, a]) => a.slug === slug).forEach(([id]) => answerAsk(slug, id, false, false, message));
+
 export function stop(slug: string) {
+  dropAsks(slug, 'The user stopped this request.');
   running.get(slug)?.kill();
 }
 
@@ -502,6 +644,7 @@ export async function chat(slug: string, message: string, ctx: ChatContext, mode
     emit(e);
   };
   emit({ type: 'start', provider: prov });
+  emitters.set(slug, wrapped);
   const t0 = Date.now();
   // Things the user Ctrl+clicked in the editor
   const pointed = refs.length ? `The user pointed at these in the editor:\n${refs.map((r, i) => `${i + 1}. ${r.detail}`).join('\n')}\n\n` : '';
@@ -515,8 +658,15 @@ export async function chat(slug: string, message: string, ctx: ChatContext, mode
     emit({ type: 'error', message: (err as Error).message });
   } finally {
     running.delete(slug);
+    emitters.delete(slug);
+    dropAsks(slug, 'The request ended.');
     const s = load(slug);
     if (saved.sessionId) s.sessionId = saved.sessionId;
+    // A Claude Code run in another folder starts its own session
+    if (saved.cwd) {
+      s.cwd = saved.cwd;
+      s.sessionId = saved.sessionId;
+    }
     if (saved.api) s.api = saved.api;
     if (saved.compat) s.compat = saved.compat;
     reply.t = new Date().toISOString();
@@ -533,18 +683,30 @@ function viaClaudeCode(slug: string, prompt: string, model: string | undefined, 
     const promptFile = path.join(STATE, slug, 'system-prompt.md');
     fs.mkdirSync(path.dirname(promptFile), { recursive: true });
     fs.writeFileSync(promptFile, systemPrompt(slug));
-    const args = ['-p', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--setting-sources', 'project,local', '--strict-mcp-config', '--allowedTools', `Bash(${CLI}:*)`, lookReadRule(), '--disallowedTools', 'Edit', 'Write', 'NotebookEdit', '--append-system-prompt-file', promptFile];
+    const full = aiAccess() === 'full';
+    const project = path.join(PUBLIC, slug);
+    // Full: the user's own settings, skills and MCP servers; reading, searching and edits in the project folder run at once,
+    // anything else waits for the user's answer in the panel (asked through Cutroom's MCP helper)
+    const ask = JSON.stringify({ mcpServers: { cutroom: { command: process.execPath, args: [path.join(ROOT, 'editor', 'dist', 'mcp.mjs'), slug, '--ask'], env: { ...mcpEnv(), ...askEnv() } } } });
+    const args = full
+      ? ['-p', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--permission-mode', 'default', '--mcp-config', ask, '--permission-prompt-tool', 'mcp__cutroom__approve', '--allowedTools', `Bash(${CLI_ABS}:*)`, lookReadRule(), 'Read', 'Glob', 'Grep', 'WebSearch', 'WebFetch', 'TodoWrite', 'Skill', 'Task', pathRule('Edit', project), '--append-system-prompt-file', promptFile]
+      : ['-p', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--setting-sources', 'project,local', '--strict-mcp-config', '--allowedTools', `Bash(${CLI}:*)`, lookReadRule(), '--disallowedTools', 'Edit', 'Write', 'NotebookEdit', '--append-system-prompt-file', promptFile];
     if (model) args.push('--model', model);
     const effort = aiEffort();
     if (effort) args.push('--effort', effort);
+    // Full access works in the project folder, so relative paths there just work; a session resumes only in its own folder
+    const cwd = full && fs.existsSync(project) ? project : ROOT;
+    if (saved.sessionId && (saved.cwd ?? ROOT) !== cwd) delete saved.sessionId;
+    saved.cwd = cwd;
     if (saved.sessionId) args.push('--resume', saved.sessionId);
     // Voice-over and screen recordings can outlast Bash's default 2-minute limit
-    const child: ChildProcess = spawn(findClaude()!, args, { cwd: ROOT, windowsHide: true, env: { ...process.env, BASH_DEFAULT_TIMEOUT_MS: '900000', BASH_MAX_TIMEOUT_MS: '900000' } });
+    const child: ChildProcess = spawn(findClaude()!, args, { cwd, windowsHide: true, env: { ...process.env, BASH_DEFAULT_TIMEOUT_MS: '900000', BASH_MAX_TIMEOUT_MS: '900000' } });
     let done = false;
     const kill = () => killTree(child);
     running.set(slug, { kill });
     // A whole cut with voice-over and recordings takes a while
-    const timer = setTimeout(kill, 30 * 60_000);
+    // Full access has no time limit (Stop ends it)
+    const timer = full ? undefined : setTimeout(kill, 30 * 60_000);
     let wrote = false;
     let gap = false;
     const filter = new CanaryFilter((s) => {
@@ -587,7 +749,7 @@ function viaClaudeCode(slug: string, prompt: string, model: string | undefined, 
           }
         } else if (m.type === 'assistant') {
           for (const b of m.message?.content ?? []) {
-            if (b.type === 'tool_use') emit({ type: 'tool', id: b.id, cmd: shortCmd(String(b.input?.command ?? b.name), slug) });
+            if (b.type === 'tool_use' && b.name !== 'mcp__cutroom__approve') emit({ type: 'tool', id: b.id, cmd: toolLabel(b.name, b.input, slug) });
             // Text only when no partial stream arrived for this message
             if (b.type === 'text' && !streamed.has(m.message?.id ?? '')) {
               filter.reset();
@@ -619,17 +781,22 @@ async function viaApi(slug: string, prompt: string, saved: Saved, emit: (e: Chat
   const client = new Anthropic({ apiKey: apiKey() });
   const controller = new AbortController();
   running.set(slug, { kill: () => controller.abort() });
-  const tools: Anthropic.Beta.BetaTool[] = [
+  const full = aiAccess() === 'full';
+  const project = path.join(PUBLIC, slug);
+  const tools: Anthropic.Beta.BetaToolUnion[] = [
     {
       name: 'editor',
       description: TOOL_DESC(slug),
       input_schema: { type: 'object', properties: { args: { type: 'array', items: { type: 'string' } } }, required: ['args'], additionalProperties: false },
       strict: true,
     },
+    // Full access: a shell, files and web search
+    ...(full ? FULL_TOOLS.map((t) => ({ name: t.name, description: t.description, input_schema: t.schema, eager_input_streaming: true })) : []),
+    ...(full ? [{ type: 'web_search_20260209' as const, name: 'web_search' as const }] : []),
   ];
   const messages: Anthropic.Beta.BetaMessageParam[] = [...(saved.api ?? []), { role: 'user', content: prompt }];
   const effort = aiEffort();
-  for (let turn = 0; turn < 24; turn++) {
+  for (let turn = 0; turn < (full ? 200 : 24); turn++) {
     const stream = client.beta.messages.stream(
       {
         model: readAi().models?.anthropic || API_MODELS[0],
@@ -650,10 +817,22 @@ async function viaApi(slug: string, prompt: string, saved: Saved, emit: (e: Chat
       emit({ type: 'error', message: L('The model declined this request', '模型拒绝了这个请求') });
       break;
     }
+    // Web searches run on Anthropic's side; show them in the command list
+    for (const b of msg.content) if (b.type === 'server_tool_use') emit({ type: 'tool', id: b.id, cmd: `search ${String((b.input as { query?: unknown })?.query ?? '')}` });
+    // A long server-side search pauses the turn; send it back to continue
+    if (msg.stop_reason === 'pause_turn') continue;
     const uses = msg.content.filter((b): b is Anthropic.Beta.BetaToolUseBlock => b.type === 'tool_use');
     if (!uses.length) break;
     const results: Anthropic.Beta.BetaToolResultBlockParam[] = [];
     for (const u of uses) {
+      if (isFullTool(u.name)) {
+        emit({ type: 'tool', id: u.id, cmd: fullLabel(u.name, (u.input ?? {}) as Record<string, unknown>) });
+        const r = await fullStep(slug, project, u.name, u.input, controller.signal);
+        emit({ type: 'tool_result', id: u.id, ok: r.ok, out: r.out.slice(0, 600) });
+        const pics = (r.images ?? []).map((x) => ({ type: 'image' as const, source: { type: 'base64' as const, media_type: x.mime as 'image/png', data: x.data } }));
+        results.push({ type: 'tool_result', tool_use_id: u.id, is_error: !r.ok, content: pics.length ? [{ type: 'text', text: r.out }, ...pics] : r.out });
+        continue;
+      }
       const args = (u.input as { args?: unknown }).args;
       if (!Array.isArray(args) || !args.every((a) => typeof a === 'string')) {
         results.push({ type: 'tool_result', tool_use_id: u.id, is_error: true, content: 'args must be an array of strings' });
@@ -691,7 +870,11 @@ async function viaAgent(slug: string, prompt: string, saved: Saved, emit: (e: Ch
     .slice(-7, -1)
     .map((x) => `${x.role === 'user' ? 'User' : 'You'}: ${x.text.slice(0, 600)}`)
     .join('\n');
-  const full = `<instructions>\n${systemPrompt(slug, id === 'antigravity' ? 'files' : 'tool')}\n</instructions>\n\n${recent ? `<conversation so far>\n${recent}\n</conversation so far>\n\n` : ''}${prompt}`;
+  // Full access: Cutroom's shell and file tools through the MCP server (asked in the panel), not the agent's own;
+  // Gemini CLI stays on the editor until it has been tried with them
+  const full = aiAccess() === 'full' && id !== 'gemini';
+  const text = `<instructions>\n${systemPrompt(slug, id === 'antigravity' ? 'files' : 'tool', full)}\n</instructions>\n\n${recent ? `<conversation so far>\n${recent}\n</conversation so far>\n\n` : ''}${prompt}`;
+  let timer: ReturnType<typeof setTimeout> | undefined;
   await new Promise<void>((resolve) => {
     let finished = false;
     let failed = false;
@@ -699,7 +882,7 @@ async function viaAgent(slug: string, prompt: string, saved: Saved, emit: (e: Ch
       id,
       slug,
       agentModel(id),
-      full,
+      text,
       (e) => {
         if (e.type === 'text') emit({ type: 'text', delta: e.delta });
         else if (e.type === 'tool') emit({ type: 'tool', id: e.id, cmd: e.args.join(' ') });
@@ -710,13 +893,13 @@ async function viaAgent(slug: string, prompt: string, saved: Saved, emit: (e: Ch
         } else finished = true;
       },
       (code, stderr) => {
-        clearTimeout(timer);
+        if (timer) clearTimeout(timer);
         running.delete(slug);
         if (!finished && !failed && code !== 0) emit({ type: 'error', message: L(`${def.en} exited (${code})${stderr ? ': ' + stderr.trim().slice(-300) : ''}`, `${def.zh} 退出了（${code}）${stderr ? '：' + stderr.trim().slice(-300) : ''}`) });
         emit({ type: 'done', ms: Date.now() - t0 });
         resolve();
       },
-      aiEffort(),
+      { full, effort: aiEffort(), mcp: full ? askEnv() : undefined },
     );
     if (!r) {
       emit({ type: 'error', message: L(`${def.en} is not installed`, `${def.zh} 没有安装`) });
@@ -724,8 +907,8 @@ async function viaAgent(slug: string, prompt: string, saved: Saved, emit: (e: Ch
       return resolve();
     }
     running.set(slug, { kill: r.kill });
-    // A whole cut with voice-over and recordings takes a while
-    const timer = setTimeout(r.kill, 30 * 60_000);
+    // A whole cut with voice-over and recordings takes a while; full access has no limit (Stop ends it)
+    timer = full ? undefined : setTimeout(r.kill, 30 * 60_000);
   });
 }
 
@@ -750,6 +933,7 @@ async function viaCompat(slug: string, prompt: string, saved: Saved, emit: (e: C
       onTool: (tid, args) => emit({ type: 'tool', id: tid, cmd: args.join(' ') }),
       onToolResult: (tid, ok, out) => emit({ type: 'tool_result', id: tid, ok, out }),
       signal: controller.signal,
+      ...(aiAccess() === 'full' ? { extra: FULL_TOOLS, runExtra: (name: string, input: unknown) => fullStep(slug, path.join(PUBLIC, slug), name, input, controller.signal), maxTurns: 200 } : {}),
     });
     saved.compat = { id, messages: trimHistory(messages) };
   } catch (e) {
