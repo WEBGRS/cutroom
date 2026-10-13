@@ -1,6 +1,6 @@
 {
   "name": "cutroom",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "private": true,
   "description": "A video editor where you and an AI assistant edit the same storyboard file. Built on Remotion.",
   "license": "MIT",
