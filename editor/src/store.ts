@@ -13,7 +13,7 @@ export const PUBLIC = process.env.VS_DATA ? DATA : path.join(ROOT, 'public');
 export const STATE = path.join(DATA, '.editor');
 export const OUT = process.env.VS_DATA ? path.join(DATA, 'exports') : path.join(ROOT, 'out');
 
-export type Source = 'ui' | 'cli' | 'external';
+export type Source = 'ui' | 'cli' | 'external' | 'rollback';
 
 export interface LogEntry {
   t: string;

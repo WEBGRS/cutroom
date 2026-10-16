@@ -1,5 +1,4 @@
-import { buildBeatTimeline, buildTimeline, cueFrame, plain, resolveTime, TAIL, type TScene } from '../../src/lib/timeline';
-import { withFades } from '../../src/lib/fades';
+import { buildTimeline, cueFrame, plain, resolveTime, TAIL } from '../../src/lib/timeline';
 import type { CaptureMeta, Fx, Props, Scene, TimeRef, Visual } from '../../src/lib/types';
 import { zoomSegments } from '../../src/lib/camera';
 import { OVERLAY_LIST, SCENE_FX, TRANSITION_LIST } from './catalog';
@@ -93,8 +92,6 @@ export interface ETimeline {
   hidden: EHidden[];
   total: number;
   fps: number;
-  beats?: { f: number; down: boolean }[];
-  bar?: number;
   // Music file and where in it the cut starts (seconds)
   music?: { src: string; offset: number; loop: boolean };
 }
@@ -173,38 +170,21 @@ export const safe = (ref: TimeRef | undefined, cap: CaptureMeta | undefined, d: 
   }
 };
 
-// The timeline exactly as Main/BeatMain lay it out, plus what the editor needs to draw and drag it
+// The timeline exactly as Main lays it out, plus what the editor needs to draw and drag it
 export function editTimeline(p: Props, fps: number): ETimeline {
   const board = p.board!;
   const caps = p.captures ?? {};
   const lang = p.lang ?? 'zh';
-  let scenes: TScene[];
-  let total: number;
-  let beats: ETimeline['beats'];
-  let bar: number | undefined;
-  let music: ETimeline['music'] = board.music ? { src: board.music.src, offset: 0, loop: true } : undefined;
-  if (p.mode === 'beat' && p.grid) {
-    const bt = withFades(buildBeatTimeline(board, p.grid, p.format, fps, caps, lang), caps, fps);
-    scenes = bt.scenes;
-    total = bt.total;
-    const t0 = bt.beat.t0;
-    music = board.beat ? { src: board.beat.music, offset: t0, loop: false } : undefined;
-    const downs = new Set(p.grid.downbeats.map((d) => Math.round(d * 1000)));
-    beats = p.grid.beats.filter((b) => b >= t0 - 1e-6 && (b - t0) * fps <= total).map((b) => ({ f: Math.round((b - t0) * fps), down: downs.has(Math.round(b * 1000)) }));
-    bar = bt.beat.period * 4;
-  } else {
-    const tl = buildTimeline(board, p.timings, p.format, fps, caps, p.voice === 'off', lang);
-    scenes = tl.scenes;
-    total = tl.total;
-  }
+  const music: ETimeline['music'] = board.music ? { src: board.music.src, offset: 0, loop: true } : undefined;
+  const { scenes, total } = buildTimeline(board, p.timings, p.format, fps, caps, p.voice === 'off', lang);
   const used = new Set(scenes.map((s) => s.scene));
   const hidden: EHidden[] = [];
   board.scenes.forEach((s, index) => {
     if (used.has(s)) return;
-    const why = s.only && s.only !== p.format ? (s.only === 'wide' ? '只在横屏' : '只在竖屏') : p.mode === 'beat' && !Array.isArray(s.beat) ? '卡点版未用' : '未用';
+    const why = s.only && s.only !== p.format ? (s.only === 'wide' ? '只在横屏' : '只在竖屏') : '未用';
     hidden.push({ id: s.id, index, why });
   });
-  const clipsOf = (id: string) => (p.voice !== 'off' && p.mode !== 'beat' ? p.timings?.scenes[id] : undefined);
+  const clipsOf = (id: string) => (p.voice !== 'off' ? p.timings?.scenes[id] : undefined);
   const out = scenes.map((s): EScene => {
     const v = s.visual;
     const index = board.scenes.indexOf(s.scene);
@@ -215,19 +195,18 @@ export function editTimeline(p: Props, fps: number): ETimeline {
       const f = Math.max(0, at ?? 0);
       return { i, id: c.id, f, dur: Math.max(1, Math.round((def?.dur ?? 0.5) * fps)), label: def?.en ?? c.id, past: at === undefined || at < 0 || f >= s.dur };
     });
-    const hideOverlays = p.mode === 'beat' && !board.beat?.overlays;
     // Empty entries (left by older saves) are skipped; check reports them
     e.overlays = (s.scene.overlays ?? []).flatMap((o, i) => (o ? [{ o, i }] : [])).map(({ o, i }) => {
       const def = OVERLAY_LIST.find((x) => x.id === o.kind);
       const text = o.text ? ` ${plain(o.text).slice(0, 24)}` : '';
-      const off: ETag | undefined = o.only && o.only !== p.format ? { en: `only in ${o.only === 'wide' ? '16:9' : '9:16'}`, zh: `只在${o.only === 'wide' ? '横屏' : '竖屏'}` } : hideOverlays ? { en: 'the beat cut hides overlays', zh: '卡点版不显示叠加' } : undefined;
+      const off: ETag | undefined = o.only && o.only !== p.format ? { en: `only in ${o.only === 'wide' ? '16:9' : '9:16'}`, zh: `只在${o.only === 'wide' ? '横屏' : '竖屏'}` } : undefined;
       return { i, en: `${def?.en ?? o.kind}${text}`, zh: `${def?.zh ?? o.kind}${text}`, f: Math.round(Math.max(0, o.at) * fps), dur: Math.max(1, Math.round((o.dur ?? 1.6) * fps)), off };
     });
     const tags = fxTags(s.scene.fx, s.dur, fps);
     e.fx = tags.fx;
     e.camera = tags.camera;
     if (s.trans > 0) {
-      const tid = p.mode === 'beat' ? (s.scene.beatTransition ?? '') : s.scene.transition === 'fade' ? '' : (s.scene.transition ?? '');
+      const tid = s.scene.transition === 'fade' ? '' : (s.scene.transition ?? '');
       const t = TRANSITION_LIST.find((x) => x.id === tid);
       e.transIn = !tid ? { en: 'Crossfade', zh: '叠化', plain: true } : t ? { en: t.en, zh: t.zh } : { en: tid, zh: tid };
     }
@@ -264,13 +243,13 @@ export function editTimeline(p: Props, fps: number): ETimeline {
       const c = clips?.[k];
       return { k, start: l.start, dur: l.dur, text: plain(l.main), file: l.file, stale: !!c?.file && !l.file, voiced: !!l.file };
     });
-    if (p.mode !== 'beat' && e.lines.length) {
+    if (e.lines.length) {
       const last = e.lines[e.lines.length - 1];
       e.needed = last.start + last.dur + Math.round((s.scene.tail ?? TAIL) * fps);
     }
     return e;
   });
-  return { scenes: out, hidden, total, fps, beats, bar, music };
+  return { scenes: out, hidden, total, fps, music };
 }
 
 export const fmtTime = (f: number, fps: number) => {

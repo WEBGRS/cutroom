@@ -1,6 +1,6 @@
 // Music written as a score and played by real instrument recordings (XSXB-Band, CC0 samples).
 // The assistant writes a small JSON draft; this module expands it, has the studio render it,
-// and puts the result in the music library with the beat data a beat cut needs.
+// and puts the result in the music library.
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
@@ -260,30 +260,16 @@ export function toMp3(wav: string, mp3: string, seconds: number, lufs = MUSIC_LU
   return { i: after?.i ?? NaN, tp: after?.tp ?? NaN, limited };
 }
 
-// The score is the beat grid: one beat per quarter note, bar lines are the downbeats
-export function beatGrid(track: string, bpm: number, bars: number, seconds: number) {
-  const period = 60 / bpm;
-  const beats: number[] = [];
-  const downbeats: number[] = [];
-  for (let b = 0; b < bars * 4; b++) {
-    const t = Math.round(b * period * 1e5) / 1e5;
-    beats.push(t);
-    if (b % 4 === 0) downbeats.push(t);
-  }
-  return { track, bpm, period: Math.round(period * 1e5) / 1e5, offset: 0, duration: Math.round(seconds * 1e3) / 1e3, beats, downbeats, source: 'xsxb-band' };
-}
-
 export function slugOf(name: string): string {
   return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60);
 }
 
-// Add a rendered song to public/music with its beat data and a CC0 credit line
+// Add a rendered song to public/music with a CC0 credit line
 export function installTrack(name: string, wav: string, d: Draft, seconds: number, extra: { score: string }) {
   const dir = path.join(PUBLIC, 'music');
   fs.mkdirSync(dir, { recursive: true });
   const mp3 = path.join(dir, `${name}.mp3`);
   const loud = toMp3(wav, mp3, seconds);
-  fs.writeFileSync(path.join(dir, `${name}.beats.json`), JSON.stringify(beatGrid(`${name}.mp3`, d.bpm, d.bars, seconds)));
   fs.writeFileSync(path.join(dir, `${name}.score.json`), extra.score);
   // Credits file maps mp3 → title and credit text, shared with the Incompetech tracks
   const cf = path.join(dir, 'credits.json');

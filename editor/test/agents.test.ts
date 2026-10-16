@@ -3,11 +3,11 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { AGY_DENY, AGY_FULL_ALLOW, agentArgs, findCli, parseAgentLine, type AgentEvent } from '../src/agents';
+import { AGY_DENY, AGY_FULL_ALLOW, agentArgs, findCli, parseAgentLine, parseAgyModels, parseCodexModels, type AgentEvent } from '../src/agents';
 import { lookDir } from '../src/look';
 import { runFullTool } from '../src/fulltools';
-import { fullStep, toolLabel } from '../src/chat';
-import { PUBLIC } from '../src/store';
+import { editorOnly, fullStep, shellCommands, systemPrompt, toolLabel } from '../src/chat';
+import { PUBLIC, ROOT } from '../src/store';
 
 // Lines as Codex 0.162 and Gemini CLI 0.63 print them (captured against a mock model)
 const CODEX = [
@@ -144,6 +144,24 @@ test('agents get only the editor tool', () => {
   assert.deepEqual(a.args.slice(-4), ['--model', 'gemini-3.1-pro-high', '-p', '']);
 });
 
+test('model lists: Codex catalog (listed only, by priority, display names) and Antigravity lines', () => {
+  // Shape of "codex debug models" in Codex 0.162, trimmed
+  const cat = JSON.stringify({
+    models: [
+      { slug: 'gpt-b', display_name: 'GPT-B', visibility: 'list', priority: 3, base_instructions: 'x' },
+      { slug: 'gpt-hidden', display_name: 'Hidden', visibility: 'hide', priority: 1 },
+      { slug: 'gpt-a', display_name: 'GPT-A', visibility: 'list', priority: 1 },
+      { slug: 'gpt-c', visibility: 'list' },
+    ],
+  });
+  assert.deepEqual(parseCodexModels(cat), { models: ['gpt-a', 'gpt-b', 'gpt-c'], names: { 'gpt-a': 'GPT-A', 'gpt-b': 'GPT-B' } });
+  assert.deepEqual(parseCodexModels('error: unrecognized subcommand'), { models: [], names: {} });
+  assert.deepEqual(parseAgyModels('gemini-3.1-pro-high\tGemini 3.1 Pro (High)\r\nclaude-sonnet-4-6\tClaude Sonnet 4.6\nNot signed in\n'), {
+    models: ['gemini-3.1-pro-high', 'claude-sonnet-4-6'],
+    names: { 'gemini-3.1-pro-high': 'Gemini 3.1 Pro (High)', 'claude-sonnet-4-6': 'Claude Sonnet 4.6' },
+  });
+});
+
 test('reasoning effort reaches Codex (max becomes xhigh) and Antigravity, not Gemini CLI', () => {
   assert.match(agentArgs('codex', 'demo', 'gpt-x', { effort: 'max' }).args.join(' '), /-m gpt-x -c model_reasoning_effort="xhigh" -$/);
   assert.match(agentArgs('codex', 'demo', undefined, { effort: 'low' }).args.join(' '), /model_reasoning_effort="low"/);
@@ -262,4 +280,32 @@ test('panel labels for Claude Code tools', () => {
   assert.equal(toolLabel('Bash', { command: 'node editor/dist/cli.mjs showcase ls' }, 'showcase'), 'ls');
   assert.equal(toolLabel('WebSearch', { query: 'remotion premount' }, 'showcase'), 'search remotion premount');
   assert.equal(toolLabel('mcp__firecrawl__scrape', {}, 'showcase'), 'firecrawl › scrape');
+});
+
+test('the assistant confirms 16:9 or 9:16 before the first version, and knows no beat cut', () => {
+  const p = systemPrompt('demo');
+  assert.match(p, /Size first/);
+  assert.match(p, /16:9 widescreen/);
+  assert.match(p, /9:16 vertical/);
+  assert.match(p, /set - format '"tall"'/);
+  assert.doesNotMatch(p, /beat cut|--mode/i);
+});
+
+test('full access: Bash lines that only run the editor need no go-ahead; anything else still asks', () => {
+  const cli = `node ${path.join(ROOT, 'editor', 'dist', 'cli.mjs').replace(/\\/g, '/')}`;
+  const proj = path.join(PUBLIC, 'demo').replace(/\\/g, '/');
+  assert.ok(editorOnly(`${cli} demo ls`, 'demo'));
+  // Quoted text may hold ; and && without splitting the line
+  assert.ok(editorOnly(`cd ${proj} && ${cli} demo set intro lines '[{"zh":"先看结果; 再看 && 细节"}]' && ${cli} demo voice && ${cli} demo check`, 'demo'));
+  assert.deepEqual(shellCommands(`a 'x; y' && b "c d"`), [['a', 'x; y'], ['b', 'c d']]);
+  // The line from the panel: an alias in a variable is not the editor
+  assert.equal(editorOnly(`cd ${proj} && C="demo"; $C set screen-2 lines '[{"zh":"一个网站全搞定。"}]' && $C voice`, 'demo'), false);
+  assert.equal(editorOnly(`${cli} demo ls | head`, 'demo'), false);
+  assert.equal(editorOnly(`${cli} demo ls && rm -rf media`, 'demo'), false);
+  assert.equal(editorOnly(`${cli} demo set intro title "$(whoami)"`, 'demo'), false);
+  assert.equal(editorOnly(`${cli} demo ls > out.txt`, 'demo'), false);
+  assert.equal(editorOnly(`${cli} other ls`, 'demo'), false);
+  assert.equal(editorOnly(`cd C:/ && ${cli} demo ls`, 'demo'), false);
+  assert.equal(editorOnly(`cd ${proj}`, 'demo'), false);
+  assert.match(systemPrompt('demo', 'bash', true), /no cd, no variables or aliases/);
 });

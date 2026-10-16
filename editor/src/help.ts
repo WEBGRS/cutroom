@@ -1,5 +1,5 @@
 // CLI usage, shared by the CLI itself and the AI assistant's instructions
-export const HELP = `node editor/dist/cli.mjs <slug> <command> [args] [--format wide|tall] [--mode voice|beat] [--lang zh|en]
+export const HELP = `node editor/dist/cli.mjs <slug> <command> [args] [--format wide|tall] [--lang zh|en]
 
   new [title]              create the project <slug> (an intro title and an outro); \`projects\` (no slug) lists them
   ls                       timeline as rendered (start/dur/visual/text, capture marks)
@@ -11,8 +11,7 @@ export const HELP = `node editor/dist/cli.mjs <slug> <command> [args] [--format 
   mv <id> <before-id|end>  reorder
   trim <id> [--from T] [--to T] [--tall]   T = seconds or @mark±x (screen visuals)
   min <id> <sec|off>       minimum length (voice cut)
-  bars <id> <n>            length in bars (beat cut)
-  split <id> <sec>         split at scene-relative seconds of the current format/mode
+  split <id> <sec>         split at scene-relative seconds of the current format
   rm <id> | dup <id>
   tall <id> on|off         separate tall visual
   set <id|-> <path> <json> set a field (- = board); value 'undefined' deletes; path '.' replaces the scene
@@ -24,15 +23,20 @@ export const HELP = `node editor/dist/cli.mjs <slug> <command> [args] [--format 
                            --lang en voices the second-language lines
   voice list | voice use <engine> [voice] | voice speed <0.5–2>
                            voice-over engines and voices; pick one (builtin needs no key); speaking rate
+  voice install [design]   install the HD voices (engine local: Qwen3-TTS on this computer's NVIDIA card, ~10 GB once);
+                           design adds the model that makes a voice from a description
+  voice clone <audio> [--name N] [--text "what it says"] [--lang zh|en]
+                           your own voice for the HD engine from a 5–20 s clip (with --text it copies the delivery too)
+  voice design "<description>" [--name N] [--lang zh|en]
+                           a new HD voice from a description, e.g. "二十岁的女生，语气轻松，像跟朋友聊天"
+  voice forget <id>        remove one of your own voices
   media                    the project's recordings (with marks), images, videos, audio and the music library
-  beat [use <music/track.mp3> [--bar N] | off]
-                           beat cut music: the tempo comes from the track's beat data (no BPM to set); lists tracks
-  music instruments | compose <name> <draft|file|-> [--replace] | use <name> [--mode beat] | help
+  music instruments | compose <name> <draft|file|-> [--replace] | use <name> | help
                            music you write as a score, played by real instrument recordings (CC0, no credit needed): compose renders
-                           it into music/<name>.mp3 with beat data at the library's level; use puts it under the project's cut.
+                           it into music/<name>.mp3 at the library's level; use puts it under the project.
                            \`music help\` shows the draft format. You cannot hear it; say so and let the user listen
   look [t | id | id+t ...] render frames exactly as exported and print their image paths (t = seconds or m:ss,
-                           id = a scene's middle; up to 8; default: a spread of scenes). Respects --format/--mode/--lang
+                           id = a scene's middle; up to 8; default: a spread of scenes). Respects --format/--lang
   check                    problems to fix before export (long captions, missing voice-over, overlapping or silent sounds,
                            unreadable text on footage, missing media, too-short scenes), each with the command that fixes it
   inspect <url> [--mobile] a web page's headings and clickable elements, with selectors for record steps
@@ -76,7 +80,7 @@ export const HELP = `node editor/dist/cli.mjs <slug> <command> [args] [--format 
   html import <path>       copy a page, or a folder with index.html, into scenes/
   html check [name|id]     problems that make a page render differently in preview and export
   html vars <scene-id>     the page's declared variables and their values (set <id> visual.vars.<var> <json>)
-  export [--format wide|tall] [--mode voice|beat] [--lang zh|en] [--clean] [--silent] [--scale 2] [--codec h264|h265|vp9|prores|gif] [--out file] [--lufs N]
+  export [--format wide|tall] [--lang zh|en] [--clean] [--silent] [--scale 2] [--codec h264|h265|vp9|prores|gif] [--out file] [--lufs N]
                            render the video to a file (default: the export folder) and report its loudness. --max-mb N keeps the file
                            under N MB; --lufs -14 sets the loudness video platforms expect
   export --jianying [--out <draft folder>] [--name n]

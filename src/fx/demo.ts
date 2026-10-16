@@ -33,7 +33,7 @@ export const TEXT_SAMPLE: Record<string, string> = {
   scramble: 'NEW IN V1.1',
   decode: 'NEW IN V1.1',
   stream: 'Sure, the intro is now two seconds shorter.',
-  lines: 'Write the story\nCut on the beat\nShip every format',
+  lines: 'Write the story\nCut to the voice\nShip every format',
 };
 export const textSample = (id: string) => TEXT_SAMPLE[id] ?? 'Your app, [[in motion]]';
 

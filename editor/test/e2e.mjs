@@ -16,7 +16,7 @@ fs.mkdirSync(SHOTS, { recursive: true });
 
 // Which scene plays which part in each test project
 const ROLES = {
-  showcase: { screen: 'record', mark: '@filter', moveA: 'numbers', moveB: 'photo', split: 'record', caption: '光标', cli: 'intro', fx: 'photo', dup: 'intro', chat: 'intro', beat: 'record', beatHidden: null },
+  showcase: { screen: 'record', mark: '@filter', moveA: 'numbers', moveB: 'photo', split: 'record', caption: '光标', cli: 'intro', fx: 'photo', dup: 'intro', chat: 'intro' },
 };
 const R = ROLES[SRC];
 if (!R) throw new Error(`no roles for ${SRC}; add it to ROLES`);
@@ -97,9 +97,8 @@ async function drag(from, to) {
   for (let i = 1; i <= 8; i++) await page.mouse.move(from.x + ((to.x - from.x) * i) / 8, from.y + ((to.y - from.y) * i) / 8);
   await page.mouse.up();
 }
-const view = async (format, mode) => {
+const view = async (format) => {
   await page.getByRole('button', { name: format === 'tall' ? '竖屏' : '横屏', exact: true }).click();
-  await page.getByRole('button', { name: mode === 'beat' ? '卡点版' : '旁白版', exact: true }).click();
   await page.waitForTimeout(1500);
 };
 const tab = (name) => page.locator('.itabs button', { hasText: name }).click();
@@ -107,7 +106,7 @@ const fc = (label) => page.locator('.fc', { has: page.locator('.fl', { hasText: 
 
 try {
   // Chinese UI: the selectors below use its labels
-  await page.goto(`${BASE}/?slug=${SLUG}&format=wide&mode=voice&lang=zh&variant=default&ui=zh`);
+  await page.goto(`${BASE}/?slug=${SLUG}&format=wide&lang=zh&variant=default&ui=zh`);
   await page.waitForSelector('.clip', { timeout: 15000 });
   await page.getByRole('tab', { name: '属性' }).click();
   await page.waitForTimeout(800);
@@ -194,22 +193,8 @@ try {
     if (status !== 409) throw new Error(`status ${status}`);
   });
 
-  await step('beat cut: resize in whole bars', async () => {
-    await view('tall', 'beat');
-    if (R.beatHidden) {
-      const hidden = await page.locator('.tl-tools .hint').textContent();
-      if (!hidden.includes(R.beatHidden)) throw new Error(`hidden: ${hidden}`);
-    }
-    const n0 = sceneOf(R.beat).beat.at(-1).n ?? 4;
-    const total0 = sceneOf(R.beat).beat.reduce((a, b) => a + (b.n ?? 4), 0);
-    const b = await block(R.beat).boundingBox();
-    const bar = b.width / Math.ceil(total0 / 4);
-    await drag({ x: b.x + b.width - 3, y: b.y + b.height / 2 }, { x: b.x + b.width - 3 + bar, y: b.y + b.height / 2 });
-    await until('last phrase grew', () => sceneOf(R.beat).beat.at(-1).n === n0 + 4);
-  });
-
   await step('effects panel writes fx', async () => {
-    await view('wide', 'voice');
+    await view('wide');
     await block(R.fx).click();
     const v0 = sceneOf(R.fx).fx?.vignette ?? 0;
     await tab('特效');
@@ -330,13 +315,16 @@ try {
 
   // A transition must not remount the scenes on either side (the preview would reload their media and stall)
   await step('scenes stay mounted through transitions', async () => {
-    const ls = execFileSync(process.execPath, ['editor/dist/cli.mjs', SLUG, 'ls', '--mode', 'beat'], { encoding: 'utf8' });
-    const m = new RegExp(`^\\s*\\d+\\s+${R.beat}\\s+(\\d+):(\\d+\\.\\d+)`, 'm').exec(ls);
-    if (!m) throw new Error(`no ${R.beat} in the beat cut`);
+    // The first scene that comes in with a transition
+    const into = board().scenes.slice(1).find((s) => s.transition !== 'none' && !s.only)?.id;
+    if (!into) throw new Error('no scene with a transition');
+    const ls = execFileSync(process.execPath, ['editor/dist/cli.mjs', SLUG, 'ls'], { encoding: 'utf8' });
+    const m = new RegExp(`^\\s*\\d+\\s+${into}\\s+(\\d+):(\\d+\\.\\d+)`, 'm').exec(ls);
+    if (!m) throw new Error(`no ${into} in the timeline`);
     const start = Math.round((Number(m[1]) * 60 + Number(m[2])) * 60);
     const p2 = await browser.newPage({ viewport: { width: 960, height: 540 } });
     try {
-      await p2.goto(`${BASE}/?oracle=1&slug=${SLUG}&format=wide&mode=beat&lang=zh&variant=default`);
+      await p2.goto(`${BASE}/?oracle=1&slug=${SLUG}&format=wide&lang=zh&variant=default`);
       await p2.waitForFunction(() => !!window.__player, null, { timeout: 30000 });
       const seen = [];
       for (const f of [start - 20, start + 3, start + 30]) {
@@ -349,7 +337,7 @@ try {
             window.__seen ??= [];
             if (!window.__seen.includes(el)) window.__seen.push(el);
             return window.__seen.indexOf(el);
-          }, R.beat),
+          }, into),
         );
       }
       if (seen.join() !== '0,0,0') throw new Error(`scene element per frame: ${seen.join(', ')} (a new number = remounted)`);

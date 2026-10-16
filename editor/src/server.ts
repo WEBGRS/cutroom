@@ -1,15 +1,17 @@
 import http from 'node:http';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { spawn, execFile, type ChildProcess } from 'node:child_process';
 import { Conflict, DATA, OUT, PUBLIC, ROOT, STATE, appendLog, boardFile, checkSlug, currentVersion, readDoc, readLog, slugs, snapshot, writeDoc, hash } from './store';
 import { killTree } from './proc';
 import { engineStatus, installModel, lineStates, modelStatus, sample, voiceProject, voiceSettings, writeVoiceSettings, type Lang, type VoiceProgress } from './voice';
 import type { EngineId } from './voices';
+import { addCustomVoice, designCustomVoice, installLocal, localStatus, removeCustomVoice, watchLocal } from './localvoice';
 import { findBrowser, recordPage } from './record';
 import { cleanName, desktopSupported, ffmpegStatus, listMonitors, listWindows, recordDesktop, stopActive } from './desktop';
 import type { Doc } from './ops';
-import { ASK_TOKEN, aiStatus, aiTest, answerAsk, askDetail, askUser, chat, compatModels, fullStep, history, isRunning, pendingAsks, provider, reset, stop, toolLabel, writeAi } from './chat';
+import { ASK_TOKEN, aiStatus, aiTest, answerAsk, askDetail, askUser, chat, compatModels, editorOnly, fullStep, history, keepBeforeWrite, rollbackTo, isRunning, pendingAsks, provider, reset, stop, toolLabel, writeAi } from './chat';
 import { agentDef, installAgent, openSignIn, forgetAgents, type AgentId } from './agents';
 import { boardTemplate } from './templates';
 import { L, readSettings, uiLang, writeSettings } from './settings';
@@ -271,7 +273,7 @@ function startVoice(run: Parameters<typeof voiceProject>[0]) {
     .finally(tell);
 }
 
-function startRender(o: { slug: string; format: string; mode: string; variant: string; lang: string; voice: string; scale?: number; codec?: string }) {
+function startRender(o: { slug: string; format: string; variant: string; lang: string; voice: string; scale?: number; codec?: string }) {
   if (job?.state === 'running') throw new Error(L('A render is already running', '已有渲染在进行'));
   const { name, out, args, cleanup, env } = exportPlan(o);
   const child = spawn(process.execPath, args, { cwd: ROOT, windowsHide: true, env: { ...process.env, ...env } });
@@ -418,7 +420,7 @@ const server = http.createServer(async (req, res) => {
     if (p === '/api/music') {
       const dir = path.join(PUBLIC, 'music');
       const files = fs.existsSync(dir) ? fs.readdirSync(dir).filter((f) => f.endsWith('.mp3')) : [];
-      return send(res, 200, files.map((f) => ({ src: `music/${f}`, beats: fs.existsSync(path.join(dir, f.replace(/\.mp3$/, '.beats.json'))) })));
+      return send(res, 200, files.map((f) => ({ src: `music/${f}` })));
     }
     if (p === '/api/settings' && req.method === 'GET') return send(res, 200, { lang: readSettings().lang ?? null });
     if (p === '/api/settings' && req.method === 'POST') {
@@ -527,7 +529,52 @@ const server = http.createServer(async (req, res) => {
     // ---- AI voice-over ----
     if (p === '/api/voice' && req.method === 'GET') {
       const lang: Lang = url.searchParams.get('lang') === 'en' ? 'en' : 'zh';
-      return send(res, 200, { settings: voiceSettings(), engines: engineStatus(), model: modelStatus(), job: voiceJob, lines: slug ? lineStates(slug, lang) : [] });
+      return send(res, 200, { settings: voiceSettings(), engines: engineStatus(), model: modelStatus(), local: localStatus(), job: voiceJob, lines: slug ? lineStates(slug, lang) : [] });
+    }
+    // HD voices: install, the user's own voices
+    if (p === '/api/voice/local/install' && req.method === 'POST') {
+      const b = await body(req);
+      installLocal(b.what === 'design' ? 'design' : 'voices', (j) => broadcast({ type: 'voice-local', job: j })).catch(() => undefined);
+      return send(res, 200, { ok: true });
+    }
+    if (p === '/api/voice/custom' && req.method === 'PUT') {
+      const tmp = path.join(os.tmpdir(), `cutroom-voice-in-${process.pid}-${Date.now()}${path.extname(url.searchParams.get('file') ?? '') || '.webm'}`);
+      try {
+        await new Promise<void>((ok, bad) => {
+          const w = fs.createWriteStream(tmp);
+          req.pipe(w);
+          w.on('finish', ok);
+          w.on('error', bad);
+        });
+        const from = url.searchParams.get('from') === 'import' ? 'import' : 'record';
+        const v = addCustomVoice({ name: url.searchParams.get('name') ?? '', lang: url.searchParams.get('lang') === 'en' ? 'en' : 'zh', audio: tmp, text: url.searchParams.get('text') ?? '', from });
+        broadcast({ type: 'voice-custom' });
+        return send(res, 200, { voice: v });
+      } catch (e) {
+        return send(res, 400, { error: (e as Error).message });
+      } finally {
+        fs.rmSync(tmp, { force: true });
+      }
+    }
+    if (p === '/api/voice/custom/design' && req.method === 'POST') {
+      const b = await body(req);
+      try {
+        const v = await designCustomVoice({ name: String(b.name ?? ''), lang: b.lang === 'en' ? 'en' : 'zh', instruct: String(b.instruct ?? '') });
+        broadcast({ type: 'voice-custom' });
+        return send(res, 200, { voice: v });
+      } catch (e) {
+        return send(res, 400, { error: (e as Error).message });
+      }
+    }
+    if (p === '/api/voice/custom/delete' && req.method === 'POST') {
+      const b = await body(req);
+      try {
+        removeCustomVoice(String(b.id));
+        broadcast({ type: 'voice-custom' });
+        return send(res, 200, { ok: true });
+      } catch (e) {
+        return send(res, 400, { error: (e as Error).message });
+      }
     }
     if (p === '/api/voice/settings' && req.method === 'POST') {
       const b = await body(req);
@@ -571,7 +618,12 @@ const server = http.createServer(async (req, res) => {
       checkSlug(b.slug);
       const input = b.input && typeof b.input === 'object' ? b.input : {};
       const tool = String(b.tool ?? '');
-      return send(res, 200, await askUser(b.slug, toolLabel(tool, input, b.slug), askDetail(tool, input)));
+      // Editor commands wrapped in a cd or a chain run like the plain ones
+      if (tool === 'Bash' && editorOnly(String(input.command ?? ''), b.slug)) return send(res, 200, { allow: true });
+      const a = await askUser(b.slug, toolLabel(tool, input, b.slug), askDetail(tool, input));
+      // A file outside the project is kept before the edit runs, for a rollback
+      if (a.allow) await keepBeforeWrite(b.slug, tool, input);
+      return send(res, 200, a);
     }
     // Full access for Codex and Antigravity: Cutroom's shell and file tools, called through their MCP server
     if (p === '/api/chat/full-step' && req.method === 'POST') {
@@ -587,6 +639,16 @@ const server = http.createServer(async (req, res) => {
     if (p === '/api/chat/reset' && req.method === 'POST') {
       reset((await body(req)).slug);
       return send(res, 200, { ok: true });
+    }
+    // Project files back as they were before a chat message (or as before a rollback, to undo it)
+    if (p === '/api/chat/rollback' && req.method === 'POST') {
+      const b = await body(req);
+      checkSlug(b.slug);
+      try {
+        return send(res, 200, await rollbackTo(b.slug, String(b.cp ?? '')));
+      } catch (e) {
+        return send(res, 409, { error: (e as Error).message });
+      }
     }
     if (p === '/api/chat/stop' && req.method === 'POST') {
       stop((await body(req)).slug);
@@ -742,6 +804,9 @@ server.on('error', (e: NodeJS.ErrnoException) => {
   console.error(e.code === 'EADDRINUSE' ? `Port ${PORT} is already in use` : e.message);
   process.exit(1);
 });
+// The HD voice worker's state (queued for the GPU, loading the model, ready) reaches the panel
+watchLocal((st) => broadcast({ type: 'voice-local-phase', ...st }));
+
 server.listen({ port: PORT, host: '127.0.0.1', exclusive: true }, () => {
   for (const s of slugs()) watch(s);
   console.log(`Cutroom: http://127.0.0.1:${PORT}/`);

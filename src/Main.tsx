@@ -11,7 +11,6 @@ import { HtmlScene } from './components/HtmlScene';
 import { SceneSounds } from './components/Sounds';
 import { FxCard } from './fx/cards';
 import { screenPaths, type ScenePath } from './lib/paths';
-import { BeatMain } from './BeatMain';
 import { SANS } from './lib/fonts';
 import { LAYOUT, withFrame, type Layout } from './lib/layout';
 import { buildTimeline, type TScene } from './lib/timeline';
@@ -50,9 +49,7 @@ export const SceneView: React.FC<{ s: TScene; props: Props; layout: Layout; them
   );
 };
 
-export const Main: React.FC<Props> = (props) => (props.mode === 'beat' ? <BeatMain {...props} /> : <VoiceMain {...props} />);
-
-const VoiceMain: React.FC<Props> = (props) => {
+export const Main: React.FC<Props> = (props) => {
   const { fps } = useVideoConfig();
   const { board, timings, format, slug } = props;
   const layout = useMemo(() => withFrame(LAYOUT[format], board?.frame), [format, board?.frame]);

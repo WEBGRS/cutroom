@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import Anthropic from '@anthropic-ai/sdk';
-import { PUBLIC, ROOT, STATE } from './store';
+import { PUBLIC, ROOT, STATE, appendLog, hash, snapshot } from './store';
 import { killTree } from './proc';
 import { HELP } from './help';
 import { imagesIn, lookReadRule, pathRule } from './look';
@@ -13,6 +13,7 @@ import { L, readSettings, writeSettings } from './settings';
 import { PRESETS, chatLoop, listModels, pickModel, ping, preset, trimHistory, type Conn } from './compat';
 import { AGENTS, agentDef, agentState, cliOf, forgetAgents, mcpEnv, startAgent, type AgentId } from './agents';
 import { FULL_TOOLS, fullLabel, isFullTool, runFullTool, type FullResult } from './fulltools';
+import { list as checkpoints, fileAt, noteOutside, placeOf, rollback, take, type Rollback } from './checkpoints';
 
 export type ChatEvent =
   | { type: 'start'; provider: string }
@@ -23,11 +24,11 @@ export type ChatEvent =
   | { type: 'error'; message: string }
   // Full access: a step that needs the user's go-ahead, and the answer
   | { type: 'ask'; id: string; cmd: string; detail: string }
-  | { type: 'asked'; id: string; allow: boolean };
+  | { type: 'asked'; id: string; allow: boolean }
+  | { type: 'checkpoint'; id: string };
 
 export interface ChatContext {
   format: string;
-  mode: string;
   lang: string;
   variant: string;
   sel?: string | null;
@@ -35,8 +36,10 @@ export interface ChatContext {
 }
 
 interface LogItem {
-  role: 'user' | 'assistant';
+  role: 'user' | 'assistant' | 'event';
   text: string;
+  // user: the checkpoint taken just before this message; event (a rollback): the checkpoint that undoes it
+  cp?: string;
   refs?: string[];
   tools?: { cmd: string; ok: boolean }[];
   t: string;
@@ -44,6 +47,8 @@ interface LogItem {
 
 interface Saved {
   sessionId?: string;
+  // Told to the assistant with the next message (a rollback since its last turn)
+  note?: string;
   // Folder the Claude Code session runs in (a session resumes only there)
   cwd?: string;
   api?: Anthropic.Beta.BetaMessageParam[];
@@ -99,8 +104,9 @@ interface AiSettings {
   effort?: string;
   // Model for the Claude Code login and the Claude API key
   models?: { 'claude-code'?: string; anthropic?: string };
-  // editor: only Cutroom's own commands; full: every tool, risky steps wait for the user's go-ahead in the panel
-  access?: 'editor' | 'full';
+  // editor: only Cutroom's own commands; full: every tool, risky steps wait for the user's go-ahead in the panel;
+  // auto: every tool and nothing waits (checkpoints before each message make it undoable)
+  access?: 'editor' | 'full' | 'auto';
 }
 export interface CompatPatch {
   preset?: string;
@@ -112,7 +118,7 @@ export const readAi = (): AiSettings => readSettings().ai ?? {};
 export const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
 export function writeAi(patch: { pref?: string; apiKey?: string | null; compat?: CompatPatch; agent?: { id?: string; model?: string }; effort?: string; model?: { provider?: string; value?: string }; access?: string }) {
   const ai: AiSettings = { ...(readSettings().ai ?? {}) };
-  if (patch.access !== undefined) ai.access = patch.access === 'full' ? 'full' : 'editor';
+  if (patch.access !== undefined) ai.access = patch.access === 'full' || patch.access === 'auto' ? patch.access : 'editor';
   if (patch.effort !== undefined) {
     if (EFFORTS.includes(patch.effort)) ai.effort = patch.effort;
     else delete ai.effort;
@@ -208,7 +214,12 @@ const chosenAgent = (): AgentId | null => {
   return def && cliOf(def) ? def.id : null;
 };
 const agentModel = (id: AgentId) => readAi().agent?.models?.[id];
-export const aiAccess = (): 'editor' | 'full' => (readAi().access === 'full' ? 'full' : 'editor');
+export const aiAccess = (): 'editor' | 'full' | 'auto' => {
+  const a = readAi().access;
+  return a === 'full' || a === 'auto' ? a : 'editor';
+};
+// Both full modes give the assistant every tool; they differ only in asking
+const fullOn = () => aiAccess() !== 'editor';
 const aiEffort = () => {
   const e = readAi().effort;
   return e && EFFORTS.includes(e) ? e : undefined;
@@ -362,8 +373,9 @@ const TOOL_DESC = (slug: string) =>
   `Run one Cutroom CLI command for project "${slug}". Pass the command and its arguments as an array, e.g. ["ls","--format","tall"], ["trim","record","--to","@filter+0.8"], ["set","intro","fx.look","\\"warm\\""]. Output is the command's stdout. Recording, voice-over, look and export can take minutes (record-window waits for the person to press Stop).`;
 
 // via: bash = Claude Code; tool = an `editor` tool whose results carry the frames; files = an `editor` tool, frames opened as files
-export function systemPrompt(slug: string, via: 'bash' | 'tool' | 'files' = 'bash', fullAccess?: boolean): string {
-  const full = fullAccess ?? aiAccess() === 'full';
+export function systemPrompt(slug: string, via: 'bash' | 'tool' | 'files' = 'bash', fullAccess?: boolean, askNothing?: boolean): string {
+  const full = fullAccess ?? fullOn();
+  const auto = full && (askNothing ?? aiAccess() === 'auto');
   const how =
     via === 'bash'
       ? full
@@ -375,22 +387,27 @@ export function systemPrompt(slug: string, via: 'bash' | 'tool' | 'files' = 'bas
       : `- ${full ? 'Edit the video with' : 'Use only'} the \`editor\` tool. Give it the command and its arguments as an array of strings, without any program name or project id: ["ls","--format","wide"], ["show","intro"], ["set","intro","fx.look","\\"warm\\""]. JSON values for \`set\` are passed as one string.${full ? ' Timeline changes always go through it (versions, undo, live preview); never edit storyboard.json by hand.' : ''}`;
   const access = full
     ? `
-- You also have the access a developer has in their own terminal: write files (HTML scenes, SVG, scripts, subtitles), run programs (ffmpeg, python, node, git, package managers), read the user's code and documents, search and read the web, and use any skills and MCP servers you have. Use them whenever the editor alone can't do what was asked.${via === 'bash' ? '' : ' Do it with the `shell`, `read_file` and `write_file` tools next to the editor (relative paths are in the project folder); your own shell and file tools are off here. You can write files: `write_file` works inside the project folder at once and elsewhere after the user allows it.'}
+- You also have the access a developer has in their own terminal: write files (HTML scenes, SVG, scripts, subtitles), run programs (ffmpeg, python, node, git, package managers), read the user's code and documents, search and read the web, and use any skills and MCP servers you have. Use them whenever the editor alone can't do what was asked.${via === 'bash' ? '' : ' Do it with the `shell`, `read_file` and `write_file` tools next to the editor (relative paths are in the project folder); your own shell and file tools are off here. You can write files: `write_file` works inside the project folder at once and elsewhere ' + (auto ? 'too.' : 'after the user allows it.')}
 - The project folder is ${path.join(PUBLIC, slug)}: recordings in cap/, images and video in media/, HTML scenes in scenes/<name>/. Files placed there can be used at once (\`add\`, \`swap\`, image overlays).
-- Risky steps (shell commands, writing outside the project folder) wait for the user to approve them in the panel, or run in your sandbox; if one is declined, find another way or say what you need. Ask before deleting or overwriting the user's files outside the project, pushing to git or spending money.`
+${
+        auto
+          ? `- The user turned approvals off: every step runs at once. Before each message the editor saves a checkpoint of the project folder (and of files you change outside it with your file tools), and the user can roll back to it from the chat. Shell commands that change things outside the project folder can't be rolled back, so before deleting the user's files outside the project, pushing to git or spending money, say what you will do and ask in your reply.`
+          : `- Risky steps (shell commands, writing outside the project folder) wait for the user to approve them in the panel, or run in your sandbox; if one is declined, find another way or say what you need. Ask before deleting or overwriting the user's files outside the project, pushing to git or spending money.`
+      }`
     : '';
   const port = process.env.PORT ?? 8814;
   return `You are the editing assistant inside Cutroom, a video editor for software demos: product walkthroughs, launch videos and release clips built from screen recordings. You are talking to the user through a small chat panel next to a live preview of project "${slug}". Every change you make through the CLI appears in the preview within a second.
 
 ## Calling the editor
 ${how}${access}
-- ${full ? '' : 'One CLI command per Bash call, or several joined with &&. Shell loops and variables are blocked; '}\`show a b c\` or \`show all\` prints several scenes at once.
+- ${full ? (via === 'bash' ? 'Write the editor command out in full every time, alone or several joined with && (no cd, no variables or aliases, no pipes): written that way it runs at once, while any other shell line waits for the user to approve it. ' : '') : 'One CLI command per Bash call, or several joined with &&. Shell loops and variables are blocked; '}\`show a b c\` or \`show all\` prints several scenes at once.
 - Write nothing between commands: no progress notes. Your only text is the final reply, in the user's language.
 - Some commands take minutes (record, record-window, voice, look, export). Wait for them; don't run them twice.
 - When a command fails, read its message: it says what was wrong and usually the command that fixes it.
 
 ## Workflow: do the steps the request needs, in this order
-1. Find out first. \`ls\` (with the --format/--mode of the user's current view, given in each message) shows the timeline; \`show <id>\` a scene's JSON; \`media\` the footage the project already has; \`windows <word>\` the apps open on this computer. Never ask the user for something these tell you. For a request to improve, restructure or review the video, also run \`plan\`: per scene what the narration says, what the picture shows and the text on screen, with notes where the picture only repeats the words or the words describe an action no footage shows.
+0. Size first. Before you make the first version of a video (a new or empty project, or a request to make or rebuild a whole video), the size must be known: 16:9 widescreen (Bilibili, YouTube) or 9:16 vertical (Douyin, Xiaohongshu, Shorts, Reels). Take it from the request when it names one or a platform that implies one; otherwise ask only that, in one sentence, and stop until they answer. Then record it with \`set - format '"wide"'\` or \`set - format '"tall"'\` (the editor's preview switches to it) and build for it: \`ls\` and \`look\` with that --format, HTML scenes at its size, \`reframe\` for footage in 9:16. A project whose board already has a format has its size; don't ask again.
+1. Find out first. \`ls\` (with the --format of the user's current view, given in each message) shows the timeline; \`show <id>\` a scene's JSON; \`media\` the footage the project already has; \`windows <word>\` the apps open on this computer. Never ask the user for something these tell you. For a request to improve, restructure or review the video, also run \`plan\`: per scene what the narration says, what the picture shows and the text on screen, with notes where the picture only repeats the words or the words describe an action no footage shows.
 2. Get the footage. Choose by what has to be on screen:
    - A website or web app: \`inspect <url>\`, then \`record <name> <url> '<steps>'\`. You work it (scripted clicks and typing).
    - Cutroom itself: \`record\` with this editor's address (below). You work it.
@@ -418,10 +435,10 @@ ${how}${access}
 - Make the smallest edit that does what was asked. Prefer the dedicated commands (trim/split/mv/add/swap/bars/min) over \`set\`.
 - A scene's \`visual\` is shared by the 16:9 and 9:16 versions. To change only the 9:16 one, run \`tall <id> on\` and edit \`tall.*\` instead.
 - Effects marked [house rule] go against the user's own style guide: don't use them unless the user explicitly asks.
-- You can see the video: \`look\` renders frames exactly as exported (\`look record photo+2.5 0:31\`; no arguments = a spread of scenes; add --format tall or --mode beat for those cuts). ${via === 'bash' ? `Then open every image path it prints with the Read tool${full ? '' : ' (Read works only there)'}.` : via === 'files' ? (full ? 'Then open every image path it prints with your file viewer.' : 'Then open every image path it prints with your file viewer. Those frames are the only files you can open; any other file read ends your turn, so learn everything else through the editor (`help` lists its commands).') : 'The frames come back to you as images.'} Look after you place text, overlays, circles or crops, after changing looks or colours, and before you call a cut done; fix what you see (unreadable text, things covering each other, a circle that misses its target).
-- Voice-over (配音/旁白/narration audio): write or fix the narration lines first (\`set <id> lines.<k>.zh ...\`), then run \`voice\`; it only voices lines without current audio, so run it again after editing lines. Add \`--lang en\` for the second-language track. Change the engine or voice (\`voice list\`, \`voice use\`) only when the user asks for a different voice.
+- You can see the video: \`look\` renders frames exactly as exported (\`look record photo+2.5 0:31\`; no arguments = a spread of scenes; add --format tall for the 9:16 version). ${via === 'bash' ? `Then open every image path it prints with the Read tool${full ? '' : ' (Read works only there)'}.` : via === 'files' ? (full ? 'Then open every image path it prints with your file viewer.' : 'Then open every image path it prints with your file viewer. Those frames are the only files you can open; any other file read ends your turn, so learn everything else through the editor (`help` lists its commands).') : 'The frames come back to you as images.'} Look after you place text, overlays, circles or crops, after changing looks or colours, and before you call a cut done; fix what you see (unreadable text, things covering each other, a circle that misses its target).
+- Voice-over (配音/旁白/narration audio): write or fix the narration lines first (\`set <id> lines.<k>.zh ...\`), then run \`voice\`; it only voices lines without current audio, so run it again after editing lines. Add \`--lang en\` for the second-language track. Change the engine or voice (\`voice list\`, \`voice use\`) only when the user asks for a different voice. When they say the voice sounds bad or robotic: \`voice list\` shows whether the HD voices (engine local, Qwen3-TTS on their graphics card) are installed; if so switch with \`voice use local <voice>\` and re-voice with \`voice --redo\`; if not, tell them Library › Voiceover can install them (about 10 GB) and don't start the install yourself. HD voices sample each take: when one line comes out odd, \`voice <scene-id> --redo\` gives a new take of that scene. Their own voice: \`voice clone <clip> --text "<exact words in the clip>"\`.
 - Web recordings: run \`inspect <url>\` to see the page's elements and selectors, then \`record <name> <url> '<steps json>'\` with the clicks and typing the user wants shown; put a \`mark\` before each beat you will caption. Keep recordings short (5–20 s of steps); recording takes about real time plus page loading. Only record public pages the user asked for.
-- To show Cutroom itself (a tutorial or demo clip), record this editor's own address, http://127.0.0.1:${port}/?slug=${slug}&format=wide&mode=voice&ui=zh (ui=en for English). The recorder notices it is the editor and records a copy of the project, so clicks in the steps never change the real one. Handy selectors: library tabs \`.lib-tabs button:has-text("Transitions")\` (the label follows ui), scenes \`.clip:has(.name:text-is("<scene-id>"))\`, library tiles \`.lt\`, inspector tabs \`.itabs button\`; \`{"press":"Space"}\` plays the preview.
+- To show Cutroom itself (a tutorial or demo clip), record this editor's own address, http://127.0.0.1:${port}/?slug=${slug}&format=wide&ui=zh (ui=en for English). The recorder notices it is the editor and records a copy of the project, so clicks in the steps never change the real one. Handy selectors: library tabs \`.lib-tabs button:has-text("Transitions")\` (the label follows ui), scenes \`.clip:has(.name:text-is("<scene-id>"))\`, library tiles \`.lt\`, inspector tabs \`.itabs button\`; \`{"press":"Space"}\` plays the preview.
 - When a website in a recording has changed, \`rerecord <name>\` (or \`rerecord all\`) records it again from its saved steps; captions and cuts anchored to marks follow the new footage. Then run \`check\` for anchors whose marks are gone.
 - HTML scenes: when nothing in the library shows what the user wants (a chart of their own numbers, a custom diagram, a branded title), write a page: \`html write <name> ${via === 'bash' ? "'<page>'" : '<page>'}\`, then \`add html scenes/<name>/index.html <after-id>\`, then \`look\` at it and fix what you see. Page rules: one root \`<div data-composition-id="<name>" data-width="1920" data-height="1080" data-duration="<seconds>">\` (1080×1920 for a 9:16-only scene); animate with CSS @keyframes or element.animate(…) with finite durations and fill both (time 0 is the scene start); elements with data-start/data-duration show only in that window; no Date.now, timers or requestAnimationFrame loops; no sound (add it with the editor); font-family "Noto Sans SC", system-ui. ${via === 'bash' ? 'Pass the whole page as one single-quoted argument: use double quotes inside it and write apostrophes as &#39;. ' : ''}\`html check <name>\` lists problems. Pages that declare variables (data-composition-variables) are filled per scene with \`set <id> visual.vars.<var> <json>\`; \`html vars <id>\` lists them. A HyperFrames composition or any page on disk can be copied in with \`add html <path>\`.
 - Reference videos: when the user gives a video to learn from ("cut it like this one"), run \`shots <path>\` first. It lists every shot with its length, camera move and a keyframe image; open a few keyframes, then match the reference's pacing (its average and median shot length) and kinds of shots in your plan. It also works on the user's own export to review rhythm.
@@ -436,10 +453,8 @@ ${how}${access}
 - The picture adds what the narration can't say (the real interface, the result, the numbers); it doesn't put the spoken sentence on screen again. A card that lists what the voice reads becomes footage of the thing, or a few short labels.
 - One narration line = one on-screen action. Spoken Chinese runs about 4.5 characters a second, English about 2.5 words a second; size scenes to their lines.
 - Write narration like a person talking: short sentences, first person, plain words; no stock phrases, no lists of three, and never describe what the viewer can already see.
-- Beat-cut text is a short label for what the screen can't show ("自动排课"), not a sentence.
 - At most one [[highlight]] per line. Keep transitions consistent and cut plainly between related shots.
 - Text placed over footage (recordings, photos, clips) gets \`"plate": true\` so it reads on bright frames; confirm with \`look\`.
-- The beat cut needs music with beat data: \`beat use music/<track>.mp3\` (\`beat\` lists them with their tempo). Don't invent BPM values; the beat data sets the tempo.
 - Build new scenes from the project's own footage: run \`media\` to see recordings, images, videos and music.
 
 ## CLI reference
@@ -463,8 +478,8 @@ ${rulesBlock(slug)}
 }
 
 const contextLine = (c: ChatContext) => {
-  const view = `${c.format === 'tall' ? '9:16 vertical' : '16:9 widescreen'} · ${c.mode === 'beat' ? 'beat cut (--mode beat)' : 'narrated cut'} · ${c.lang === 'en' ? 'English' : 'Chinese'}${c.variant === 'clean' ? ' · URLs hidden' : ''}`;
-  return `[Editor state: showing ${view} (--format ${c.format} --mode ${c.mode} --lang ${c.lang})${c.sel ? `; selected scene ${c.sel}` : ''}${c.t !== undefined ? `; playhead at ${c.t.toFixed(2)} s` : ''}]`;
+  const view = `${c.format === 'tall' ? '9:16 vertical' : '16:9 widescreen'} · ${c.lang === 'en' ? 'English' : 'Chinese'}${c.variant === 'clean' ? ' · URLs hidden' : ''}`;
+  return `[Editor state: showing ${view} (--format ${c.format} --lang ${c.lang})${c.sel ? `; selected scene ${c.sel}` : ''}${c.t !== undefined ? `; playhead at ${c.t.toFixed(2)} s` : ''}]`;
 };
 
 // Status line the user's global instructions add to every reply; meaningless in the panel
@@ -540,6 +555,78 @@ export function askDetail(name: string, input: Record<string, unknown> | undefin
   return '';
 }
 
+// Shell words of a line, split into commands at unquoted && ; and newlines; null when it pipes, redirects, runs in the
+// background or expands anything ($VAR, $(…), backticks), since then what runs can't be read off the line
+export function shellCommands(line: string): string[][] | null {
+  const cmds: string[][] = [[]];
+  let word = '';
+  let has = false;
+  const push = () => {
+    if (has) cmds[cmds.length - 1].push(word);
+    word = '';
+    has = false;
+  };
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (c === "'") {
+      const j = line.indexOf("'", i + 1);
+      if (j < 0) return null;
+      word += line.slice(i + 1, j);
+      has = true;
+      i = j;
+    } else if (c === '"') {
+      let j = i + 1;
+      for (; j < line.length && line[j] !== '"'; j++) {
+        if (line[j] === '$' || line[j] === '`') return null;
+        if (line[j] === '\\' && '"\\'.includes(line[j + 1] ?? '')) word += line[++j];
+        else word += line[j];
+      }
+      if (j >= line.length) return null;
+      has = true;
+      i = j;
+    } else if (c === '\\' && i + 1 < line.length) {
+      word += line[++i];
+      has = true;
+    } else if (c === '&' && line[i + 1] === '&') {
+      push();
+      cmds.push([]);
+      i++;
+    } else if (c === ';' || c === '\n') {
+      push();
+      cmds.push([]);
+    } else if ('|&<>`$(){}'.includes(c)) return null;
+    else if (/\s/.test(c)) push();
+    else {
+      word += c;
+      has = true;
+    }
+  }
+  push();
+  return cmds.filter((x) => x.length);
+}
+
+// A Bash line that only runs this project's editor CLI (after an optional cd into the project or app folder) is what
+// Claude Code may already run without asking; the cd or the chaining just keeps its prefix rule from seeing that
+export function editorOnly(line: string, slug: string): boolean {
+  const cmds = shellCommands(line);
+  if (!cmds?.length) return false;
+  const same = (a: string, b: string) => {
+    const x = path.resolve(a);
+    const y = path.resolve(b);
+    return process.platform === 'win32' ? x.toLowerCase() === y.toLowerCase() : x === y;
+  };
+  let editor = false;
+  for (const w of cmds) {
+    if (w[0] === 'cd' && w.length === 2 && path.isAbsolute(w[1]) && (same(w[1], path.join(PUBLIC, slug)) || same(w[1], ROOT))) continue;
+    if (w[0] === 'node' && w.length >= 3 && path.isAbsolute(w[1]) && same(w[1], cliScript) && w[2] === slug) {
+      editor = true;
+      continue;
+    }
+    return false;
+  }
+  return editor;
+}
+
 export const inside = (file: string, dir: string) => {
   const r = path.relative(dir, file);
   return !!r && !r.startsWith('..') && !path.isAbsolute(r);
@@ -557,7 +644,15 @@ export async function fullStep(slug: string, project: string, name: string, inpu
     const a = await askUser(slug, fullLabel(name, i), askDetail(name, i));
     if (!a.allow) return { ok: false, out: a.message ?? 'The user declined this step.' };
   }
+  // A file about to be written outside the project is kept first, so a rollback can put it back
+  if (name === 'write_file') await noteOutside(placeOf(slug), path.resolve(project, String(i.path))).catch(() => undefined);
   return runFullTool(name, input, project, signal);
+}
+
+// Claude Code's file tools: the same, before the edit is allowed
+export async function keepBeforeWrite(slug: string, tool: string, input: Record<string, unknown>) {
+  const file = ['Write', 'Edit', 'MultiEdit'].includes(tool) ? input.file_path : tool === 'NotebookEdit' ? input.notebook_path : undefined;
+  if (typeof file === 'string' && file) await noteOutside(placeOf(slug), file).catch(() => undefined);
 }
 const textOf = (c: unknown): string => (typeof c === 'string' ? c : Array.isArray(c) ? c.map((x) => (typeof x === 'string' ? x : (x?.text ?? ''))).join('') : '');
 
@@ -579,7 +674,8 @@ export const ASK_TOKEN = randomUUID();
 const askEnv = () => ({ CUTROOM_SERVER: `http://127.0.0.1:${process.env.PORT ?? 8814}`, CUTROOM_ASK_TOKEN: ASK_TOKEN });
 
 export function askUser(slug: string, cmd: string, detail = ''): Promise<{ allow: boolean; message?: string }> {
-  if (allowAll.has(slug)) return Promise.resolve({ allow: true });
+  // "Allow everything" in the access menu, or for this conversation
+  if (aiAccess() === 'auto' || allowAll.has(slug)) return Promise.resolve({ allow: true });
   const emit = emitters.get(slug);
   if (!emit) return Promise.resolve({ allow: false, message: 'Nobody is in the chat panel to approve this step.' });
   const id = randomUUID();
@@ -616,6 +712,31 @@ export function stop(slug: string) {
   running.get(slug)?.kill();
 }
 
+// Put the project (and outside files the assistant wrote with its file tools) back as before a message; the assistant
+// hears about it with the next one
+export async function rollbackTo(slug: string, cp: string): Promise<Rollback & { label: string }> {
+  if (running.has(slug)) throw new Error(L('Wait until the AI has finished this message', '等 AI 这一条做完再回退'));
+  const label = checkpoints(placeOf(slug)).find((c) => c.id === cp)?.label ?? '';
+  // Rolling back to a "before rollback" checkpoint undoes that rollback
+  const undoing = label.startsWith('before rollback to ');
+  // Logged before the files change, so the open editor names the change a rollback
+  const board = fileAt(placeOf(slug), cp, 'storyboard.json');
+  if (board !== null) {
+    const version = hash(board);
+    const short = label.length > 24 ? `${label.slice(0, 24)}…` : label;
+    snapshot(slug, version, board);
+    appendLog(slug, { t: new Date().toISOString(), src: 'rollback', version, desc: [undoing ? L('Rollback undone', '已撤销回退') : L(`Back to before “${short}”`, `已回到「${short}」之前`)] });
+  }
+  const r = await rollback(placeOf(slug), cp);
+  const s = load(slug);
+  s.note = undoing
+    ? '[The user undid their last rollback: the project files are back as they were before it.]'
+    : `[The user rolled the project back to how it was before their message "${label}". Files you changed after that are as they were then (shell changes outside the project folder excepted); check the current state before relying on earlier results.]`;
+  s.log.push({ role: 'event', text: undoing ? '' : label, cp: r.undo, t: new Date().toISOString() });
+  save(slug, s);
+  return { ...r, label };
+}
+
 export interface PointedRef {
   label: string;
   detail: string;
@@ -625,9 +746,14 @@ export async function chat(slug: string, message: string, ctx: ChatContext, mode
   const prov = provider();
   if (!prov) return emit({ type: 'error', message: L('The AI is not connected: open the connection settings, then sign in to Claude Code or add an API key.', '还没连上 AI：点右上角的连接设置，登录 Claude Code 或填一个 API Key。') });
   if (running.has(slug)) return emit({ type: 'error', message: L('Still working on the last message', '上一条还在处理') });
+  // Checkpoint before the assistant touches anything, so this message can be rolled back
+  const cp = await take(placeOf(slug), message.trim().slice(0, 80) || L('(pointed at the preview)', '（指了预览里的东西）')).catch(() => null);
   const saved = load(slug);
-  saved.log.push({ role: 'user', text: message, refs: refs.length ? refs.map((r) => r.label) : undefined, t: new Date().toISOString() });
+  const note = saved.note;
+  delete saved.note;
+  saved.log.push({ role: 'user', text: message, refs: refs.length ? refs.map((r) => r.label) : undefined, cp: cp?.id, t: new Date().toISOString() });
   save(slug, saved);
+  if (cp) emit({ type: 'checkpoint', id: cp.id });
   const reply: LogItem = { role: 'assistant', text: '', tools: [], t: '' };
   const toolIds = new Map<string, number>();
   // Text before a command is a working note; the answer is what comes after the last one
@@ -648,7 +774,7 @@ export async function chat(slug: string, message: string, ctx: ChatContext, mode
   const t0 = Date.now();
   // Things the user Ctrl+clicked in the editor
   const pointed = refs.length ? `The user pointed at these in the editor:\n${refs.map((r, i) => `${i + 1}. ${r.detail}`).join('\n')}\n\n` : '';
-  const prompt = `${contextLine(ctx)}\n\n${pointed}${message || '(No words: look at what they pointed at, say what you notice and suggest a fix.)'}`;
+  const prompt = `${note ? `${note}\n\n` : ''}${contextLine(ctx)}\n\n${pointed}${message || '(No words: look at what they pointed at, say what you notice and suggest a fix.)'}`;
   try {
     if (prov === 'claude-code') await viaClaudeCode(slug, prompt, readAi().models?.['claude-code'] || model, saved, wrapped, t0);
     else if (prov === 'compat') await viaCompat(slug, prompt, saved, wrapped, t0);
@@ -683,7 +809,7 @@ function viaClaudeCode(slug: string, prompt: string, model: string | undefined, 
     const promptFile = path.join(STATE, slug, 'system-prompt.md');
     fs.mkdirSync(path.dirname(promptFile), { recursive: true });
     fs.writeFileSync(promptFile, systemPrompt(slug));
-    const full = aiAccess() === 'full';
+    const full = fullOn();
     const project = path.join(PUBLIC, slug);
     // Full: the user's own settings, skills and MCP servers; reading, searching and edits in the project folder run at once,
     // anything else waits for the user's answer in the panel (asked through Cutroom's MCP helper)
@@ -781,7 +907,7 @@ async function viaApi(slug: string, prompt: string, saved: Saved, emit: (e: Chat
   const client = new Anthropic({ apiKey: apiKey() });
   const controller = new AbortController();
   running.set(slug, { kill: () => controller.abort() });
-  const full = aiAccess() === 'full';
+  const full = fullOn();
   const project = path.join(PUBLIC, slug);
   const tools: Anthropic.Beta.BetaToolUnion[] = [
     {
@@ -870,9 +996,9 @@ async function viaAgent(slug: string, prompt: string, saved: Saved, emit: (e: Ch
     .slice(-7, -1)
     .map((x) => `${x.role === 'user' ? 'User' : 'You'}: ${x.text.slice(0, 600)}`)
     .join('\n');
-  // Full access: Cutroom's shell and file tools through the MCP server (asked in the panel), not the agent's own;
-  // Gemini CLI stays on the editor until it has been tried with them
-  const full = aiAccess() === 'full' && id !== 'gemini';
+  // Full access: Cutroom's shell and file tools through the MCP server, not the agent's own. Gemini CLI can't hand a
+  // question to the panel, so it gets them only when nothing is asked
+  const full = fullOn() && (id !== 'gemini' || aiAccess() === 'auto');
   const text = `<instructions>\n${systemPrompt(slug, id === 'antigravity' ? 'files' : 'tool', full)}\n</instructions>\n\n${recent ? `<conversation so far>\n${recent}\n</conversation so far>\n\n` : ''}${prompt}`;
   let timer: ReturnType<typeof setTimeout> | undefined;
   await new Promise<void>((resolve) => {
@@ -933,7 +1059,7 @@ async function viaCompat(slug: string, prompt: string, saved: Saved, emit: (e: C
       onTool: (tid, args) => emit({ type: 'tool', id: tid, cmd: args.join(' ') }),
       onToolResult: (tid, ok, out) => emit({ type: 'tool_result', id: tid, ok, out }),
       signal: controller.signal,
-      ...(aiAccess() === 'full' ? { extra: FULL_TOOLS, runExtra: (name: string, input: unknown) => fullStep(slug, path.join(PUBLIC, slug), name, input, controller.signal), maxTurns: 200 } : {}),
+      ...(fullOn() ? { extra: FULL_TOOLS, runExtra: (name: string, input: unknown) => fullStep(slug, path.join(PUBLIC, slug), name, input, controller.signal), maxTurns: 200 } : {}),
     });
     saved.compat = { id, messages: trimHistory(messages) };
   } catch (e) {

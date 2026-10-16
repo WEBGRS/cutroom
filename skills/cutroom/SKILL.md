@@ -1,6 +1,6 @@
 ---
 name: cutroom
-description: Make or refresh a demo video of software the user is building, with Cutroom. Records the app or website (clicks, typing, auto-zoom), cuts it into a narrated or beat-synced video with captions, voice-over, effects and HTML scenes, re-records it after the UI changes, and exports MP4 in 16:9 and 9:16 or a 剪映 (JianyingPro) draft. Also breaks a reference video into shots to learn its pacing. Use when the user asks for a demo video, product walkthrough, launch or release video, feature clip, changelog video, README GIF or vertical social clip of something they made, or to update one after a release.
+description: Make or refresh a demo video of software the user is building, with Cutroom. Records the app or website (clicks, typing, auto-zoom), cuts it into a narrated video with captions, voice-over, effects and HTML scenes, re-records it after the UI changes, and exports MP4 in 16:9 and 9:16 or a 剪映 (JianyingPro) draft. Also breaks a reference video into shots to learn its pacing. Use when the user asks for a demo video, product walkthrough, launch or release video, feature clip, changelog video, README GIF or vertical social clip of something they made, or to update one after a release.
 ---
 
 # Cutroom
@@ -26,10 +26,10 @@ Every command is `CUT <project> <command> [args]`. `CUT help` prints all of them
 4. `CUT my-demo add screen cap/signup.mp4 intro` puts it after the intro. Write narration lines that sync to the marks:
    `CUT my-demo set <scene-id> lines '[{"zh":"Sign up takes one field.","at":"@open"},{"zh":"Then you are in.","at":"@submit"}]'`
    The `zh` field holds the main caption in any language; `en` is an optional second-language line under it.
-5. `CUT my-demo voice` voices the lines with the built-in offline voices (one-time 147 MB download). `--lang en` voices the `en` lines.
+5. `CUT my-demo voice` voices the lines with the current engine (default: the built-in offline voices, one-time 147 MB download). `--lang en` voices the `en` lines. On a PC with an NVIDIA card the HD voices sound far more natural and read English words inside Chinese: `CUT my-demo voice list` shows whether they are installed; `voice use local casual_m` picks one (install with `voice install` only when the user agrees: about 10 GB). `voice clone <clip> --text "…"` makes the user's own voice from a recording of them.
 6. `CUT my-demo check` lists problems, each with the command that fixes it. Fix them.
 7. `CUT my-demo look <scene-id> <scene-id>+2.5` renders frames exactly as exported and prints image paths. Open them and fix what looks wrong (text over bright footage gets `"plate": true`).
-8. `CUT my-demo export` writes the MP4 and prints its path. Add `--format tall` for 9:16, `--mode beat` for the music cut, `--clean` to hide URLs, `--out <file>` to choose the file.
+8. `CUT my-demo export` writes the MP4 and prints its path. Add `--format tall` for 9:16, `--clean` to hide URLs, `--out <file>` to choose the file.
 
 Tell the user they can open the project in the Cutroom editor to adjust it by hand.
 
@@ -70,7 +70,7 @@ Page rules (the same contract as HyperFrames compositions, which also work uncha
 - Elements with `data-start` / `data-duration` show only in that window.
 - No `Date.now`, timers or `requestAnimationFrame` loops: Cutroom sets the clock frame by frame, and anything else differs between preview and export.
 - No sound inside the page; add music, sound effects and voice-over in Cutroom.
-- Music: `CUT my-demo music help` explains how to write a track as a score (real instrument recordings play it; needs the XSXB-Band studio installed). `music compose <name> <draft>` renders it into the library with beat data, `music use <name>` puts it under the cut (`--mode beat` for the beat cut). You cannot hear it: say so and let the user listen.
+- Music: `CUT my-demo music help` explains how to write a track as a score (real instrument recordings play it; needs the XSXB-Band studio installed). `music compose <name> <draft>` renders it into the library, `music use <name>` puts it under the video. You cannot hear it: say so and let the user listen.
 - Declared variables (`data-composition-variables` on the root) can be filled per scene: `CUT my-demo set growth visual.vars.title '"Q3"'`.
 
 `CUT my-demo html check growth` lists problems. `CUT my-demo add html <path>` copies an existing page or composition folder into the project.

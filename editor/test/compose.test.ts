@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { beatGrid, expand, libraryText, rangeWarnings, slugOf, type Draft, type Inst } from '../src/compose';
+import { expand, libraryText, rangeWarnings, slugOf, type Draft, type Inst } from '../src/compose';
 
 // A small stand-in for the studio's /api/library
 const LIB: Inst[] = [
@@ -74,15 +74,6 @@ test('notes outside the recorded range are warned about', () => {
   const w = rangeWarnings(d, LIB);
   assert.equal(w.length, 1);
   assert.match(w[0], /piano: 2 note/);
-});
-
-test('the beat grid has one beat per quarter note and a downbeat per bar', () => {
-  const g = beatGrid('x.mp3', 120, 4, 8);
-  assert.equal(g.beats.length, 16);
-  assert.equal(g.downbeats.length, 4);
-  assert.deepEqual(g.downbeats, [0, 2, 4, 6]);
-  assert.equal(g.period, 0.5);
-  assert.equal(g.bpm, 120);
 });
 
 test('the instrument list shows what is needed to choose', () => {

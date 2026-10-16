@@ -49,6 +49,12 @@ const P: Record<string, React.ReactNode> = {
   close: <path d="M4 4l8 8M12 4l-8 8" />,
   expand: <path d="M9.5 2.5h4v4M13.5 2.5 9 7M6.5 13.5h-4v-4M2.5 13.5 7 9" />,
   shrink: <path d="M13.5 6.5h-4v-4M9.5 6.5 14 2M2.5 9.5h4v4M6.5 9.5 2 14" />,
+  sidecol: (
+    <>
+      <rect x="2" y="2.5" width="12" height="11" rx="1.5" />
+      <path d="M10 2.5v11M2 9.5h8" />
+    </>
+  ),
   search: <path d="M7 12a5 5 0 1 0 0-10 5 5 0 0 0 0 10ZM10.6 10.6 14 14" />,
   check: <path d="m3.5 8.5 3 3 6-7" />,
   media: (
@@ -143,7 +149,6 @@ const P: Record<string, React.ReactNode> = {
   ),
   download: <path d="M8 2v8M4.5 6.8 8 10.3l3.5-3.5M2.5 11.5v2h11v-2" />,
   wait: <path className="spin" d="M8 2.5a5.5 5.5 0 1 1-5.5 5.5" strokeLinecap="round" />,
-  beat: <path d="M1.5 8h2l1.5-4 2.5 9 2-7 1.5 2h3.5" />,
   sparkle: <path d="M8 2c.4 2.8 1.6 4.2 4.5 4.6-2.9.4-4.1 1.8-4.5 4.6-.4-2.8-1.6-4.2-4.5-4.6C6.4 6.2 7.6 4.8 8 2zM12.5 10.5c.2 1.2.7 1.8 2 2-1.3.2-1.8.8-2 2-.2-1.2-.7-1.8-2-2 1.3-.2 1.8-.8 2-2z" />,
   gear: (
     <>

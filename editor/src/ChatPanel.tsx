@@ -7,7 +7,6 @@ import { FEATURED, PROMPTS, SLOT, chipsFor, type PromptItem } from './prompts';
 
 export interface ChatContext {
   format: string;
-  mode: string;
   lang: string;
   variant: string;
   sel?: string | null;
@@ -30,8 +29,10 @@ interface Ask {
 }
 
 interface Item {
-  role: 'user' | 'assistant';
+  role: 'user' | 'assistant' | 'event';
   text: string;
+  // user: checkpoint taken before the message; event (a rollback): the checkpoint that undoes it
+  cp?: string;
   refs?: string[];
   tools: Tool[];
   asks?: Ask[];
@@ -66,6 +67,7 @@ interface AgentInfo {
   loggedIn: boolean | null;
   method: string | null;
   models?: string[];
+  names?: Record<string, string>;
   model: string;
 }
 
@@ -81,28 +83,31 @@ export interface AiStatus {
   effort: string;
   models: { 'claude-code': string; anthropic: string };
   modelChoices: { 'claude-code': string[]; anthropic: string[] };
-  access: 'editor' | 'full';
+  access: 'editor' | 'full' | 'auto';
 }
 
-// What the AI may do: only Cutroom's commands, or everything with risky steps asked first
+// What the AI may do: only Cutroom's commands, everything with risky steps asked first, or everything without asking
 function AccessPick({ st, onChange }: { st: AiStatus; onChange: (s: AiStatus) => void }) {
   const gemini = st.provider === 'agent' && st.agent === 'gemini';
   return (
     <select
-      className={`hsel${st.access === 'full' ? ' full' : ''}`}
+      className={`hsel${st.access !== 'editor' ? ' full' : ''}`}
       value={st.access}
       title={
-        st.access === 'full'
-          ? gemini
-            ? tr('Gemini CLI has no sandbox here, so it stays on Cutroom’s commands', 'Gemini CLI 在这里没有沙箱可用，仍然只能用剪辑命令')
-            : tr('Full access: files, programs, the web, your skills. Risky steps ask you first or run in a sandbox', '完全权限：能写文件、跑程序、上网、用你的技能；高风险操作先问你或在沙箱里跑')
-          : tr('Editor only: the AI runs Cutroom’s own commands on this project, nothing else', '仅剪辑：AI 只能运行剪辑台自己的命令，动不了别的')
+        st.access === 'auto'
+          ? tr('Allow everything: files, programs, the web, your skills, and nothing asks first. Before each message the project is saved, so “Roll back to here” undoes it', '全部放行：能写文件、跑程序、上网、用你的技能，什么都不先问。每条消息前自动存档，点消息下的“回退到这里”就能撤回')
+          : st.access === 'full'
+            ? gemini
+              ? tr('Gemini CLI can’t ask you in this panel, so here it stays on Cutroom’s commands; pick Allow everything to give it the rest', 'Gemini CLI 没法在面板里问你，这一档只能用剪辑命令；选“全部放行”才给它其余权限')
+              : tr('Full access: files, programs, the web, your skills. Risky steps ask you first or run in a sandbox', '完全权限：能写文件、跑程序、上网、用你的技能；高风险操作先问你或在沙箱里跑')
+            : tr('Editor only: the AI runs Cutroom’s own commands on this project, nothing else', '仅剪辑：AI 只能运行剪辑台自己的命令，动不了别的')
       }
       aria-label={tr('What the AI may do', 'AI 权限')}
       onChange={async (e) => onChange(await (await post('/api/ai', { access: e.target.value })).json())}
     >
       <option value="editor">{tr('Editor only', '仅剪辑')}</option>
       <option value="full">{tr('Full access', '完全权限')}</option>
+      <option value="auto">{tr('Allow everything', '全部放行')}</option>
     </select>
   );
 }
@@ -118,6 +123,7 @@ function ModelPick({ st, onChange }: { st: AiStatus; onChange: (s: AiStatus) => 
   const value = prov === 'claude-code' ? st.models['claude-code'] : prov === 'anthropic' ? st.models.anthropic : prov === 'compat' ? (st.compat?.model ?? '') : (agent?.model ?? '');
   const base = prov === 'claude-code' ? st.modelChoices['claude-code'] : prov === 'anthropic' ? st.modelChoices.anthropic : prov === 'compat' ? (listed ?? []) : ['', ...(agent?.models ?? [])];
   const options = base.includes(value) ? base : [...base, value];
+  const names = prov === 'agent' ? agent?.names : undefined;
   return (
     <select
       className="hsel"
@@ -135,7 +141,7 @@ function ModelPick({ st, onChange }: { st: AiStatus; onChange: (s: AiStatus) => 
     >
       {options.map((m) => (
         <option key={m} value={m}>
-          {modelName(m)}
+          {names?.[m] ?? modelName(m)}
         </option>
       ))}
     </select>
@@ -199,6 +205,8 @@ const store = {
 };
 
 const post = (url: string, body: object) => fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+// A message quoted in a rollback line
+const clip = (s: string) => (s.length > 24 ? `${s.slice(0, 24)}…` : s);
 
 // Inline `code` spans; the rest stays plain text
 // Some agents decorate replies with Markdown: links to their own work folder ([intro](file:///…)) and **bold**
@@ -307,7 +315,7 @@ function AgentSection({ st, save, onChange }: { st: AiStatus; save: (body: objec
                     {a.models?.length ? (
                       <datalist id={`models-${a.id}`}>
                         {a.models.map((m) => (
-                          <option key={m} value={m} />
+                          <option key={m} value={m} label={a.names?.[m]} />
                         ))}
                       </datalist>
                     ) : null}
@@ -684,7 +692,7 @@ export function ChatPanel({ slug, context, where, refs, onRemoveRef, onClearRefs
       .then((j) => {
         if (!alive) return;
         setRunning(!!j.running);
-        const items: Item[] = (j.history ?? []).map((h: { role: 'user' | 'assistant'; text: string; refs?: string[]; tools?: { cmd: string; ok: boolean }[] }) => ({ role: h.role, text: h.text, refs: h.refs, tools: (h.tools ?? []).map((t, i) => ({ id: String(i), cmd: t.cmd, ok: t.ok })) }));
+        const items: Item[] = (j.history ?? []).map((h: { role: Item['role']; text: string; refs?: string[]; cp?: string; tools?: { cmd: string; ok: boolean }[] }) => ({ role: h.role, text: h.text, refs: h.refs, cp: h.cp, tools: (h.tools ?? []).map((t, i) => ({ id: String(i), cmd: t.cmd, ok: t.ok })) }));
         // A reply still working (the page was reloaded) with steps waiting for an answer
         if (j.running && j.asks?.length) items.push({ role: 'assistant', text: '', tools: [], asks: j.asks, pending: true });
         setItems(items);
@@ -743,6 +751,8 @@ export function ChatPanel({ slug, context, where, refs, onRemoveRef, onClearRefs
           else if (e.type === 'tool') patchLast((it) => ({ ...it, aside: [it.aside, it.text.trim()].filter(Boolean).join('\n\n'), text: '', tools: [...it.tools, { id: e.id, cmd: e.cmd }] }));
           else if (e.type === 'tool_result') patchLast((it) => ({ ...it, tools: it.tools.map((t) => (t.id === e.id ? { ...t, ok: e.ok, out: e.out } : t)) }));
           else if (e.type === 'error') patchLast((it) => ({ ...it, error: e.message }));
+          // The checkpoint taken before this message: the user's bubble can now roll back to it
+          else if (e.type === 'checkpoint') setItems((xs) => xs.map((x, k) => (k === xs.length - 2 && x.role === 'user' ? { ...x, cp: e.id } : x)));
           else if (e.type === 'ask') patchLast((it) => ({ ...it, asks: [...(it.asks ?? []), { id: e.id, cmd: e.cmd, detail: e.detail }] }));
           else if (e.type === 'asked') patchLast((it) => ({ ...it, asks: (it.asks ?? []).map((a) => (a.id === e.id ? { ...a, answer: e.allow } : a)) }));
         }
@@ -755,6 +765,22 @@ export function ChatPanel({ slug, context, where, refs, onRemoveRef, onClearRefs
   };
 
   const stop = () => post('/api/chat/stop', { slug });
+  // Project files back as before a message; the line it leaves can undo it
+  const [rolling, setRolling] = useState(false);
+  const rollback = async (cp: string) => {
+    if (running || rolling) return;
+    setRolling(true);
+    try {
+      const r = await post('/api/chat/rollback', { slug, cp });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error ?? r.statusText);
+      const undoing = String(j.label ?? '').startsWith('before rollback to ');
+      setItems((xs) => [...xs, { role: 'event', text: undoing ? '' : j.label, cp: j.undo, tools: [] }]);
+    } catch (err) {
+      setItems((xs) => [...xs, { role: 'event', text: '', tools: [], error: (err as Error).message }]);
+    }
+    setRolling(false);
+  };
   const answer = (id: string, allow: boolean, always = false) => {
     patchLast((it) => ({ ...it, asks: (it.asks ?? []).map((a) => (a.id === id ? { ...a, answer: allow } : a)) }));
     void post('/api/chat/answer', { slug, id, allow, always });
@@ -856,19 +882,37 @@ ${text}` : text));
           </div>
         ) : (
           items.map((it, i) =>
-            it.role === 'user' ? (
-              <div key={i} className="msg user">
-                {it.refs?.length ? (
-                  <div className="msg-refs">
-                    {it.refs.map((r, k) => (
-                      <span key={k} className="ref-chip">
-                        <Icon name="target" size={11} />
-                        {r}
-                      </span>
-                    ))}
-                  </div>
+            it.role === 'event' ? (
+              <div key={i} className={`msg-event${it.error ? ' bad' : ''}`} title={it.text || undefined}>
+                <Icon name={it.error ? 'warn' : 'undo'} size={12} />
+                <span>{it.error ? it.error : it.text ? tr(`Rolled back to before “${clip(it.text)}”`, `已回退到「${clip(it.text)}」之前`) : tr('Rollback undone', '已撤销回退')}</span>
+                {it.cp ? (
+                  <button className="mini" disabled={running || rolling} onClick={() => void rollback(it.cp!)} title={tr('Put the files back as they were just before this', '把文件恢复到这一步之前的样子')}>
+                    {tr('Undo', '撤销')}
+                  </button>
                 ) : null}
-                {it.text}
+              </div>
+            ) : it.role === 'user' ? (
+              <div key={i} className="msg-u">
+                <div className="msg user">
+                  {it.refs?.length ? (
+                    <div className="msg-refs">
+                      {it.refs.map((r, k) => (
+                        <span key={k} className="ref-chip">
+                          <Icon name="target" size={11} />
+                          {r}
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
+                  {it.text}
+                </div>
+                {it.cp ? (
+                  <button className="msg-undo" disabled={running || rolling} onClick={() => void rollback(it.cp!)} title={tr('Put the project files back as they were before this message', '把项目文件恢复到发这条消息之前的样子')}>
+                    <Icon name="undo" size={12} />
+                    {tr('Roll back to here', '回退到这里')}
+                  </button>
+                ) : null}
               </div>
             ) : (
               <div key={i} className="msg bot">
@@ -926,7 +970,7 @@ ${text}` : text));
           ) : null}
           {provider && items.length && !input && !running ? (
             <div className="chips">
-              {chipsFor({ sel: !!context().sel, beat: context().mode === 'beat' }).map(([g, i]) => {
+              {chipsFor({ sel: !!context().sel }).map(([g, i]) => {
                 const p = PROMPTS.find((x) => x.id === g)!.items[i];
                 return (
                   <button key={`${g}${i}`} className="chip" onClick={() => insertPrompt(p)} title={tr(p.en, p.zh)}>

@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const OUT = path.resolve(process.argv[2] ?? '.scratch/uishots');
-// A project with narration and beat music; defaults to the demo
+// A project with narration; defaults to the demo
 const VOICED = process.argv[3] ?? 'showcase';
 fs.mkdirSync(OUT, { recursive: true });
 const ROOT = process.cwd();
@@ -66,7 +66,7 @@ const crop = async (page, sel, name, extra = {}) => {
   const b = await page.locator(sel).first().boundingBox();
   await shot(page, name, { clip: { ...b, ...extra } });
 };
-const SC = 'slug=_shots&format=wide&mode=voice&lang=zh&variant=default';
+const SC = 'slug=_shots&format=wide&lang=zh&variant=default';
 const lib = async (p, name) => {
   await p.locator('.lib-tabs button', { hasText: name }).click();
   await p.waitForTimeout(500);
@@ -196,12 +196,12 @@ try {
   await crop(p, '.settings', '18-ai-settings');
   await p.close();
 
-  // tall + beat on a voiced project
-  p = await open(`slug=${VOICED}&format=tall&mode=beat&lang=zh&variant=default&frame=420`);
+  // 9:16 on a voiced project
+  p = await open(`slug=${VOICED}&format=tall&lang=zh&variant=default&frame=420`);
   await ready(p);
-  await shot(p, '19-tall-beat');
+  await shot(p, '19-tall');
   await p.close();
-  p = await open(`slug=${VOICED}&format=wide&mode=voice&lang=zh&variant=default&frame=930`, { dpr: 2 });
+  p = await open(`slug=${VOICED}&format=wide&lang=zh&variant=default&frame=930`, { dpr: 2 });
   await ready(p);
   await p.locator('.clip').nth(1).click();
   await p.waitForTimeout(800);
@@ -230,13 +230,13 @@ try {
   await p.waitForTimeout(600);
   await shot(p, '23-narrow-1280');
   await p.close();
-  p = await open('slug=_broken&format=wide&mode=voice&lang=zh&variant=default');
+  p = await open('slug=_broken&format=wide&lang=zh&variant=default');
   await p.waitForTimeout(3500);
   await shot(p, '24-broken');
   await p.close();
 
   // AI panel with no conversation, then with no usable connection
-  p = await open('slug=_broken&format=wide&mode=voice&lang=zh&variant=default', { ls: { 'vs-side': 'ai' } });
+  p = await open('slug=_broken&format=wide&lang=zh&variant=default', { ls: { 'vs-side': 'ai' } });
   await p.waitForTimeout(2500);
   await crop(p, '.side', '25-ai-empty');
   await p.close();
@@ -244,7 +244,7 @@ try {
   const had = fs.existsSync(settings) ? fs.readFileSync(settings, 'utf8') : null;
   try {
     await fetch(`${B}/api/ai`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pref: 'anthropic' }) });
-    p = await open('slug=_broken&format=wide&mode=voice&lang=zh&variant=default', { ls: { 'vs-side': 'ai' } });
+    p = await open('slug=_broken&format=wide&lang=zh&variant=default', { ls: { 'vs-side': 'ai' } });
     await p.waitForTimeout(2500);
     await crop(p, '.side', '26-ai-offline');
     await p.close();

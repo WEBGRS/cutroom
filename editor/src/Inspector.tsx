@@ -28,11 +28,10 @@ interface Props {
   slug: string;
   format: Format;
   lang: 'zh' | 'en';
-  mode: 'voice' | 'beat';
   etl: ETimeline | null;
   caps: Caps;
   assets: string[];
-  music: { src: string; beats: boolean }[];
+  music: { src: string }[];
   sel: string | null;
   focusLine: number | null;
   focus: Focus | null;
@@ -142,7 +141,7 @@ export function Inspector(p: Props) {
   const curT = scene.transition === 'fade' ? '' : (scene.transition ?? '');
   const tr0 = TRANSITION_LIST.find((t) => t.id === curT);
   const fxCount = scene.fx ? Object.keys(scene.fx).length : 0;
-  const lineCount = p.mode === 'voice' ? scene.lines.length : (scene.beat?.length ?? 0);
+  const lineCount = scene.lines.length;
 
   let body: React.ReactNode;
   if (tab === 'visual')
@@ -170,8 +169,7 @@ export function Inspector(p: Props) {
             <Field value={scene.chapter} placeholder={tr('Leave empty unless a chapter starts here', '不是章节开头就留空')} onCommit={(s) => set('chapter', s || undefined)} />
           </Row>
         </div>
-        {p.mode === 'voice' ? (
-          <div className="sec">
+        <div className="sec">
             <h3>{tr('Timing', '时长')}</h3>
             <div className="row3">
               <div>
@@ -188,7 +186,6 @@ export function Inspector(p: Props) {
               </div>
             </div>
           </div>
-        ) : null}
         <div className="sec">
           <details>
             <summary>{tr('Scene JSON', '整段 JSON')}</summary>
@@ -198,8 +195,7 @@ export function Inspector(p: Props) {
       </>
     );
   else if (tab === 'trans')
-    body =
-      p.mode === 'voice' ? (
+    body = (
         <div className="sec">
           <h3>
             {tr('How this scene comes in', '进入这一段的方式')}
@@ -216,18 +212,6 @@ export function Inspector(p: Props) {
             </div>
           </div>
           {DIR_TRANSITIONS.includes(curT) ? (
-            <Row label={tr('Direction', '方向')}>
-              <NamedSelect value={scene.transDir ?? ''} list={DIR_LIST} onChange={(x) => set('transDir', x || undefined)} />
-            </Row>
-          ) : null}
-        </div>
-      ) : (
-        <div className="sec">
-          <h3>{tr('Cut into this scene (beat cut)', '卡点版切入方式')}</h3>
-          <Row label={tr('Transition', '切入')}>
-            <NamedSelect value={scene.beatTransition ?? ''} list={TRANSITION_LIST.filter((t) => t.id !== 'none').map((t) => (t.id ? t : { ...t, en: 'Crossfade (default)', zh: '交叉淡化（默认）' }))} onChange={(x) => set('beatTransition', x || undefined)} />
-          </Row>
-          {DIR_TRANSITIONS.includes(scene.beatTransition ?? '') ? (
             <Row label={tr('Direction', '方向')}>
               <NamedSelect value={scene.transDir ?? ''} list={DIR_LIST} onChange={(x) => set('transDir', x || undefined)} />
             </Row>
@@ -324,8 +308,6 @@ export function Inspector(p: Props) {
   else
     body = (
       <div className="sec" ref={listRef}>
-        {p.mode === 'voice' ? (
-          <>
             {scene.lines.map((l, k) => (
               <div key={k} data-k={k} data-pick={`line|${k}|${l.zh.slice(0, 60)}`} className={`item${p.focusLine === k ? ' focus' : ''}`}>
                 <div className="head">
@@ -339,7 +321,7 @@ export function Inspector(p: Props) {
                 <Field multiline value={l.zh} placeholder={tr('Main line  {+faster} {-slower} [[highlight]]', '主字幕　{+加快} {-放慢} [[重点]]')} onCommit={(s) => set(`lines.${k}.zh`, s)} autoFocus={p.focusLine === k} />
                 <Field value={l.en} placeholder={tr('Second-language line (optional)', '第二语言（可空）')} onCommit={(s) => set(`lines.${k}.en`, s || undefined)} />
                 <Field value={l.at} placeholder={tr('Align to @mark (optional)', '对齐到 @标记（可空）')} list="marks" validate={refOk(marks)} onCommit={(s) => set(`lines.${k}.at`, asRef(s))} />
-                <LineVoice slug={p.slug} file={e?.lines[k]?.voiced ? e.lines[k].file : undefined} dur={e?.lines[k]?.voiced ? (e.lines[k].dur / fps) : undefined} empty={!(p.lang === 'en' ? l.en : l.zh)?.trim()} />
+                <LineVoice slug={p.slug} lang={p.lang} line={`${scene.id}:${k}`} file={e?.lines[k]?.voiced ? e.lines[k].file : undefined} dur={e?.lines[k]?.voiced ? (e.lines[k].dur / fps) : undefined} empty={!(p.lang === 'en' ? l.en : l.zh)?.trim()} />
               </div>
             ))}
             <div className="sec-acts">
@@ -350,45 +332,6 @@ export function Inspector(p: Props) {
               <span className="grow" />
               {scene.lines.some((l) => (p.lang === 'en' ? l.en : l.zh)?.trim()) ? <VoiceScene slug={p.slug} lang={p.lang} scene={scene.id} all={!!e?.lines.length && e.lines.every((x) => x.voiced)} /> : null}
             </div>
-          </>
-        ) : !scene.beat ? (
-          <>
-            <p className="hint">{tr('This scene is not in the beat cut.', '这一段不在卡点版里。')}</p>
-            <button className="mini" onClick={() => set('beat', [{ t: '', n: 4 }])}>
-              {tr('Add to the beat cut', '加入卡点版')}
-            </button>
-          </>
-        ) : (
-          <>
-            {scene.beat.map((b, k) => (
-              <div key={k} data-k={k} data-pick={`line|${k}|${b.t.slice(0, 60)}`} className={`item${p.focusLine === k ? ' focus' : ''}`}>
-                <div className="head">
-                  <span className="idx">{k + 1}</span>
-                  <span className="grow" />
-                  <button className="icon sm" title={tr('Delete this line', '删除这一句')} onClick={() => set(`beat.${k}`, undefined)}>
-                    <Icon name="close" size={14} />
-                  </button>
-                </div>
-                <Field value={b.t} placeholder={tr('On-screen text  [[highlight]]', '屏幕上的字　[[重点]]')} onCommit={(s) => set(`beat.${k}.t`, s)} autoFocus={p.focusLine === k} />
-                <Field value={b.en} placeholder={tr('Second-language line (optional)', '第二语言（可空）')} onCommit={(s) => set(`beat.${k}.en`, s || undefined)} />
-                <div className="row">
-                  <label>{tr('Beats', '拍数')}</label>
-                  <Field value={b.n ?? 4} type="number" validate={(s) => Number(s) >= 1} onCommit={(s) => set(`beat.${k}.n`, Math.round(Number(s)))} />
-                </div>
-              </div>
-            ))}
-            <div className="sec-acts">
-              <button className="add" onClick={() => set(`beat.${scene.beat!.length}`, { t: '', n: 4 })}>
-                <Icon name="plus" size={14} />
-                {tr('Add a line', '加一句')}
-              </button>
-              <span className="grow" />
-              <button className="mini" onClick={() => set('beat', undefined)}>
-                {tr('Remove from beat cut', '移出卡点版')}
-              </button>
-            </div>
-          </>
-        )}
       </div>
     );
 
@@ -427,7 +370,7 @@ export function Inspector(p: Props) {
           ['fx', tr('Effects', '特效'), fxCount],
           ['over', tr('Overlays', '叠加'), scene.overlays?.length],
           ['sound', tr('Sound', '音效'), scene.sounds?.length],
-          ['lines', p.mode === 'voice' ? tr('Narration', '旁白') : tr('Beat text', '卡点字'), lineCount],
+          ['lines', tr('Narration', '旁白'), lineCount],
         ]}
       />
       <div className="ibody" ref={bodyRef}>
@@ -888,7 +831,7 @@ function BoardPanel(p: Props) {
   const audio = [...p.music.map((m) => m.src), ...p.assets.filter((a) => /\.(mp3|wav|m4a)$/i.test(a)).map((a) => `${p.slug}/${a}`)];
   const controls = (paths: string[]) =>
     fieldsOf(paths)
-      .filter((f: FieldDef) => !f.path.startsWith('music.') || (p.mode === 'voice' && !!b.music))
+      .filter((f: FieldDef) => !f.path.startsWith('music.') || !!b.music)
       .map((f: FieldDef) => <FieldControl key={f.path} def={f} value={getPath(b, f.path)} onChange={(x) => set(f.path, x)} />);
 
   let body: React.ReactNode;
@@ -949,9 +892,8 @@ function BoardPanel(p: Props) {
   else if (tab === 'audio')
     body = (
       <>
-        {p.mode === 'voice' ? (
-          <div className="sec">
-            <h3>{tr('Music (narrated cut)', '旁白版配乐')}</h3>
+        <div className="sec">
+            <h3>{tr('Music', '配乐')}</h3>
             <Row label={tr('Track', '音乐')}>
               <select value={b.music?.src ?? ''} onChange={(e) => set('music', e.target.value ? { ...(b.music ?? {}), src: e.target.value } : undefined)}>
                 <option value="">{tr('None', '无')}</option>
@@ -972,29 +914,6 @@ function BoardPanel(p: Props) {
             </div>
             {controls(['music.fadeIn', 'music.fadeOut'])}
           </div>
-        ) : (
-          <div className="sec">
-            <h3>{tr('Music (beat cut)', '卡点版配乐')}</h3>
-            <Row label={tr('Track', '音乐')}>
-              <select value={b.beat?.music ?? ''} onChange={(e) => set('beat', e.target.value ? { ...(b.beat ?? {}), music: e.target.value } : undefined)}>
-                <option value="">{tr('None', '无')}</option>
-                {[...new Set([b.beat?.music ?? '', ...p.music.filter((m) => m.beats).map((m) => m.src)])].filter(Boolean).map((a) => (
-                  <option key={a}>{a}</option>
-                ))}
-              </select>
-            </Row>
-            <div className="row3">
-              <div>
-                <label>{tr('Start bar', '从第几小节')}</label>
-                <Field value={b.beat?.startBar} placeholder="0" validate={isNum} onCommit={(s) => set('beat.startBar', num(s))} />
-              </div>
-              <div>
-                <label>{tr('Volume', '音量')}</label>
-                <Field value={b.beat?.volume} placeholder="0.85" validate={isNum} onCommit={(s) => set('beat.volume', num(s))} />
-              </div>
-            </div>
-          </div>
-        )}
         <div className="sec">
           <h3>{tr('Sound effects', '音效')}</h3>
           {controls(['sfx.whoosh', 'sfx.click', 'sfx.pop', 'sfx.volume'])}
@@ -1037,10 +956,26 @@ function BoardPanel(p: Props) {
 }
 
 // One narration line's audio: play it, or say there is none yet
-function LineVoice({ slug, file, dur, empty }: { slug: string; file?: string; dur?: number; empty: boolean }) {
+function LineVoice({ slug, lang, line, file, dur, empty }: { slug: string; lang: 'zh' | 'en'; line: string; file?: string; dur?: number; empty: boolean }) {
   const [on, setOn] = useState(false);
+  const [busy, setBusy] = useState(false);
   const a = useRef<HTMLAudioElement | null>(null);
   useEffect(() => () => a.current?.pause(), [file]);
+  useEffect(() => setBusy(false), [file]);
+  useEffect(() => {
+    if (!busy) return;
+    const es = new EventSource('/api/events');
+    es.onmessage = (m) => {
+      const ev = JSON.parse(m.data);
+      if (ev.type === 'voice' && ev.job.state !== 'running') setBusy(false);
+    };
+    return () => es.close();
+  }, [busy]);
+  // A new take of just this line (sampled voices come out differently each time)
+  const retake = async () => {
+    const r = await fetch('/api/voice/run', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ slug, lang, lines: [line], redo: true }) });
+    if (r.ok) setBusy(true);
+  };
   if (empty) return null;
   if (!file)
     return (
@@ -1065,6 +1000,11 @@ function LineVoice({ slug, file, dur, empty }: { slug: string; file?: string; du
         <Icon name={on ? 'pause' : 'play'} size={12} />
       </button>
       {tr(`Voiced · ${dur?.toFixed(1)} s`, `已配音 · ${dur?.toFixed(1)} 秒`)}
+      <span className="grow" />
+      <button className="mini" disabled={busy} onClick={() => void retake()} title={tr('Voice this line again with the current voice', '用当前音色重新念这一句')}>
+        <Icon name={busy ? 'wait' : 'redo'} size={12} />
+        {busy ? tr('Voicing…', '配音中…') : tr('New take', '重念这句')}
+      </button>
     </div>
   );
 }

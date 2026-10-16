@@ -17,11 +17,6 @@
     "volume": 0.3,
     "duck": 0.5
   },
-  "beat": {
-    "music": "music/aerosol-of-my-love.mp3",
-    "startBar": 0,
-    "volume": 0.85
-  },
   "frame": {
     "radius": 22,
     "shadow": 1.2
@@ -48,13 +43,6 @@
         "vignette": 0.35,
         "grain": 0.2
       },
-      "beat": [
-        {
-          "t": "录产品 [[和 AI]] 一起剪",
-          "en": "Record it. Cut it with AI.",
-          "n": 4
-        }
-      ],
       "overlays": [
         {
           "kind": "image",
@@ -118,18 +106,6 @@
           "at": 3.6,
           "vol": 0.8
         }
-      ],
-      "beat": [
-        {
-          "t": "点哪里 [[推近]]哪里",
-          "en": "Zooms in on every click",
-          "n": 4
-        },
-        {
-          "t": "光标和涟漪 后期加",
-          "en": "Cursor and ripples added in post",
-          "n": 4
-        }
       ]
     },
     {
@@ -168,13 +144,6 @@
           "id": "shutter",
           "at": 0.15
         }
-      ],
-      "beat": [
-        {
-          "t": "静态图 也能[[动起来]]",
-          "en": "Stills that move",
-          "n": 4
-        }
       ]
     },
     {
@@ -211,13 +180,6 @@
           "at": 0.3,
           "vol": 0.8
         }
-      ],
-      "beat": [
-        {
-          "t": "黑边 + 颗粒 = [[电影感]]",
-          "en": "Letterbox + grain = cinema",
-          "n": 4
-        }
       ]
     },
     {
@@ -251,13 +213,6 @@
           }
         ]
       },
-      "beat": [
-        {
-          "t": "39 转场 · 33 文字 · 41 叠加",
-          "en": "39 transitions · 33 text · 41 overlays",
-          "n": 4
-        }
-      ],
       "sounds": [
         {
           "id": "hit",
@@ -298,14 +253,7 @@
             }
           ]
         ]
-      },
-      "beat": [
-        {
-          "t": "你和 AI 改[[同一份]]文件",
-          "en": "You and the AI, one file",
-          "n": 4
-        }
-      ]
+      }
     },
     {
       "id": "loop",
@@ -315,13 +263,6 @@
         {
           "zh": "界面改版了，[[重录一遍]]，字幕跟着标记走。",
           "en": "When the app changes, run the recording again. The captions follow the marks."
-        }
-      ],
-      "beat": [
-        {
-          "t": "改版了 [[重录]]就行",
-          "en": "App changed? Re-record",
-          "n": 4
         }
       ],
       "visual": {
@@ -374,13 +315,6 @@
       "fx": {
         "fadeOut": 1.2
       },
-      "beat": [
-        {
-          "t": "开源 欢迎试用",
-          "en": "Open source, try it",
-          "n": 4
-        }
-      ],
       "sounds": [
         {
           "id": "ding",

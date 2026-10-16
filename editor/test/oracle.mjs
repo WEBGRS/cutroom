@@ -2,7 +2,7 @@
 // The preview runs in Remotion's own headless shell, so any difference is the editor's data or timing,
 // not browser text rasterization (system Chrome draws glyph edges 1-2 px differently).
 // A positive control compares against a different frame, which must score clearly lower.
-// Needs the server running. Usage: node editor/test/oracle.mjs [slug] [--system-chrome] [--frames 120,480 --format wide --mode voice]
+// Needs the server running. Usage: node editor/test/oracle.mjs [slug] [--system-chrome] [--frames 120,480 --format wide]
 // With VS_DATA set (a server over another data folder), the renderer reads that folder too.
 import { bundle } from '@remotion/bundler';
 import { ensureBrowser, renderStill, selectComposition } from '@remotion/renderer';
@@ -20,16 +20,16 @@ const MIN_PSNR = system ? 30 : 50;
 const SETS = {
   showcase: [
     // 2677 → 2467: the HTML scene "loop" played, then scrubbed back past its timed elements
-    { format: 'wide', mode: 'voice', frames: [495, 140, 258, 870, 1010, 1250, 1680, 2250, 2677, 2467], control: 30 },
-    { format: 'tall', mode: 'beat', frames: [290, 60, 520, 650, 940, 1134, 1050], control: 120 },
+    { format: 'wide', frames: [495, 140, 258, 870, 1010, 1250, 1680, 2250, 2677, 2467], control: 30 },
+    { format: 'tall', frames: [290, 60, 520, 650, 940, 1134, 1050], control: 120 },
   ],
 };
 const argv = process.argv.slice(2);
 const argOf = (n) => (argv.includes(`--${n}`) ? argv[argv.indexOf(`--${n}`) + 1] : undefined);
-const slugArg = argv.find((a, i) => !a.startsWith('--') && !['--frames', '--format', '--mode'].includes(argv[i - 1])) ?? 'showcase';
+const slugArg = argv.find((a, i) => !a.startsWith('--') && !['--frames', '--format'].includes(argv[i - 1])) ?? 'showcase';
 const only = argOf('frames')?.split(',').map(Number);
 const CASES = only
-  ? [{ slug: slugArg, format: argOf('format') ?? 'wide', mode: argOf('mode') ?? 'voice', frames: only, control: 30 }]
+  ? [{ slug: slugArg, format: argOf('format') ?? 'wide', frames: only, control: 30 }]
   : (SETS[slugArg] ?? []).map((c) => ({ slug: slugArg, ...c }));
 if (!CASES.length) throw new Error(`no oracle frames for ${slugArg}`);
 fs.mkdirSync(OUT, { recursive: true });
@@ -53,10 +53,10 @@ const browser = await chromium.launch({ ...(system ? { channel: 'chrome' } : { e
 const rows = [];
 let fail = 0;
 for (const c of CASES) {
-  const inputProps = { slug: c.slug, format: c.format, mode: c.mode, lang: 'zh', variant: 'default' };
+  const inputProps = { slug: c.slug, format: c.format, lang: 'zh', variant: 'default' };
   const comp = await selectComposition({ serveUrl, id: `studio-${c.format}`, inputProps });
   const page = await browser.newPage({ viewport: { width: comp.width, height: comp.height }, deviceScaleFactor: 1 });
-  await page.goto(`${BASE}/?oracle=1&slug=${c.slug}&format=${c.format}&mode=${c.mode}&lang=zh&variant=default`);
+  await page.goto(`${BASE}/?oracle=1&slug=${c.slug}&format=${c.format}&lang=zh&variant=default`);
   await page.waitForFunction(() => window.__player, null, { timeout: 30000 });
   const preview = async (f, file) => {
     await page.evaluate((f) => window.__player.seekTo(f), f);
@@ -76,7 +76,7 @@ for (const c of CASES) {
     fs.writeFileSync(file, prev);
   };
   for (const [i, f] of c.frames.entries()) {
-    const tag = `${c.format}-${c.mode}-${f}`;
+    const tag = `${c.format}-${f}`;
     const pv = path.join(OUT, `${tag}-preview.png`);
     const rd = path.join(OUT, `${tag}-render.png`);
     await preview(f, pv);

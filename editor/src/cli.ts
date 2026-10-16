@@ -5,12 +5,13 @@ import { plain } from '../../src/lib/timeline';
 import { loadProps } from '../../src/lib/load';
 import type { Format, Props, Scene } from '../../src/lib/types';
 import { editTimeline, fmtTime, type ETimeline } from './model';
-import { addScene, duplicateScene, getPath, moveScene, removeScene, replaceScene, setBeatBars, setMinSec, setPath, splitPoint, splitScene, toggleTall, trimEdge, uniqueId, type Caps, type Op } from './ops';
+import { addScene, duplicateScene, getPath, moveScene, removeScene, replaceScene, setMinSec, setPath, splitPoint, splitScene, toggleTall, trimEdge, uniqueId, type Caps, type Op } from './ops';
 import { PUBLIC, STATE, readDoc, readLog, readSnapshot, slugs, writeDoc } from './store';
 import { HELP as HELP_TEXT } from './help';
 import { catalogText } from './catalog';
 import { boardTemplate, sceneTemplate } from './templates';
-import { installModel, lineStates, modelInstalled, voiceOf, voiceProject, voiceSettings, writeVoiceSettings } from './voice';
+import { installModel, lineStates, modelInstalled, voiceOf, voiceProject, voiceSettings, voicesOf, writeVoiceSettings } from './voice';
+import { addCustomVoice, designCustomVoice, installLocal, localReady, localStatus, removeCustomVoice, stopLocal } from './localvoice';
 import { ENGINES, engineDef, type EngineId } from './voices';
 import { inspectPage, parseSteps, readRecipes, recordPage, rerecord } from './record';
 import { desktopSupported, listMonitors, listWindows, recordDesktop } from './desktop';
@@ -47,7 +48,6 @@ const has = (name: string) => {
 
 const formatGiven = process.argv.includes('--format');
 const format = (flag('format', 'wide') as Format) ?? 'wide';
-const mode = (flag('mode', 'voice') as 'voice' | 'beat') ?? 'voice';
 const lang = (flag('lang', 'zh') as 'zh' | 'en') ?? 'zh';
 const tallFlag = has('tall');
 const unseen = has('unseen');
@@ -58,7 +58,6 @@ const engineArg = flag('engine') as EngineId | undefined;
 const voiceArg = flag('voice');
 const mobile = has('mobile');
 const sizeArg = flag('size');
-const barArg = flag('bar');
 const outArg = flag('out');
 const codecArg = flag('codec');
 const scaleArg = flag('scale');
@@ -80,6 +79,7 @@ const asMedia = has('media');
 const allFlag = has('all');
 const keepOverlays = has('keep-overlays');
 const lufsArg = flag('lufs');
+const textArg = flag('text');
 // An option this CLI doesn't know is an error, not something to silently ignore
 const unknown = args.find((a) => /^--[a-z][\w-]*$/.test(a));
 if (unknown) {
@@ -101,7 +101,7 @@ const getDims = async (p: string) => {
 };
 
 async function timeline(doc = readDoc(slug).doc): Promise<{ tl: ETimeline; props: Props; caps: Caps }> {
-  const base: Props = { slug, format, mode, lang };
+  const base: Props = { slug, format, lang };
   const loaded = await loadProps(base, getJson, getDims, doc.board);
   const props = { ...loaded.props, timings: lang === 'en' ? doc.timings.en : doc.timings.zh };
   return { tl: editTimeline(props, loaded.fps), props, caps: props.captures ?? {} };
@@ -153,7 +153,7 @@ async function main() {
     case 'ls': {
       const { tl } = await timeline(doc);
       const fps = tl.fps;
-      console.log(`${slug} · ${format} · ${mode} · ${lang} — ${sec(tl.total, fps)} s @${fps}fps, ${tl.scenes.length} scenes${tl.hidden.length ? `  (not in this cut: ${tl.hidden.map((h) => `${h.id}[${h.why}]`).join(', ')})` : ''}`);
+      console.log(`${slug} · ${format} · ${lang} — ${sec(tl.total, fps)} s @${fps}fps, ${tl.scenes.length} scenes${tl.hidden.length ? `  (not in this cut: ${tl.hidden.map((h) => `${h.id}[${h.why}]`).join(', ')})` : ''}`);
       for (const s of tl.scenes) {
         const v = s.visual;
         const vis = v.kind === 'screen' ? `${s.label} ${s.from?.toFixed(2)}→${s.to?.toFixed(2)}${s.rate !== 1 ? ` ×${s.rate.toFixed(2)}` : ''}` : `${v.kind}: ${s.label}`;
@@ -200,15 +200,13 @@ async function main() {
     }
     case 'min':
       return save(setMinSec(doc, rest[0], rest[1] === 'off' ? undefined : Number(rest[1])));
-    case 'bars':
-      return save(setBeatBars(doc, rest[0], Number(rest[1])));
     case 'split': {
       const { tl, caps } = await timeline(doc);
       const e = tl.scenes.find((x) => x.id === rest[0]);
-      if (!e) throw new Error(`${rest[0]} 不在 ${format}/${mode} 这一版里`);
+      if (!e) throw new Error(`${rest[0]} 不在 ${format} 这一版里`);
       const f = Math.round(Number(rest[1]) * tl.fps);
       if (!(f > 0 && f < e.dur)) throw new Error(`拆分点要在 0 和 ${sec(e.dur, tl.fps)} 秒之间`);
-      return save(splitScene(doc, e.id, splitPoint(e, sceneOf(e.id), f, tl.fps, caps, mode), caps), true);
+      return save(splitScene(doc, e.id, splitPoint(e, sceneOf(e.id), f, tl.fps, caps), caps), true);
     }
     case 'add': {
       const [kind, ...more] = rest;
@@ -259,22 +257,6 @@ async function main() {
         }
       if (id !== '-' && p === '.') return save(replaceScene(doc, id, value as Scene));
       if (/^(visual|tall)\.zoom$/.test(p) && value !== undefined && value !== 'auto' && value !== 'off') throw new Error(`${p} is "auto" (the camera follows the cursor and zooms in on clicks) or "off" (the whole recording, no camera moves); use undefined for the default (auto)`);
-      // The beat cut has four settings; its tempo is not one of them
-      const BEAT_KEYS = ['music', 'startBar', 'volume', 'overlays'];
-      if (id === '-' && /^beat(\.|$)/.test(p)) {
-        const keys = p === 'beat' ? (value && typeof value === 'object' ? Object.keys(value as object) : []) : [p.split('.')[1]];
-        const bad = keys.filter((k) => !BEAT_KEYS.includes(k));
-        const music = p === 'beat.music' ? String(value) : p === 'beat' ? (value as { music?: string } | undefined)?.music : doc.board.beat?.music;
-        const g = music ? gridOf(music) : null;
-        if (bad.length) throw new Error(`beat.${bad.join(', beat.')} is not a setting. The tempo comes from the track's beat data${g ? ` (${music} is ${Math.round(g.bpm)} BPM)` : ''}; to change it, pick another track: beat use music/<track>.mp3 (run beat to list them)`);
-        if (music && !g) throw new Error(`${music} has no beat data; pick a track that has: beat use music/<track>.mp3 (run beat to list them)`);
-        const op = setPath(doc, null, p, value);
-        // Drop settings that never existed (an earlier bpm guess)
-        if (op.doc.board.beat) for (const k of Object.keys(op.doc.board.beat)) if (!BEAT_KEYS.includes(k)) delete (op.doc.board.beat as Record<string, unknown>)[k];
-        save(op);
-        if (g && music) console.log(`beat cut music ${music}: ${Math.round(g.bpm)} BPM, from its beat data`);
-        return;
-      }
       return save(setPath(doc, id === '-' ? null : id, p, value));
     }
     case 'get':
@@ -327,8 +309,6 @@ async function main() {
       return mediaCmd();
     case 'check':
       return checkCmd();
-    case 'beat':
-      return beatCmd(rest);
     case 'music':
       return musicCmd(rest);
     case 'look':
@@ -381,7 +361,6 @@ async function main() {
         if (k > 0) {
           piece.transition = 'none';
           piece.lines = [];
-          delete piece.beat;
           delete piece.chapter;
           delete piece.tall;
         }
@@ -527,7 +506,7 @@ async function planCmd() {
   const { tl } = await timeline(doc);
   const fps = tl.fps;
   const cut = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
-  console.log(`${slug} · plan (${lang}, ${format}, ${mode === 'beat' ? 'beat cut' : 'narrated'}): what each scene says, what its picture adds, the text on screen`);
+  console.log(`${slug} · plan (${lang}, ${format}): what each scene says, what its picture adds, the text on screen`);
   let flagged = 0;
   for (const e of tl.scenes) {
     const sc = doc.board.scenes.find((x) => x.id === e.id)!;
@@ -648,17 +627,17 @@ async function exportCmd() {
   const variant = clean ? 'clean' : 'default';
   if (jianying) {
     const { tl, props } = await timeline();
-    console.log(`exporting ${slug} as a JianyingPro (剪映) draft (${format === 'tall' ? '9:16' : '16:9'}, ${mode === 'beat' ? 'beat cut' : 'narrated'}, ${lang}) …`);
+    console.log(`exporting ${slug} as a JianyingPro (剪映) draft (${format === 'tall' ? '9:16' : '16:9'}, ${lang}) …`);
     const r = await exportJianying({ props: { ...props, variant, voice: silent ? 'off' : 'on' }, fps: tl.fps, root: outArg, name: nameArg, log: (s) => console.log(s) });
     console.log(`draft "${r.name}" (${r.seconds.toFixed(1)} s) in ${r.dir}`);
     for (const t of r.tracks) console.log(`  ${t.name}: ${t.segments} segment(s)`);
     return console.log(r.registered ? "added to JianyingPro's draft list: open JianyingPro (restart it if it is running) and pick the draft" : 'restart JianyingPro to see the draft');
   }
-  console.log(`exporting ${slug} (${format === 'tall' ? '9:16' : '16:9'}, ${mode === 'beat' ? 'beat cut' : 'narrated'}, ${lang}${clean ? ', links hidden' : ''}${silent ? ', no voice' : ''}) …`);
+  console.log(`exporting ${slug} (${format === 'tall' ? '9:16' : '16:9'}, ${lang}${clean ? ', links hidden' : ''}${silent ? ', no voice' : ''}) …`);
   const shown: Record<string, number> = {};
   const t0 = Date.now();
   const seconds = maxMbArg ? await timeline().then(({ tl }) => tl.total / tl.fps) : undefined;
-  const r = await runExport({ slug, format, mode, lang, variant, voice: silent ? 'off' : 'on', scale: scaleArg ? Number(scaleArg) : undefined, codec: codecArg, out: outArg, maxMb: maxMbArg ? Number(maxMbArg) : undefined, seconds }, (line) => {
+  const r = await runExport({ slug, format, lang, variant, voice: silent ? 'off' : 'on', scale: scaleArg ? Number(scaleArg) : undefined, codec: codecArg, out: outArg, maxMb: maxMbArg ? Number(maxMbArg) : undefined, seconds }, (line) => {
     const m = [...line.matchAll(/(\d+)\/(\d+)/g)].pop();
     if (m) {
       const phase = /encod/i.test(line) ? 'encoding' : 'rendering';
@@ -734,8 +713,8 @@ async function lookCmd(rest: string[]) {
     if (!s) throw new Error(`look takes seconds (12.5), m:ss (0:12.5), a scene id (its middle) or id+seconds; no scene "${a}"`);
     frames.push(at(s, r![2] !== undefined ? Math.min(Number(r![2]), s.dur / fps - 0.05) : (s.dur / fps) * 0.55));
   }
-  console.log(`rendering ${frames.length} frame(s) of ${slug} (${format}, ${mode === 'beat' ? 'beat cut' : 'narrated'}, ${lang}) as an export would…`);
-  const shots = await renderFrames({ slug, format, mode, lang, frames, log: (s) => console.log(s) });
+  console.log(`rendering ${frames.length} frame(s) of ${slug} (${format}, ${lang}) as an export would…`);
+  const shots = await renderFrames({ slug, format, lang, frames, log: (s) => console.log(s) });
   for (const x of shots) console.log(`image: ${path.resolve(x.file)}  (${x.label})`);
   console.log('Each image is one frame exactly as exported. Look at them before judging layout, text or colour.');
 }
@@ -783,13 +762,12 @@ async function musicCmd(rest: string[]) {
     console.log(`music/${name}.mp3  ${Math.round(seconds * 10) / 10} s, ${Math.round(draft.bpm)} BPM, ${draft.bars} bars  ${out.i.toFixed(1)} LUFS (target ${MUSIC_LUFS}${out.limited ? '; the peaks stop it being louder, so thin out the loudest hits if it must be' : ''}), true peak ${out.tp.toFixed(1)} dBTP`);
     console.log(`render: peak ${r.mix.peakDbFS.toFixed(1)} dBFS, clipped frames ${r.mix.saturatedFrames}${quiet > 1 ? `, ${quiet} near-silent second(s) of ${peaks.length}: check for gaps` : ''}`);
     if (r.mix.saturatedFrames > 0) console.log('warning: the render clips; lower the loudest tracks (vol) and compose again with --replace');
-    console.log(`beat data written (one beat per quarter note, bar lines are downbeats); score kept as music/${name}.score.json`);
-    return console.log(`next: music use ${name}${mode === 'beat' ? ' [--bar N]' : ''}   (--mode beat for the beat cut). You cannot hear it: say so, and let the user listen.`);
+    console.log(`score kept as music/${name}.score.json`);
+    return console.log(`next: music use ${name}. You cannot hear it: say so, and let the user listen.`);
   }
   if (sub === 'use') {
     const name = rest[1]?.replace(/^music\//, '').replace(/\.mp3$/, '');
     if (!name || !fs.existsSync(path.join(dir, `${name}.mp3`))) throw new Error(`music use <name>: no such track in music/ (media lists them)`);
-    if (mode === 'beat') return beatCmd(['use', `music/${name}.mp3`]);
     const { doc } = readDoc(slug);
     const board = structuredClone(doc.board);
     board.music = { ...(board.music ?? {}), src: `music/${name}.mp3` };
@@ -797,8 +775,8 @@ async function musicCmd(rest: string[]) {
   }
   if (sub === 'help' || sub === undefined) {
     return console.log(`music instruments                list the instruments you can write for
-music compose <name> <draft|file|->  render a score into music/<name>.mp3 (+ beat data); --replace overwrites
-music use <name> [--mode beat]   put the track under this project's narrated cut (or the beat cut)
+music compose <name> <draft|file|->  render a score into music/<name>.mp3; --replace overwrites
+music use <name>                 put the track under this project
 
 draft = {"title":"…","bpm":96,"bars":16,"key":"A minor","tracks":[ track, … ]}
 track = {"inst":"<instrument id>","name":"…","vol":0.7,"pan":0,"reverb":0.2,"art":"<articulation>",
@@ -809,10 +787,10 @@ Beats count quarter notes from 0 (bar 2 starts at beat 4); midi 60 = C4; drums a
 Studio ${STUDIO_URL}. Samples are CC0, downloaded on first use (about 20-250 MB per song).
 
 Writing it well (read before the first compose):
-- Length: bars x 4 x 60 / bpm seconds. The narrated cut loops a short track; the beat cut plays it once from its start bar and goes silent when it runs out, so make it at least as long as the scenes' bars add up to.
+- Length: bars x 4 x 60 / bpm seconds. A track shorter than the video loops.
 - Shape: even 30 s needs a start, a change (add or drop a layer every 4 bars) and an ending. A loop of one bar is not music.
 - Split the jobs: melody (leave breath between phrases), chords, bass, rhythm. More tracks is not more energy.
-- Under a voice-over keep the middle thin: a sparse melody, soft chords, no busy lead. The narrated cut lowers the music under the voice by itself.
+- Under a voice-over keep the middle thin: a sparse melody, soft chords, no busy lead. The music is lowered under the voice by itself.
 - Stay inside each instrument's listed range. Long notes: sustain or vibrato; do not scatter staccato inside a smooth melody.
 - Feel: vary velocity (0.4-0.9), start phrases off the beat sometimes, leave gaps. Drums: kick and snare make the skeleton, hats fill.
 - Check the report: clipped frames must be 0; if it says the peaks cap the loudness, thin the loudest hits. You cannot hear it: say so, and offer another take.
@@ -821,45 +799,10 @@ Writing it well (read before the first compose):
   throw new Error('music instruments | compose <name> <draft|file|-> | use <name> | help');
 }
 
-// Beat cut setup: the tempo comes from the track's own beat data, so there is no BPM to choose
-type GridInfo = { bpm: number; duration: number };
-const gridOf = (src: string): GridInfo | null => {
-  const f = path.join(PUBLIC, src.replace(/\.mp3$/, '.beats.json'));
-  return fs.existsSync(f) ? (JSON.parse(fs.readFileSync(f, 'utf8')) as GridInfo) : null;
-};
-const beatTracks = () => {
+const musicTracks = () => {
   const dir = path.join(PUBLIC, 'music');
   return (fs.existsSync(dir) ? fs.readdirSync(dir) : []).filter((f) => f.endsWith('.mp3')).map((f) => `music/${f}`);
 };
-const mmss = (s: number) => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}`;
-
-function beatCmd(rest: string[]) {
-  const { doc } = readDoc(slug);
-  const listing = () =>
-    beatTracks()
-      .map((t) => [t, gridOf(t)] as const)
-      .filter(([, g]) => g)
-      .map(([t, g]) => `  ${t}  ${Math.round(g!.bpm)} BPM, ${mmss(g!.duration)}`)
-      .join('\n') || '  none (run tools/beats.py on an mp3 in public/music first)';
-  if (rest[0] === 'use') {
-    const src = !rest[1] ? '' : rest[1].startsWith('music/') ? rest[1] : `music/${rest[1]}`;
-    const g = src ? gridOf(src) : null;
-    if (!g) throw new Error(`pick a track that has beat data:\n${listing()}`);
-    const board = structuredClone(doc.board);
-    const keep = board.beat ?? { music: src };
-    board.beat = { music: src, ...(keep.volume !== undefined ? { volume: keep.volume } : {}), ...(keep.overlays !== undefined ? { overlays: keep.overlays } : {}), ...(barArg !== undefined ? { startBar: Math.max(0, Math.round(Number(barArg))) } : keep.startBar !== undefined ? { startBar: keep.startBar } : {}) };
-    return save({ doc: { ...doc, board }, desc: `卡点版配乐 → ${src}（${Math.round(g.bpm)} BPM，取自节拍数据）` });
-  }
-  if (rest[0] === 'off') {
-    const board = structuredClone(doc.board);
-    delete board.beat;
-    return save({ doc: { ...doc, board }, desc: '去掉卡点版设置' });
-  }
-  const b = doc.board.beat;
-  const g = b?.music ? gridOf(b.music) : null;
-  console.log(b?.music ? `beat cut: ${b.music}${g ? `, ${Math.round(g.bpm)} BPM from its beat data` : ' (no beat data!)'}, starting at bar ${b.startBar ?? 0}` : 'no beat cut yet: beat use music/<track>.mp3');
-  console.log(`tracks with beat data:\n${listing()}`);
-}
 
 // Problems worth fixing before export, each with the command that fixes it
 async function checkCmd() {
@@ -913,7 +856,6 @@ async function checkCmd() {
       if (e && o.at * fps >= e.dur) add(s.id, `overlay ${o.kind} at ${o.at} s starts after the scene ends`, `set ${s.id} overlays.${i}.at <seconds>`);
       if (ON_TOP.has(o.kind) && FOOTAGE.has(v.kind) && !o.plate) add(s.id, `${o.kind === 'text' ? 'text' : `${o.kind} text`} "${plain(o.text).slice(0, 20)}" sits on ${v.kind === 'screen' ? 'a screen recording' : 'footage'} and may not read on bright frames`, `set ${s.id} overlays.${i}.plate true`);
     });
-    for (const [k, b] of (Array.isArray(s.beat) ? s.beat : []).entries()) if (len(b.t) > 12) add(`${s.id} beat ${k + 1}`, `beat-cut text is ${len(b.t)} characters; it should be a short label`, `set ${s.id} beat.${k}.t '"…"'`);
   }
   // The same seconds of one recording played in two scenes
   const played = doc.board.scenes.flatMap((s) => {
@@ -954,10 +896,7 @@ function mediaCmd() {
   });
   const media = list('media', /\.(png|jpe?g|webp|gif|mp4|webm|mov)$/i);
   const audio = list('media', /\.(mp3|wav|m4a)$/i);
-  const music = beatTracks().map((t) => {
-    const g = gridOf(t);
-    return g ? `${t}  (beat data, ${Math.round(g.bpm)} BPM)` : t;
-  });
+  const music = musicTracks();
   const used = new Set(readDoc(slug).doc.board.scenes.flatMap((s) => [s.visual, s.tall].map((v) => (v && 'src' in v ? String(v.src) : ''))));
   const mark = (f: string) => (used.has(f.split('  ')[0]) ? `${f}  (in use)` : f);
   console.log(`screen recordings (add screen <src>):\n${caps.map((f) => `  ${mark(f)}`).join('\n') || '  none'}`);
@@ -1056,7 +995,7 @@ async function htmlCmd(rest: string[]) {
 // AI voice-over: list / use / generate
 async function voiceCmd(rest: string[]) {
   // The native voice library prints dictionary warnings straight to stderr; run in a child and drop them
-  if (!process.env.CUTROOM_VOICE_CHILD && !['list', 'use', 'speed'].includes(rest[0])) {
+  if (!process.env.CUTROOM_VOICE_CHILD && !['list', 'use', 'speed', 'forget'].includes(rest[0])) {
     const code = await new Promise<number>((res) => {
       const c = spawn(process.execPath, process.argv.slice(1), { env: { ...process.env, CUTROOM_VOICE_CHILD: '1' }, stdio: ['ignore', 'inherit', 'pipe'], windowsHide: true });
       let buf = '';
@@ -1075,9 +1014,10 @@ async function voiceCmd(rest: string[]) {
   if (rest[0] === 'list') {
     for (const e of ENGINES) {
       const cur = e.id === s.engine ? ' (current)' : '';
-      const voices = e.voices.filter((v) => v.lang === 'any' || v.lang === lang);
-      console.log(`${e.id}${cur}: ${e.en}. ${e.noteEn}
-  voice for ${lang}: ${voiceOf(s, e.id, lang)}; ${voices.length} voices: ${voices.map((v) => v.id).join(' ')}`);
+      const voices = voicesOf(e).filter((v) => v.lang === 'any' || v.lang === lang);
+      const state = e.id === 'local' ? (localReady() ? ` [installed: ${localStatus().model}]` : ' [not installed: voice install]') : '';
+      console.log(`${e.id}${cur}${state}: ${e.en}. ${e.noteEn}
+  voice for ${lang}: ${voiceOf(s, e.id, lang)}; ${voices.length} voices: ${voices.map((v) => (v.mine ? `${v.id} (${v.en}, yours)` : v.id)).join(' ')}`);
     }
     console.log(`speed ${s.speed}`);
     return;
@@ -1096,6 +1036,42 @@ async function voiceCmd(rest: string[]) {
     const n = voiceSettings();
     return console.log(`voice-over: ${n.engine} · ${voiceOf(n, n.engine, lang)} (${lang})`);
   }
+  // HD voices: install, your own voice from a clip, a voice from a description
+  if (rest[0] === 'install') {
+    const what = rest[1] === 'design' ? 'design' : 'voices';
+    let shown = '';
+    try {
+      await installLocal(what, (j) => {
+        const pct = j.total ? ` ${Math.floor((j.got / j.total) * 10) * 10}%` : '';
+        const line = `  ${j.step}${pct}`;
+        if (line !== shown && j.state === 'running') console.log((shown = line));
+      });
+      console.log(`HD voices ready (${localStatus().model}, ${localStatus().device || 'device unknown'})`);
+    } finally {
+      stopLocal();
+    }
+    return;
+  }
+  if (rest[0] === 'clone') {
+    const file = rest[1];
+    if (!file || !fs.existsSync(file)) throw new Error('voice clone <audio file> [--name N] [--text "what the clip says"] [--lang zh|en]');
+    const v = addCustomVoice({ name: nameArg ?? '', lang, audio: path.resolve(file), text: textArg, from: 'import' });
+    return console.log(`added voice ${v.id} (${v.en}); use it with: voice use local ${v.id}${lang === 'en' ? ' --lang en' : ''}`);
+  }
+  if (rest[0] === 'design') {
+    const instruct = rest.slice(1).join(' ');
+    if (!instruct) throw new Error('voice design "<what the voice sounds like>" [--name N] [--lang zh|en]');
+    try {
+      const v = await designCustomVoice({ name: nameArg ?? '', lang, instruct });
+      return console.log(`designed voice ${v.id} (${v.en}); use it with: voice use local ${v.id}${lang === 'en' ? ' --lang en' : ''}`);
+    } finally {
+      stopLocal();
+    }
+  }
+  if (rest[0] === 'forget') {
+    removeCustomVoice(rest[1] ?? '');
+    return console.log(`removed voice ${rest[1]}`);
+  }
   const engine = engineArg ?? s.engine;
   if (engine === 'builtin' && !modelInstalled()) {
     console.log('Downloading the built-in voice model (147 MB, once)…');
@@ -1106,7 +1082,7 @@ async function voiceCmd(rest: string[]) {
     });
   }
   const t0 = Date.now();
-  const r = await voiceProject({ slug, lang, scenes: rest.length ? rest : undefined, redo, engine, voice: voiceArg }, (p) => p.line && console.log(`  ${p.done}/${p.total} ${p.line.slice(0, 50)}`));
+  const r = await voiceProject({ slug, lang, scenes: rest.length ? rest : undefined, redo, engine, voice: voiceArg }, (p) => p.line && console.log(`  ${p.done}/${p.total} ${p.line.slice(0, 50)}`)).finally(stopLocal);
   const left = lineStates(slug, lang).filter((l) => l.state === 'missing' || l.state === 'stale').length;
   console.log(`voiced ${r.voiced} line(s), kept ${r.kept}; ${r.seconds} s of ${lang} narration in total; ${left} line(s) still without current audio (${((Date.now() - t0) / 1000).toFixed(1)} s)`);
   for (const f of r.failed) console.log(`  failed ${f.line}: ${f.error}`);

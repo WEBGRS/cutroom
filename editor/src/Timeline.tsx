@@ -193,7 +193,7 @@ export function Timeline(p: Props) {
     const x = clientX - el.getBoundingClientRect().left + el.scrollLeft - LAB;
     return clamp(Math.round((x / pps) * fps), 0, etl.total - 1);
   };
-  // Snapping: cuts, recording marks, caption starts, overlay edges, sound cues, beats, both ends, the playhead
+  // Snapping: cuts, recording marks, caption starts, overlay edges, sound cues, both ends, the playhead
   const { snap: snapOn } = usePrefs();
   const [guide, setGuide] = useState<number | null>(null);
   const targets = useMemo(() => {
@@ -209,7 +209,6 @@ export function Timeline(p: Props) {
       }
       for (const x of s.sounds) if (!x.past) t.add(s.start + x.f);
     }
-    for (const b of etl.beats ?? []) t.add(b.f);
     return [...t];
   }, [etl]);
   // Closest target within reach of frame f; own = positions of the thing being dragged
@@ -234,13 +233,12 @@ export function Timeline(p: Props) {
     setGuide(hit ? hit.t : null);
     return hit ? hit.t : f;
   };
-  // Trimming ripples everything after the scene, so only its own content, beats and the playhead stay put
+  // Trimming ripples everything after the scene, so only its own content and the playhead stay put
   const trimTargets = (e: EScene) => [
     ...e.marks.map((m) => e.start + m.f),
     ...e.lines.map((l) => e.start + l.start),
     ...e.overlays.flatMap((o) => [e.start + o.f, e.start + o.f + o.dur]),
     ...e.sounds.map((x) => e.start + x.f),
-    ...(etl.beats ?? []).map((b) => b.f),
   ];
 
   const slotAt = (frame: number, id: string) => {
@@ -293,10 +291,9 @@ export function Timeline(p: Props) {
     const moved = d.moved || Math.abs(ev.clientX - d.x0) > 5;
     if (moved) setDrag({ ...d, moved, slot: slotAt(frameAt(ev.clientX), d.id), px: ev.clientX - d.x0 });
   };
-  // Trim offset in seconds with the moving edge snapped (the beat cut already trims in whole bars)
+  // Trim offset in seconds with the moving edge snapped
   const trimSec = (d: Extract<Drag, { kind: 'trim' }>, ev: React.PointerEvent) => {
     const raw = ((ev.clientX - d.x0) / pps) * fps;
-    if (etl.beats) return raw / fps;
     const edge0 = d.edge === 'l' ? d.e.start : d.e.start + d.e.dur;
     return (snapF(edge0 + raw, ev.altKey, [d.e.start, d.e.start + d.e.dur], true, trimTargets(d.e)) - edge0) / fps;
   };
@@ -334,17 +331,13 @@ export function Timeline(p: Props) {
 
   // Ruler
   const step = STEPS.find((st) => st * pps >= 64) ?? 120;
-  // Beat cut: the beat grid takes the minor ticks' place
-  const beatGrid = !!(etl.beats && etl.bar && (etl.bar / 4) * pps >= 6);
   const ticks: React.ReactNode[] = [];
   for (let i = 0; i * (step / 4) <= totalSec + 1e-6; i++) {
     const t = i * (step / 4);
     const kind = i % 4 === 0 ? 'big' : i % 2 === 0 ? 'mid' : '';
-    if (beatGrid && kind !== 'big') continue;
     ticks.push(<div key={`t${i}`} className={`tick ${kind}`} style={{ left: LAB + t * pps }} />);
     if (i % 4 === 0) ticks.push(<div key={`n${i}`} className="num" style={{ left: LAB + t * pps }}>{stamp(t, step < 1)}</div>);
   }
-  const beats = beatGrid ? etl.beats!.map((b, i) => <div key={`b${i}`} className={`beat${b.down ? ' down' : ''}`} style={{ left: LAB + X(b.f) }} />) : null;
   const moving = drag?.kind === 'move' && drag.moved ? drag : null;
   const sliding = drag?.kind === 'sound' && drag.moved ? drag : null;
   const ovDrag = drag?.kind === 'ov' && drag.moved ? drag : null;
@@ -421,7 +414,6 @@ export function Timeline(p: Props) {
             }}
           >
             <div className="lab" />
-            {beats}
             {ticks}
           </div>
           {show.overlays && ovItems.length ? (

@@ -1,6 +1,7 @@
 // Subscriptions through the vendors' own command-line agents (ChatGPT via Codex CLI, Google via Gemini CLI or Antigravity).
 // The editor CLI is served to them by editor/dist/mcp.mjs; their own shell and file tools are off. With full access the
-// same server adds Cutroom's shell and file tools, whose risky steps the user allows in the chat panel.
+// same server adds Cutroom's shell and file tools, whose risky steps the user allows in the chat panel (or, with
+// "allow everything", that just run).
 import { execFile, spawn, type ChildProcess } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -69,9 +70,44 @@ export function findCli(name: string, extra: string[] = []): Launch | null {
 export const cliOf = (def: AgentDef) => findCli(def.bin, def.dirs?.() ?? []);
 
 const run = (l: Launch, args: string[], timeout = 20_000) =>
-  new Promise<{ code: number | null; out: string }>((resolve) => {
-    execFile(l.cmd, [...l.pre, ...args], { windowsHide: true, timeout }, (err, stdout, stderr) => resolve({ code: err ? ((err as { code?: number }).code ?? 1) : 0, out: `${stdout}${stderr}` }));
+  new Promise<{ code: number | null; out: string; stdout: string }>((resolve) => {
+    execFile(l.cmd, [...l.pre, ...args], { windowsHide: true, timeout, maxBuffer: 8 << 20 }, (err, stdout, stderr) => resolve({ code: err ? ((err as { code?: number }).code ?? 1) : 0, out: `${stdout}${stderr}`, stdout: `${stdout}` }));
   });
+
+export interface ModelList {
+  models: string[];
+  names: Record<string, string>;
+}
+
+// "codex debug models" (Codex 0.16x): the models its own picker lists, best first
+export function parseCodexModels(json: string): ModelList {
+  let rows: { slug?: unknown; display_name?: unknown; visibility?: unknown; priority?: unknown }[] = [];
+  try {
+    const j = JSON.parse(json);
+    rows = Array.isArray(j?.models) ? j.models : [];
+  } catch {
+    rows = [];
+  }
+  const shown = rows
+    .filter((m) => typeof m.slug === 'string' && m.slug && (m.visibility ?? 'list') === 'list')
+    .sort((a, b) => (typeof a.priority === 'number' ? a.priority : 999) - (typeof b.priority === 'number' ? b.priority : 999));
+  return { models: shown.map((m) => m.slug as string), names: Object.fromEntries(shown.filter((m) => typeof m.display_name === 'string' && m.display_name).map((m) => [m.slug as string, m.display_name as string])) };
+}
+
+// "gemini-3.1-pro-high<TAB>Gemini 3.1 Pro (High)" per line
+export function parseAgyModels(out: string): ModelList {
+  const rows = [...out.matchAll(/^([\w.-]+)\t([^\r\n]*)/gm)];
+  return { models: rows.map((m) => m[1]), names: Object.fromEntries(rows.filter((m) => m[2].trim()).map((m) => [m[1], m[2].trim()])) };
+}
+
+// The catalog rarely changes and takes a couple of seconds, so it outlives the login cache
+let codexCat: { t: number; path: string; v: ModelList } | null = null;
+async function codexModels(l: Launch): Promise<ModelList> {
+  if (codexCat && codexCat.path === l.path && Date.now() - codexCat.t < 10 * 60_000) return codexCat.v;
+  const v = parseCodexModels((await run(l, ['debug', 'models'])).stdout);
+  if (v.models.length) codexCat = { t: Date.now(), path: l.path, v };
+  return v;
+}
 
 export interface AgentState {
   id: AgentId;
@@ -80,13 +116,17 @@ export interface AgentState {
   version: string | null;
   loggedIn: boolean | null;
   method: string | null;
-  // Models the CLI offers, when it can list them
+  // Models the CLI offers, when it can list them, with their display names
   models?: string[];
+  names?: Record<string, string>;
 }
 
 // Login checks cost no tokens; cached so the settings page can poll
 const cache = new Map<AgentId, { t: number; v: AgentState }>();
-export const forgetAgents = () => cache.clear();
+export const forgetAgents = () => {
+  cache.clear();
+  codexCat = null;
+};
 
 export async function agentState(id: AgentId): Promise<AgentState> {
   const hit = cache.get(id);
@@ -98,14 +138,16 @@ export async function agentState(id: AgentId): Promise<AgentState> {
     const ver = await run(l, ['--version']);
     v.version = /(\d+\.\d+\.\d+[\w.-]*)/.exec(ver.out)?.[1] ?? null;
     if (id === 'codex') {
-      const s = await run(l, ['login', 'status']);
+      const [s, cat] = await Promise.all([run(l, ['login', 'status']), codexModels(l)]);
       v.loggedIn = /not logged in/i.test(s.out) ? false : /logged in/i.test(s.out) ? true : null;
       v.method = /chatgpt/i.test(s.out) ? 'ChatGPT' : /api key/i.test(s.out) ? 'API key' : null;
+      // Older Codex has no catalog command; the picker then offers only its default
+      if (cat.models.length) Object.assign(v, cat);
     } else if (id === 'antigravity') {
-      // Listing models needs the sign-in and costs nothing: "gemini-3.1-pro-high<TAB>Gemini 3.1 Pro (High)"
+      // Listing models needs the sign-in and costs nothing
       const s = await run(l, ['models']);
-      v.models = [...s.out.matchAll(/^([\w.-]+)\t/gm)].map((m) => m[1]);
-      v.loggedIn = v.models.length ? true : /sign.?in|log.?in|auth/i.test(s.out) ? false : null;
+      Object.assign(v, parseAgyModels(s.out));
+      v.loggedIn = v.models!.length ? true : /sign.?in|log.?in|auth/i.test(s.out) ? false : null;
       v.method = v.loggedIn ? 'Google' : null;
     } else {
       // Gemini CLI keeps the Google sign-in next to its settings
@@ -138,13 +180,13 @@ export const mcpEnv = (): Record<string, string> => {
 };
 
 // Gemini CLI reads MCP servers from <workspace>/.gemini/settings.json; the workspace must sit outside any git repo
-function geminiWorkspace(slug: string): string {
+function geminiWorkspace(slug: string, mcp?: Record<string, string>): string {
   const dir = path.join(os.tmpdir(), 'cutroom-gemini');
   fs.mkdirSync(path.join(dir, '.gemini'), { recursive: true });
   const settings = {
-    mcpServers: { cutroom: { command: process.execPath, args: [MCP(), slug], cwd: ROOT, env: mcpEnv(), trust: true, timeout: 900_000 } },
-    // Its own file, shell and web tools are off; only the editor remains
-    tools: { core: ['mcp_cutroom_editor'] },
+    mcpServers: { cutroom: { command: process.execPath, args: [MCP(), slug], cwd: ROOT, env: { ...mcpEnv(), ...(mcp ?? {}) }, trust: true, timeout: mcp ? 1_500_000 : 900_000 } },
+    // Its own file, shell and web tools are off; the editor remains, and with full access Cutroom's shell and file tools
+    tools: { core: ['mcp_cutroom_editor', ...(mcp ? ['mcp_cutroom_shell', 'mcp_cutroom_read_file', 'mcp_cutroom_write_file'] : [])] },
   };
   fs.writeFileSync(path.join(dir, '.gemini', 'settings.json'), JSON.stringify(settings, null, 2));
   return dir;
@@ -241,7 +283,7 @@ export function agentArgs(id: AgentId, slug: string, model: string | undefined, 
     };
   }
   return {
-    cwd: geminiWorkspace(slug),
+    cwd: geminiWorkspace(slug, mcp),
     env: { GEMINI_CLI_TRUST_WORKSPACE: 'true' },
     args: ['-o', 'stream-json', '--approval-mode', 'yolo', '--allowed-mcp-server-names', 'cutroom', ...(model ? ['-m', model] : []), '-p', 'Follow the instructions and the request above.'],
   };
@@ -331,7 +373,7 @@ export function parseAgentLine(id: AgentId, line: string, state: { textSince: bo
     if (m.type === 'message' && m.role === 'assistant') text(String(m.content ?? ''));
     else if (m.type === 'tool_use') {
       state.textSince = false;
-      out.push({ type: 'tool', id: String(m.tool_id), args: argsOf(m.parameters) });
+      out.push({ type: 'tool', id: String(m.tool_id), args: mcpLabel(String(m.tool_name ?? '').replace(/^mcp_cutroom_/, ''), m.parameters) });
     } else if (m.type === 'tool_result') out.push({ type: 'tool_result', id: String(m.tool_id), ok: m.status === 'success', out: String(m.output ?? m.error?.message ?? '').slice(0, 600) });
     else if (m.type === 'error' && m.severity === 'error') out.push({ type: 'error', message: String(m.message).slice(0, 400) });
     else if (m.type === 'result') {

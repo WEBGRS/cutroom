@@ -268,24 +268,9 @@ export type Visual = HtmlVisual | ScreenVisual | ScrollVisual | TitleVisual | St
 export type Transition = 'fade' | 'slide' | 'wipe' | 'flip' | 'clock' | 'iris' | 'push' | 'zoom' | 'dip' | 'none' | (string & {});
 export type Dir = 'left' | 'right' | 'up' | 'down';
 
-export interface BeatText {
-  t: string;
-  en?: string;
-  n?: number;
-}
-
-export interface BeatGrid {
-  bpm: number;
-  period: number;
-  beats: number[];
-  downbeats: number[];
-  duration: number;
-}
-
 export interface Scene {
   id: string;
   lines: Line[];
-  beat?: BeatText[];
   visual: Visual;
   tall?: Visual;
   overlays?: Overlay[];
@@ -296,8 +281,6 @@ export interface Scene {
   transition?: Transition;
   transDur?: number;
   transDir?: Dir;
-  // Beat cut uses a 12-frame crossfade unless this names another transition
-  beatTransition?: Transition;
   only?: Format;
   fx?: Fx;
   // Starts a chapter (shown on the chapter bar)
@@ -322,6 +305,8 @@ export interface Storyboard {
   header?: string;
   headerEn?: string;
   fps?: number;
+  // Size the video is made for; the editor opens in it
+  format?: Format;
   theme: Theme;
   music?: { src: string; volume?: number; duck?: number; fadeIn?: number; fadeOut?: number };
   captions?: CaptionStyle;
@@ -332,8 +317,6 @@ export interface Storyboard {
   // Progress bar with chapter names along the bottom
   chapterBar?: boolean;
   cover?: { title: string; sub?: string; bg?: string; bgTall?: string; tag?: string };
-  // overlays: show scene overlays in the beat cut too (off by default)
-  beat?: { music: string; startBar?: number; volume?: number; overlays?: boolean };
   scenes: Scene[];
 }
 
@@ -377,8 +360,6 @@ export type Props = {
   variant?: 'default' | 'clean';
   voice?: 'on' | 'off';
   lang?: 'zh' | 'en';
-  mode?: 'voice' | 'beat';
-  grid?: BeatGrid;
   board?: Storyboard;
   timings?: Timings;
   captures?: Record<string, CaptureMeta>;

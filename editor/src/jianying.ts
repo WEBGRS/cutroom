@@ -11,8 +11,7 @@ import metaTemplate from './jianying/draft_meta_info.json';
 import { PUBLIC } from './store';
 import { probe, still } from './media';
 import { runExport } from './exporter';
-import { buildBeatTimeline, buildTimeline, cueFrame, plain, tokens, type Timeline } from '../../src/lib/timeline';
-import { withFades } from '../../src/lib/fades';
+import { buildTimeline, cueFrame, plain, tokens, type Timeline } from '../../src/lib/timeline';
 import { musicEnvelope, simplify } from '../../src/lib/mix';
 import { SFX_GAIN, soundDef, soundSrc } from '../../src/fx/sounds';
 import { LAYOUT } from '../../src/lib/layout';
@@ -191,7 +190,7 @@ export async function exportJianying(o: { props: Props; fps: number; root?: stri
   const board = p.board!;
   const root = o.root ? path.resolve(o.root) : jianyingRoot();
   if (!root) throw new Error('JianyingPro (剪映专业版) was not found on this computer; pass --out <folder> to write the draft somewhere else');
-  const base = o.name ?? ['Cutroom', p.slug, p.format === 'tall' ? '9x16' : '16x9', p.mode === 'beat' ? 'beat' : null, p.lang === 'en' ? 'en' : null].filter(Boolean).join(' ');
+  const base = o.name ?? ['Cutroom', p.slug, p.format === 'tall' ? '9x16' : '16x9', p.lang === 'en' ? 'en' : null].filter(Boolean).join(' ');
   let name = base;
   // Replace a draft this exporter made before; never touch anyone else's
   for (let n = 2; fs.existsSync(path.join(root, name)) && !fs.existsSync(path.join(root, name, '.cutroom')); n++) name = `${base} ${n}`;
@@ -203,14 +202,13 @@ export async function exportJianying(o: { props: Props; fps: number; root?: stri
 
   const fps = o.fps;
   const L = LAYOUT[p.format];
-  const tl: Timeline =
-    p.mode === 'beat' && p.grid ? withFades(buildBeatTimeline(board, p.grid, p.format, fps, p.captures, p.lang ?? 'zh'), p.captures, fps) : buildTimeline(board, p.timings, p.format, fps, p.captures, p.voice === 'off', p.lang ?? 'zh');
+  const tl: Timeline = buildTimeline(board, p.timings, p.format, fps, p.captures, p.voice === 'off', p.lang ?? 'zh');
   const sec = (f: number) => f / fps;
 
   log('rendering the picture (no captions, narration, music or added sounds) …');
   const picture = path.join(res, 'picture.mp4');
   let lastPct = -1;
-  const r = await runExport({ slug: p.slug, format: p.format, mode: p.mode ?? 'voice', lang: p.lang ?? 'zh', variant: p.variant ?? 'default', voice: p.voice ?? 'on', parts: 'picture', out: picture }, (line) => {
+  const r = await runExport({ slug: p.slug, format: p.format, lang: p.lang ?? 'zh', variant: p.variant ?? 'default', voice: p.voice ?? 'on', parts: 'picture', out: picture }, (line) => {
     const m = [...line.matchAll(/(\d+)\/(\d+)/g)].pop();
     if (!m) return;
     const pct = Math.floor((Number(m[1]) / Math.max(1, Number(m[2]))) * 4) * 25;
@@ -255,8 +253,8 @@ export async function exportJianying(o: { props: Props; fps: number; root?: stri
 
   // Narration
   const voice: { a: number; b: number; rel: string }[] = [];
-  if (p.mode !== 'beat')
-    for (const s of tl.scenes) for (const l of s.lines) if (l.file) voice.push({ a: sec(s.start + l.start), b: sec(s.start + l.start + l.dur + Math.round(fps * 0.3)), rel: `${p.slug}/${l.file}` });
+  for (const s of tl.scenes)
+    for (const l of s.lines) if (l.file) voice.push({ a: sec(s.start + l.start), b: sec(s.start + l.start + l.dur + Math.round(fps * 0.3)), rel: `${p.slug}/${l.file}` });
   if (voice.length) {
     const t = d.track('audio', 'narration');
     for (const v of voice) {
@@ -267,18 +265,9 @@ export async function exportJianying(o: { props: Props; fps: number; root?: stri
     }
   }
 
-  // Music: looped to the end in the narrated cut with its ducking as volume keyframes; the beat cut starts on its bar
+  // Music: looped to the end, with its ducking as volume keyframes
   const total = sec(tl.total);
-  if (p.mode === 'beat' && board.beat?.music && p.grid) {
-    const c = await audioMat(board.beat.music);
-    if (c) {
-      const t = d.track('audio', 'music');
-      const t0 = p.grid.downbeats[Math.min(board.beat.startBar ?? 0, p.grid.downbeats.length - 1)] ?? 0;
-      const dur = Math.min(total, c.dur - t0);
-      const vol = board.beat.volume ?? 0.85;
-      d.audioSegment(t, c.mat!, { start: 0, duration: us(dur) }, { start: us(t0), duration: us(dur) }, 1.0, [[0, 0], [us(0.15), vol], [us(Math.max(0.15, dur - 1.6)), vol], [us(dur), 0]]);
-    }
-  } else if (board.music) {
+  if (board.music) {
     const c = await audioMat(board.music.src);
     if (c) {
       const t = d.track('audio', 'music');
@@ -298,10 +287,8 @@ export async function exportJianying(o: { props: Props; fps: number; root?: stri
   const sfx = board.sfx ?? {};
   const sv = sfx.volume ?? 1;
   const cues: { a: number; b: number; rel: string; vol: number; convert: boolean }[] = [];
-  if (p.mode !== 'beat') {
-    for (const s of tl.scenes) if (s.trans > 0 && sfx.whoosh !== false) cues.push({ a: Math.max(0, sec(s.start) - 0.1), b: Math.max(0, sec(s.start) - 0.1) + 0.8, rel: 'sfx/whoosh.wav', vol: 0.22 * sv, convert: false });
-    for (const s of tl.scenes) for (const ov of s.scene.overlays ?? []) if (ov?.kind === 'punch' && sfx.pop !== false) cues.push({ a: sec(s.start) + ov.at, b: sec(s.start) + ov.at + 0.6, rel: 'sfx/pop.wav', vol: 0.4 * sv, convert: false });
-  }
+  for (const s of tl.scenes) if (s.trans > 0 && sfx.whoosh !== false) cues.push({ a: Math.max(0, sec(s.start) - 0.1), b: Math.max(0, sec(s.start) - 0.1) + 0.8, rel: 'sfx/whoosh.wav', vol: 0.22 * sv, convert: false });
+  for (const s of tl.scenes) for (const ov of s.scene.overlays ?? []) if (ov?.kind === 'punch' && sfx.pop !== false) cues.push({ a: sec(s.start) + ov.at, b: sec(s.start) + ov.at + 0.6, rel: 'sfx/pop.wav', vol: 0.4 * sv, convert: false });
   for (const s of tl.scenes)
     for (const c of s.scene.sounds ?? []) {
       const def = soundDef(c.id);
@@ -320,8 +307,8 @@ export async function exportJianying(o: { props: Props; fps: number; root?: stri
     }
   }
 
-  // Captions (narrated cut): the main line, and the second-language line on its own track
-  if (p.mode !== 'beat' && !board.captions?.off) {
+  // Captions: the main line, and the second-language line on its own track
+  if (!board.captions?.off) {
     const look = board.captions?.style ?? 'box';
     const accent = rgb(board.theme.accent2 ?? board.theme.accent);
     const lines = tl.scenes.flatMap((s) => s.lines.map((l) => ({ l, a: sec(s.start + l.start), b: sec(s.start + l.start + l.dur) })));

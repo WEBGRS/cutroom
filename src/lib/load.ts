@@ -1,6 +1,6 @@
 import { LAYOUT } from './layout';
-import { buildBeatTimeline, buildTimeline } from './timeline';
-import type { BeatGrid, CaptureMeta, Props, Storyboard, Timings } from './types';
+import { buildTimeline } from './timeline';
+import type { CaptureMeta, Props, Storyboard, Timings } from './types';
 
 export type GetJson = <T>(path: string) => Promise<T | undefined>;
 export type GetDims = (path: string) => Promise<{ w: number; h: number }>;
@@ -30,13 +30,6 @@ export async function loadProps(props: Props, getJson: GetJson, getDims: GetDims
     }
   const fps = board.fps ?? 60;
   const L = LAYOUT[props.format];
-  if (props.mode === 'beat') {
-    if (!board.beat?.music) throw new Error(`${props.slug}: no beat cut set up yet. Pick a track with beat data: beat use music/<track>.mp3 (or Library › Music in the beat cut)`);
-    const grid = await getJson<BeatGrid>(board.beat.music.replace(/\.mp3$/, '.beats.json'));
-    if (!grid) throw new Error(`missing beats for ${board.beat.music}; run tools/beats.py`);
-    const bt = buildBeatTimeline(board, grid, props.format, fps, captures, props.lang ?? 'zh');
-    return { durationInFrames: bt.total, fps, width: L.W, height: L.H, props: { ...props, board, captures, images, grid } };
-  }
   const tl = buildTimeline(board, timings, props.format, fps, captures, props.voice === 'off', props.lang ?? 'zh');
   return { durationInFrames: tl.total, fps, width: L.W, height: L.H, props: { ...props, board, timings, captures, images } };
 }

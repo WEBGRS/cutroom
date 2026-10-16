@@ -9,9 +9,7 @@ import { spawnSync } from 'node:child_process';
 const DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'cutroom-cli-'));
 fs.cpSync(path.resolve('editor/test/fixtures/showcase'), path.join(DATA, 'demo'), { recursive: true });
 fs.mkdirSync(path.join(DATA, 'music'), { recursive: true });
-fs.copyFileSync(path.resolve('editor/test/fixtures/music/aerosol-of-my-love.beats.json'), path.join(DATA, 'music', 'aerosol-of-my-love.beats.json'));
 fs.writeFileSync(path.join(DATA, 'music', 'aerosol-of-my-love.mp3'), '');
-fs.writeFileSync(path.join(DATA, 'music', 'no-beats.mp3'), '');
 const board = () => JSON.parse(fs.readFileSync(path.join(DATA, 'demo', 'storyboard.json'), 'utf8'));
 const cli = (...args: string[]) => {
   const r = spawnSync(process.execPath, [path.resolve('editor/dist/cli.mjs'), 'demo', ...args], { env: { ...process.env, VS_DATA: DATA }, encoding: 'utf8' });
@@ -73,25 +71,14 @@ test('screen zoom: two values only; camera off is flagged in 9:16', () => {
   assert.doesNotMatch(cli('check', '--format', 'tall').out, /camera is off/);
 });
 
-test('beat cut: tempo comes from beat data, guesses are refused', () => {
-  const bad = cli('set', '-', 'beat', '{"bpm":120}');
-  assert.equal(bad.ok, false);
-  assert.match(bad.out, /beat\.bpm is not a setting/);
-  const none = cli('beat', 'use', 'no-beats.mp3');
-  assert.equal(none.ok, false);
-  assert.match(none.out, /aerosol-of-my-love\.mp3\s+\d+ BPM/);
-  const use = cli('beat', 'use', 'aerosol-of-my-love.mp3', '--bar', '2');
-  assert.ok(use.ok, use.out);
-  assert.equal(board().beat.music, 'music/aerosol-of-my-love.mp3');
-  assert.equal(board().beat.startBar, 2);
-  assert.match(cli('beat').out, /music\/aerosol-of-my-love\.mp3, \d+ BPM from its beat data, starting at bar 2/);
-  // A stray field from an older guess is dropped on the next beat change
-  const b = board();
-  b.beat.bpm = 128;
-  fs.writeFileSync(path.join(DATA, 'demo', 'storyboard.json'), JSON.stringify(b, null, 2));
-  assert.ok(cli('set', '-', 'beat.startBar', '1').ok);
-  assert.equal(board().beat.bpm, undefined);
-  assert.equal(board().beat.startBar, 1);
+test('the size the video is made for is a board field; the old --mode flag is gone', () => {
+  assert.ok(cli('set', '-', 'format', '"tall"').ok);
+  assert.equal(board().format, 'tall');
+  const old = cli('ls', '--mode', 'beat');
+  assert.equal(old.ok, false);
+  assert.match(old.out, /unknown option --mode/);
+  assert.ok(cli('set', '-', 'format', 'undefined').ok);
+  assert.equal(board().format, undefined);
 });
 
 test('trim reports the stored mark and when narration holds the scene longer', () => {
@@ -105,18 +92,13 @@ test('trim reports the stored mark and when narration holds the scene longer', (
   assert.match(r.out, /narration needs [\d.]+ s, so the recording keeps playing/);
 });
 
-test('music use: a library track goes under the narrated cut or the beat cut; unknown tracks are refused', () => {
+test('music use: a library track goes under the video; unknown tracks are refused', () => {
   assert.equal(cli('music', 'use', 'nonexistent').ok, false);
   const voice = cli('music', 'use', 'aerosol-of-my-love');
   assert.ok(voice.ok, voice.out);
   assert.equal(board().music.src, 'music/aerosol-of-my-love.mp3');
   // The other music settings stay as they were
   assert.ok('volume' in board().music || true);
-  const beat = cli('music', 'use', 'aerosol-of-my-love', '--mode', 'beat');
-  assert.ok(beat.ok, beat.out);
-  assert.equal(board().beat.music, 'music/aerosol-of-my-love.mp3');
-  // A track without beat data can still play under the narration but not drive a beat cut
-  assert.equal(cli('music', 'use', 'no-beats', '--mode', 'beat').ok, false);
 });
 
 test('music help teaches the draft format and does not need the studio', () => {

@@ -93,29 +93,14 @@ export const setMinSec = (doc: Doc, id: string, sec: number | undefined): Op =>
     return `${id} 最短时长 ${old ?? '—'} → ${s.minSec ?? '—'} 秒`;
   });
 
-// Beat cut: a scene lasts ceil(sum of phrase beats / 4) bars; resize by changing the last phrase
-export const setBeatBars = (doc: Doc, id: string, bars: number): Op =>
-  edit(doc, (d) => {
-    const s = d.board.scenes[at(d.board, id)];
-    if (!s.beat?.length) throw new Error(`${id} 没有卡点字`);
-    const rest = s.beat.slice(0, -1).reduce((a, p) => a + (p.n ?? 4), 0);
-    const want = Math.max(1, Math.round(bars)) * 4 - rest;
-    if (want < 1) throw new Error(`${id} 前面的卡点字已经占满 ${Math.ceil(rest / 4)} 小节`);
-    const last = s.beat[s.beat.length - 1];
-    const old = last.n ?? 4;
-    last.n = want;
-    return `${id} 卡点长度 → ${Math.ceil((rest + want) / 4)} 小节（末句 ${old} → ${want} 拍）`;
-  });
-
 export interface SplitAt {
   t: Partial<Record<VisualKey, number>>;
   line: number;
-  phrase: number;
   sec: number;
 }
 
-// Where a split at scene-relative frame f lands in each visual, line list and phrase list
-export function splitPoint(e: EScene, scene: Scene, f: number, fps: number, caps: Caps, mode: 'voice' | 'beat'): SplitAt {
+// Where a split at scene-relative frame f lands in each visual and the line list
+export function splitPoint(e: EScene, scene: Scene, f: number, fps: number, caps: Caps): SplitAt {
   const sec = f / fps;
   const t: SplitAt['t'] = {};
   for (const key of ['visual', 'tall'] as VisualKey[]) {
@@ -124,13 +109,10 @@ export function splitPoint(e: EScene, scene: Scene, f: number, fps: number, caps
     if (key === e.key && e.from !== undefined) t[key] = e.from + sec * e.rate;
     else t[key] = resolveSafe(v.from, caps[v.src]) + sec * (v.rate ?? 1);
   }
-  const frac = Math.min(1, Math.max(0, f / Math.max(1, e.dur)));
-  // Items already started stay in the first half
-  let shown = e.lines.findIndex((l) => l.start >= f);
-  if (shown < 0) shown = e.lines.length;
-  const line = mode === 'voice' ? shown : Math.round(frac * scene.lines.length);
-  const phrase = mode === 'beat' ? shown : Math.round(frac * (scene.beat?.length ?? 0));
-  return { t, line, phrase, sec };
+  // Lines already started stay in the first half
+  let line = e.lines.findIndex((l) => l.start >= f);
+  if (line < 0) line = e.lines.length;
+  return { t, line, sec };
 }
 
 const resolveSafe = (r: TimeRef | undefined, cap: CaptureMeta | undefined) => {
@@ -160,10 +142,6 @@ export const splitScene = (doc: Doc, id: string, p: SplitAt, caps: Caps): Op =>
     }
     a.lines = a.lines.slice(0, p.line);
     z.lines = z.lines.slice(p.line);
-    if (a.beat) {
-      a.beat = a.beat.slice(0, p.phrase);
-      z.beat = z.beat!.slice(p.phrase);
-    }
     if (a.overlays) {
       a.overlays = a.overlays.filter((o) => o.at < p.sec);
       z.overlays = z.overlays!.filter((o) => o.at >= p.sec).map((o) => ({ ...o, at: r2(o.at - p.sec) }));

@@ -5,7 +5,7 @@ import { Main } from '../../src/Main';
 import { loadProps, type Loaded } from '../../src/lib/load';
 import type { Format, Props } from '../../src/lib/types';
 import { editTimeline, fmtTime, safe, type EScene, type ETimeline } from './model';
-import { addScene, addSound, duplicateScene, moveScene, moveSound, removeOverlay, removeSound, removeScene, setBeatBars, setMinSec, setPath, splitPoint, splitScene, trimEdge, uniqueId, type Caps, type Doc, type Op } from './ops';
+import { addScene, addSound, duplicateScene, moveScene, moveSound, removeOverlay, removeSound, removeScene, setMinSec, setPath, splitPoint, splitScene, trimEdge, uniqueId, type Caps, type Doc, type Op } from './ops';
 import { cancelRender, getAssets, getBoard, getExports, getProjects, openExports, putBoard, reveal, startRender, type Job } from './api';
 import { Timeline, type Edge } from './Timeline';
 import { Inspector, type Focus } from './Inspector';
@@ -64,11 +64,9 @@ function Menu({ label, icon, children, className, disabled }: { label: React.Rea
   );
 }
 
-type Mode = 'voice' | 'beat';
 interface Settings {
   slug: string;
   format: Format;
-  mode: Mode;
   lang: 'zh' | 'en';
   variant: 'default' | 'clean';
 }
@@ -90,7 +88,6 @@ function readSettings(): Settings {
   return {
     slug: query.get('slug') ?? saved.slug ?? 'showcase',
     format: pick('format', ['wide', 'tall'] as const, 'wide'),
-    mode: pick('mode', ['voice', 'beat'] as const, 'voice'),
     lang: pick('lang', ['zh', 'en'] as const, 'zh'),
     variant: pick('variant', ['default', 'clean'] as const, 'default'),
   };
@@ -232,7 +229,7 @@ function App() {
   const [zoom, setZoom] = useState<number | null>(null);
   const [assets, setAssets] = useState<string[]>([]);
   const [assetsOf, setAssetsOf] = useState('');
-  const [music, setMusic] = useState<{ src: string; beats: boolean }[]>([]);
+  const [music, setMusic] = useState<{ src: string }[]>([]);
   const [side, setSide] = useState<'props' | 'ai'>(() => {
     try {
       return localStorage.getItem('vs-side') === 'ai' ? 'ai' : 'props';
@@ -327,7 +324,13 @@ function App() {
     };
   }, [st.slug]);
 
-  const getJson = <T,>(p: string): Promise<T | undefined> => {
+  // The project's size (the AI records it once confirmed) sets the preview when it opens or changes; ?format= wins
+  const boardFormat = doc?.board.format;
+  useEffect(() => {
+    if (boardFormat && boardFormat !== S.current.format && !new URLSearchParams(location.search).has('format')) update({ format: boardFormat });
+  }, [boardFormat, st.slug]);
+
+  const getJson =<T,>(p: string): Promise<T | undefined> => {
     const d = docRef.current;
     const slug = S.current.slug;
     if (d && p === `${slug}/timings.json`) return Promise.resolve(d.timings.zh as T | undefined);
@@ -355,7 +358,7 @@ function App() {
   useEffect(() => {
     if (!doc) return;
     let alive = true;
-    const props: Props = { slug: st.slug, format: st.format, mode: st.mode, lang: st.lang, variant: st.variant, rev: assetTick || undefined };
+    const props: Props = { slug: st.slug, format: st.format, lang: st.lang, variant: st.variant, rev: assetTick || undefined };
     loadProps(props, getJson, getDims, doc.board)
       .then((l) => {
         if (!alive) return;
@@ -366,10 +369,10 @@ function App() {
     return () => {
       alive = false;
     };
-  }, [doc, st.slug, st.format, st.mode, st.lang, st.variant, assetTick]);
+  }, [doc, st.slug, st.format, st.lang, st.variant, assetTick]);
 
   const view = draft ?? doc;
-  const ready = !!loaded && loaded.props.slug === st.slug && loaded.props.format === st.format && loaded.props.mode === st.mode;
+  const ready = !!loaded && loaded.props.slug === st.slug && loaded.props.format === st.format;
   const etl = useMemo<ETimeline | null>(() => {
     if (!ready || !view) return null;
     try {
@@ -504,14 +507,14 @@ function App() {
     // An edit from the AI or the CLI is one more step in the history, so Ctrl+Z takes it back
     const prev = docRef.current;
     if (prev) {
-      const desc = e?.desc.length ? `${e.src === 'cli' ? 'AI' : tr('Outside', '外部')}: ${e.desc.join('; ')}` : tr('Outside edit', '外部修改');
+      const desc = e?.desc.length ? `${e.src === 'cli' ? 'AI' : e.src === 'rollback' ? tr('Rollback', '回退') : tr('Outside', '外部')}: ${e.desc.join('; ')}` : tr('Outside edit', '外部修改');
       hist.current.past.push({ doc: prev, desc, t: 0 });
       if (hist.current.past.length > 200) hist.current.past.shift();
       hist.current.future = [];
     }
     applyDoc({ board: r.board, timings: r.timings });
     bump((x) => x + 1);
-    if (e) flash(tr(`${e.src === 'cli' ? 'Claude' : 'Outside'} edit: ${e.desc.join('; ')}`, `${e.src === 'cli' ? 'Claude' : '外部'}改了：${e.desc.join('；')}`));
+    if (e) flash(e.src === 'rollback' ? e.desc.join(tr('; ', '；')) : tr(`${e.src === 'cli' ? 'Claude' : 'Outside'} edit: ${e.desc.join('; ')}`, `${e.src === 'cli' ? 'Claude' : '外部'}改了：${e.desc.join('；')}`));
   };
   const syncTimings = async () => {
     const r = await getBoard(S.current.slug);
@@ -603,8 +606,7 @@ function App() {
     if (!e) return flash(tr('Put the playhead inside the scene you want to split', '把播放头放到要拆的那段中间'), 'error');
     const rel = f - e.start;
     if (rel < 3 || e.dur - rel < 3) return flash(tr('Too close to the edge of the scene', '离这一段的边缘太近'), 'error');
-    const mode = st.mode;
-    commit((d) => splitScene(d, e.id, splitPoint(e, d.board.scenes.find((s) => s.id === e.id)!, rel, etl.fps, caps, mode), caps), { timings: true });
+    commit((d) => splitScene(d, e.id, splitPoint(e, d.board.scenes.find((s) => s.id === e.id)!, rel, etl.fps, caps), caps), { timings: true });
     setSel(e.id);
   };
   const doDup = () => sel && commit((d) => duplicateScene(d, sel));
@@ -746,9 +748,7 @@ function App() {
     if (!e || !etl || !player) return;
     const secs = (player.getCurrentFrame() - e.start) / etl.fps;
     if (secs <= 0.05 || secs >= e.dur / etl.fps - 0.05) return flash(tr('The playhead has to be inside the scene', '播放头要在这一段中间'), 'error');
-    const mode = st.mode;
     commit((d) => {
-      if (mode === 'beat' && edge === 'r') return setBeatBars(d, e.id, Math.max(1, Math.round(secs / (etl.bar ?? 1))));
       if (e.visual.kind === 'screen' && e.from !== undefined) return trimEdge(d, e.id, e.key, edge === 'l' ? 'from' : 'to', e.from + secs * e.rate, caps);
       if (edge === 'r') return setMinSec(d, e.id, secs);
       throw new Error(tr('This kind of scene can only be trimmed at its end', '这种画面只能裁右边'));
@@ -759,7 +759,7 @@ function App() {
     if (!etl) return;
     const cues = etl.scenes.flatMap((s) => s.lines.filter((l) => l.text.trim()).map((l) => ({ a: (s.start + l.start) / etl.fps, b: (s.start + l.start + l.dur) / etl.fps, t: l.text })));
     if (!cues.length) return flash(tr('This version has no captions', '这一版没有字幕'), 'error');
-    download(`${st.slug}-${st.format}-${st.mode}.srt`, cues.map((c, i) => `${i + 1}\n${srtTime(c.a)} --> ${srtTime(c.b)}\n${c.t}\n`).join('\n'));
+    download(`${st.slug}-${st.format}.srt`, cues.map((c, i) => `${i + 1}\n${srtTime(c.a)} --> ${srtTime(c.b)}\n${c.t}\n`).join('\n'));
   };
   const exportChapters = () => {
     if (!etl) return;
@@ -769,18 +769,12 @@ function App() {
     download(`${st.slug}-chapters.txt`, ch.join('\n') + '\n');
   };
 
-  const canTrim = (e: EScene, edge: Edge) => {
-    if (st.mode === 'beat') return edge === 'r' || e.visual.kind === 'screen';
-    return e.visual.kind === 'screen' || edge === 'r';
-  };
+  const canTrim = (e: EScene, edge: Edge) => e.visual.kind === 'screen' || edge === 'r';
   const onTrim = (e: EScene, edge: Edge, dSec: number, done: boolean) => {
     if (!etl) return;
-    const mode = st.mode;
-    const bar = etl.bar ?? 1;
     const fn = (d: Doc): Op => {
       const scene = d.board.scenes.find((s) => s.id === e.id)!;
       const v = scene[e.key];
-      if (mode === 'beat' && edge === 'r') return setBeatBars(d, e.id, Math.max(1, Math.round((e.dur / etl.fps + dSec) / bar)));
       if (v?.kind === 'screen') {
         const cap = caps[v.src];
         const from = safe(v.from, cap, 0);
@@ -807,7 +801,7 @@ function App() {
   const doRender = async (extra: Record<string, string> = {}) => {
     if (pending.current.length || saving.current) return flash(tr('Still saving; export again in a moment', '还在保存，稍等一下再导出'), 'error');
     try {
-      setJob(await startRender({ slug: st.slug, format: st.format, mode: st.mode, variant: st.variant, lang: st.lang, voice: 'on', ...extra }));
+      setJob(await startRender({ slug: st.slug, format: st.format, variant: st.variant, lang: st.lang, voice: 'on', ...extra }));
     } catch (e) {
       flash((e as Error).message, 'error');
     }
@@ -968,11 +962,11 @@ function App() {
         const j = await r.json();
         if (!r.ok) return flash(j.error ?? tr('Could not create the project', '新建失败'), 'error');
         setProjects(await getProjects());
-        update({ slug: j.slug, mode: 'voice' });
+        update({ slug: j.slug });
       },
     });
-  const ctxNow = () => ({ format: st.format, mode: st.mode, lang: st.lang, variant: st.variant, sel, t: (player?.getCurrentFrame() ?? 0) / fps });
-  const versionText = `${st.format === 'tall' ? tr('9:16 vertical', '竖屏 9:16') : tr('16:9 widescreen', '横屏 16:9')} · ${st.mode === 'beat' ? tr('beat cut', '卡点版') : tr('narrated cut', '旁白版')} · ${st.lang === 'en' ? tr('English', '英文版') : tr('Chinese', '中文版')}${st.variant === 'clean' ? tr(' · no URLs', ' · 无网址') : ''}`;
+  const ctxNow = () => ({ format: st.format, lang: st.lang, variant: st.variant, sel, t: (player?.getCurrentFrame() ?? 0) / fps });
+  const versionText = `${st.format === 'tall' ? tr('9:16 vertical', '竖屏 9:16') : tr('16:9 widescreen', '横屏 16:9')} · ${st.lang === 'en' ? tr('English', '英文版') : tr('Chinese', '中文版')}${st.variant === 'clean' ? tr(' · no URLs', ' · 无网址') : ''}`;
   const where = `${sel ? tr(`Selected: ${sel}`, `选中 ${sel}`) : tr('No scene selected', '未选中段落')} · ${versionText}`;
 
   // Library actions land on the selected scene, else the one under the playhead
@@ -1008,15 +1002,14 @@ function App() {
   const libTransition = (v: string) => {
     const t = needTarget();
     if (!t) return;
-    commit((d) => setPath(d, t.id, st.mode === 'beat' ? 'beatTransition' : 'transition', v || undefined));
+    commit((d) => setPath(d, t.id, 'transition', v || undefined));
   };
   const libLook = (v: string) => {
     const t = needTarget();
     if (!t) return;
     commit((d) => setPath(d, t.id, 'fx.look', v || undefined));
   };
-  const libMusic = (src: string) =>
-    commit((d) => (st.mode === 'beat' ? setPath(d, null, 'beat', { ...(d.board.beat ?? {}), music: src }) : setPath(d, null, 'music', { ...(d.board.music ?? {}), src })));
+  const libMusic = (src: string) => commit((d) => setPath(d, null, 'music', { ...(d.board.music ?? {}), src }));
   const jump = (dir: -1 | 1) => {
     if (!etl || !player) return;
     const f = player.getCurrentFrame();
@@ -1047,7 +1040,7 @@ function App() {
 
   return (
     <div
-      className={`app${dragOver ? ' filedrop' : ''}${pickHeld || pickArmed ? ' picking' : ''}${wideNow ? ' chatwide' : ''}`}
+      className={`app${dragOver ? ' filedrop' : ''}${pickHeld || pickArmed ? ' picking' : ''}${wideNow ? ' chatwide' : ''}${prefs.sideFull ? ' sidefull' : ''}`}
       style={{ ['--lib-w' as string]: wideNow ? '0px' : `${size.lib}px`, ['--side-w' as string]: wideNow ? 'max(46vw, 560px)' : `${side === 'ai' ? size.ai : size.side}px`, ['--tl-h' as string]: `${size.tl}px` }}
       onDragOver={(e) => {
         if (![...e.dataTransfer.types].includes('Files')) return;
@@ -1180,11 +1173,10 @@ function App() {
             assets={assets}
             music={music}
             theme={doc.board.theme}
-            mode={st.mode}
             lang={st.lang}
             target={target}
             preview={preview}
-            musicSrc={st.mode === 'beat' ? doc.board.beat?.music : doc.board.music?.src}
+            musicSrc={doc.board.music?.src}
             onAdd={addKind}
             onImport={() => {
               pendingAdd.current = null;
@@ -1296,6 +1288,10 @@ function App() {
               <Icon name="sparkle" size={14} />
               {tr('AI assistant', 'AI 助手')}
             </button>
+            <span className="grow" />
+            <button className="icon pcol" onClick={() => setPrefs({ sideFull: !prefs.sideFull })} title={prefs.sideFull ? tr('Stop above the timeline', '恢复到时间线上方') : tr('Run the full height (the timeline stops at this panel)', '占满右侧整列（时间线让到左边）')} aria-label={tr('Full-height panel', '占满右侧整列')} aria-pressed={prefs.sideFull}>
+              <Icon name="sidecol" size={15} />
+            </button>
           </div>
           {side === 'ai' ? (
             <ChatPanel
@@ -1318,7 +1314,6 @@ function App() {
               doc={doc}
               slug={st.slug}
               format={st.format}
-              mode={st.mode}
               lang={st.lang}
               etl={etl}
               caps={caps}
@@ -1375,16 +1370,6 @@ function App() {
           onSoundDrop={placeSound}
           tools={
             <>
-              <Seg
-                className="seq"
-                value={st.mode}
-                options={[
-                  ['voice', tr('Narrated', '旁白版'), 'mic', tr('Cut to the voice-over, with captions: YouTube, Bilibili', '按配音节奏剪，有旁白和字幕：B站、YouTube')],
-                  ['beat', tr('Beat cut', '卡点版'), 'beat', tr('No narration, cut on the music beat: TikTok, Xiaohongshu', '没有旁白，按音乐节拍切：抖音、小红书')],
-                ]}
-                onChange={(v) => update({ mode: v })}
-              />
-              <span className="sep" />
               <button className="icon" onClick={undo} disabled={!h.past.length} title={h.past.length ? tr(`Undo: ${h.past[h.past.length - 1].desc} (Ctrl+Z)`, `撤销：${h.past[h.past.length - 1].desc} (Ctrl+Z)`) : tr('Undo (Ctrl+Z)', '撤销 (Ctrl+Z)')}>
                 <Icon name="undo" />
               </button>
@@ -1446,7 +1431,7 @@ function App() {
                 )}
               </Menu>
               {etl.hidden.length ? (
-                <span className="hint" title={tr('Scenes left out of this version (other aspect ratio only, or not in the beat cut)', '这些段落没进当前版本（只在另一种画幅里，或不在卡点版里）')}>
+                <span className="hint" title={tr('Scenes left out of this version (they appear in the other aspect ratio only)', '这些段落没进当前版本（只在另一种画幅里）')}>
                   {tr('Not in this version', '这一版没用到')}
                   {etl.hidden.map((x) => (
                     <button key={x.id} className="chip-btn" onClick={() => select(x.id)} title={x.why}>
@@ -1550,7 +1535,7 @@ function Oracle() {
         const res = await fetch('/' + p);
         return res.ok ? ((await res.json()) as T) : undefined;
       };
-      loadProps({ slug: st.slug, format: st.format, mode: st.mode, lang: st.lang, variant: st.variant }, getJson, async () => ({ w: 1920, h: 4000 }), r.board).then(setLoaded);
+      loadProps({ slug: st.slug, format: st.format, lang: st.lang, variant: st.variant }, getJson, async () => ({ w: 1920, h: 4000 }), r.board).then(setLoaded);
     });
   }, []);
   if (!loaded) return null;

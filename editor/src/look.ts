@@ -31,7 +31,7 @@ export interface Frame {
   label: string;
 }
 
-export async function renderFrames(o: { slug: string; format: 'wide' | 'tall'; mode: 'voice' | 'beat'; lang: 'zh' | 'en'; frames: Frame[]; log?: (s: string) => void }): Promise<{ file: string; label: string }[]> {
+export async function renderFrames(o: { slug: string; format: 'wide' | 'tall'; lang: 'zh' | 'en'; frames: Frame[]; log?: (s: string) => void }): Promise<{ file: string; label: string }[]> {
   // The renderer echoes the page's failed requests (timings of a project not voiced yet); noise for the reader
   const err = console.error;
   console.error = (...a: unknown[]) => {
@@ -44,7 +44,7 @@ export async function renderFrames(o: { slug: string; format: 'wide' | 'tall'; m
   }
 }
 
-async function render(o: { slug: string; format: 'wide' | 'tall'; mode: 'voice' | 'beat'; lang: 'zh' | 'en'; frames: Frame[]; log?: (s: string) => void }): Promise<{ file: string; label: string }[]> {
+async function render(o: { slug: string; format: 'wide' | 'tall'; lang: 'zh' | 'en'; frames: Frame[]; log?: (s: string) => void }): Promise<{ file: string; label: string }[]> {
   const log = o.log ?? (() => undefined);
   const { bundle } = await import('@remotion/bundler');
   const { ensureBrowser, openBrowser, renderStill, selectComposition } = await import('@remotion/renderer');
@@ -73,7 +73,7 @@ async function render(o: { slug: string; format: 'wide' | 'tall'; mode: 'voice' 
   const browser = await openBrowser('chrome', { chromiumOptions });
   const out: { file: string; label: string }[] = [];
   try {
-    const inputProps = { slug: o.slug, format: o.format, mode: o.mode, variant: 'default', lang: o.lang, voice: 'on' };
+    const inputProps = { slug: o.slug, format: o.format, variant: 'default', lang: o.lang, voice: 'on' };
     const composition = await selectComposition({ serveUrl, id: `studio-${o.format}`, inputProps, puppeteerInstance: browser, chromiumOptions });
     const dir = lookDir();
     fs.rmSync(dir, { recursive: true, force: true });

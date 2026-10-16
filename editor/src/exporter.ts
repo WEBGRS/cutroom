@@ -22,7 +22,6 @@ export const videoBitrate = (mb: number, seconds: number) => Math.floor((mb * 8 
 export interface ExportOpts {
   slug: string;
   format: string;
-  mode: string;
   variant: string;
   lang: string;
   voice: string;
@@ -41,12 +40,12 @@ export function exportPlan(o: ExportOpts) {
   checkSlug(o.slug);
   const codec = o.codec && CODECS[o.codec] ? o.codec : 'h264';
   const scale = [0.5, 1, 1.5, 2].includes(Number(o.scale)) ? Number(o.scale) : 1;
-  const name = [o.slug, o.format, o.mode === 'beat' ? 'beat' : null, o.variant === 'clean' ? 'clean' : null, o.lang === 'en' ? 'en' : null, o.voice === 'off' && o.mode !== 'beat' ? 'silent' : null, scale !== 1 ? `x${scale}` : null].filter(Boolean).join('-');
+  const name = [o.slug, o.format, o.variant === 'clean' ? 'clean' : null, o.lang === 'en' ? 'en' : null, o.voice === 'off' ? 'silent' : null, scale !== 1 ? `x${scale}` : null].filter(Boolean).join('-');
   const out = o.out ? path.resolve(o.out) : path.join(exportDir(), `${name}.${CODECS[codec]}`);
   fs.mkdirSync(path.dirname(out), { recursive: true });
   fs.mkdirSync(STATE, { recursive: true });
   const propsFile = path.join(STATE, `render-props-${process.pid}.json`);
-  fs.writeFileSync(propsFile, JSON.stringify({ slug: o.slug, format: o.format, mode: o.mode, variant: o.variant, lang: o.lang, voice: o.voice, ...(o.parts ? { parts: o.parts } : {}) }));
+  fs.writeFileSync(propsFile, JSON.stringify({ slug: o.slug, format: o.format, variant: o.variant, lang: o.lang, voice: o.voice, ...(o.parts ? { parts: o.parts } : {}) }));
   const cli = path.join(ROOT, 'node_modules', '@remotion', 'cli', 'remotion-cli.js');
   // Only this project and the shared assets go into the render bundle (not every project and old export)
   const slim = slimPublic(o.slug);

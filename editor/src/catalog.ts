@@ -170,7 +170,7 @@ export function catalogText(): string {
     g.fields.forEach((f) => out.push(describe(f)));
   }
   out.push(' Transitions (voice cut): transition = ' + TRANSITION_LIST.map((t) => `${t.id || 'fade'}=${t.en}${t.rule ? ' [house rule]' : ''}`).join(', '));
-  out.push(`  transDir = left|right|up|down for ${DIR_TRANSITIONS.join('/')}; transDur = seconds (default 0.4); beatTransition = same values, beat cut only (default 12-frame fade)`);
+  out.push(`  transDir = left|right|up|down for ${DIR_TRANSITIONS.join('/')}; transDur = seconds (default 0.4)`);
   out.push(' Overlays: scene.overlays = [{kind, at (sec from scene start), dur (sec), text, sub, x, y, w, h, style, anim, color, size, value}]');
   OVERLAY_LIST.forEach((o) => out.push(`  ${o.id} — ${o.en}: fields ${o.fields.join(',')}${o.hint ? `; ${o.hint.en}` : ''}${o.rule ? ` [house rule: ${RULES[o.rule].en}]` : ''}`));
   out.push('  lower.style = ' + LOWER_LIST.filter((l) => l.id).map((l) => `${l.id}=${l.en}`).join(', '));

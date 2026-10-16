@@ -1,4 +1,4 @@
-import type { BeatGrid, CaptureMeta, Format, Scene, Storyboard, TimeRef, Timings, Visual } from './types';
+import type { CaptureMeta, Format, Scene, Storyboard, TimeRef, Timings, Visual } from './types';
 
 export const LEAD = 0.45;
 export const GAP = 0.14;
@@ -237,78 +237,4 @@ export function chunkLine(zh: string, max: number, start: number, dur: number): 
     t += d;
     return c;
   });
-}
-
-export interface BeatInfo {
-  period: number;
-  t0: number;
-}
-
-// Beat-cut edit: scenes snap to whole bars, phrases land on beats. Consecutive scenes cut from one
-// clip form a chain that plays at one speed, so the cut between them is seamless.
-export function buildBeatTimeline(board: Storyboard, grid: BeatGrid, format: Format, fps: number, captures?: Record<string, CaptureMeta>, lang: 'zh' | 'en' = 'zh'): Timeline & { beat: BeatInfo; joins: boolean[] } {
-  const period = grid.period;
-  const bar = period * 4;
-  const startBar = board.beat?.startBar ?? 0;
-  const t0 = grid.downbeats[Math.min(startBar, grid.downbeats.length - 1)] ?? 0;
-  const MAX_RATE = 2.6;
-  const list = board.scenes.filter((s) => Array.isArray(s.beat) && (!s.only || s.only === format));
-  const vis = list.map((s) => (format === 'tall' && s.tall ? s.tall : s.visual));
-  // Clip span per scene in capture seconds
-  const span = vis.map((v) => {
-    if (v.kind !== 'screen') return null;
-    const cap = captures?.[v.src];
-    const from = resolveTime(v.from, cap, 0);
-    const to = v.to !== undefined ? resolveTime(v.to, cap, cap?.duration ?? 0) : (cap?.duration ?? from);
-    return { src: v.src, from, to: Math.max(from, Math.min(to, cap?.duration ?? to)) };
-  });
-  const joins = list.map((_, i) => i > 0 && !!span[i] && !!span[i - 1] && span[i]!.src === span[i - 1]!.src && Math.abs(span[i]!.from - span[i - 1]!.to) < 0.15);
-  const words = list.map((s) => Math.max(1, Math.ceil(s.beat!.reduce((a, b) => a + (b.n ?? 4), 0) / 4)));
-  const bars = words.slice();
-  const rates: (number | null)[] = list.map(() => null);
-  // Walk chains: one speed across the chain, bars split by content length
-  for (let i = 0; i < list.length; ) {
-    let j = i;
-    while (j + 1 < list.length && joins[j + 1]) j++;
-    if (span[i]) {
-      const len = span[j]!.to - span[i]!.from;
-      let total = 0;
-      for (let k = i; k <= j; k++) total += bars[k];
-      const need = Math.ceil(len / MAX_RATE / bar);
-      while (total < need) {
-        let best = i;
-        for (let k = i; k <= j; k++) if ((span[k]!.to - span[k]!.from) / bars[k] > (span[best]!.to - span[best]!.from) / bars[best]) best = k;
-        bars[best]++;
-        total++;
-      }
-      const rate = Math.max(0.6, len / (total * bar));
-      let t = span[i]!.from;
-      for (let k = i; k <= j; k++) {
-        rates[k] = rate;
-        span[k] = { src: span[k]!.src, from: t, to: t + bars[k] * bar * rate };
-        t = span[k]!.to;
-      }
-    }
-    i = j + 1;
-  }
-  const out: TScene[] = [];
-  let cursor = 0;
-  list.forEach((s, i) => {
-    const raw = vis[i];
-    const visual: Visual = raw.kind === 'screen' && span[i] ? { ...raw, from: span[i]!.from, to: span[i]!.to, rate: rates[i] ?? 1 } : raw;
-    const start = Math.round(cursor * fps);
-    const dur = Math.round((cursor + bars[i] * bar) * fps) - start;
-    let b = 0;
-    const lines: TLine[] = s.beat!.map((p, k) => {
-      const n = p.n ?? 4;
-      const ls = Math.round(b * period * fps);
-      const le = k === s.beat!.length - 1 ? dur : Math.round((b + n) * period * fps);
-      b += n;
-      const main = lang === 'en' && p.en ? p.en : p.t;
-      return { zh: p.t, en: p.en, main, sub: lang === 'en' || !p.en ? undefined : plain(p.en), start: ls, dur: Math.max(1, le - ls) };
-    });
-    out.push({ scene: s, visual, start, dur, trans: 0, lines });
-    cursor += bars[i] * bar;
-  });
-  return { scenes: out, total: Math.max(1, Math.round(cursor * fps)), fps, beat: { period, t0 }, joins };
 }

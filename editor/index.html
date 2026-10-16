@@ -285,6 +285,16 @@ p.hint { margin: 8px 0 0; }
 .spin { transform-origin: 8px 8px; animation: spin .9s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .arow-on { display: inline-flex; align-items: center; gap: 3px; color: var(--accent-hi); font-size: 11.5px; padding-right: 4px; }
+.vo-acts.wrap { flex-wrap: wrap; }
+.vo-step { font-size: 12px; font-weight: 500; color: var(--ink); }
+.vo-mono { font-family: ui-monospace, Consolas, monospace; font-size: 10.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.vo-bar i.pulse { animation: vo-pulse 1.4s ease-in-out infinite; }
+@keyframes vo-pulse { 50% { opacity: .35; } }
+.vo-read { margin: 0; padding: 8px 10px; border-radius: 6px; background: var(--panel); font-size: 13px; line-height: 1.7; color: var(--ink); }
+.app .vo-name, .app .vo-desc { width: 100%; box-sizing: border-box; font-size: 12px; }
+.app .vo-desc { resize: vertical; min-height: 56px; line-height: 1.5; }
+.vo-rec { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ink); font-variant-numeric: tabular-nums; }
+.vo-rec i { width: 8px; height: 8px; border-radius: 50%; background: #ff5f57; animation: vo-pulse 1s ease-in-out infinite; }
 
 /* viewer */
 .viewer { display: flex; flex-direction: column; container-type: inline-size; }
@@ -422,8 +432,6 @@ details[open] > summary { margin-bottom: 8px; }
 .tick.mid { height: 7px; }
 .tick.big { height: 11px; background: #61656f; }
 .num { position: absolute; top: 3px; transform: translateX(4px); font-size: 10.5px; color: var(--ink3); font-variant-numeric: tabular-nums; pointer-events: none; }
-.beat { position: absolute; bottom: 0; width: 1px; height: 5px; background: #4d4384; }
-.beat.down { height: 10px; width: 2px; margin-left: -.5px; background: #9a88ff; }
 .lane-v { height: 76px; }
 .lane-t { height: 36px; }
 .lane-a { height: 36px; }
@@ -606,6 +614,14 @@ details[open] > summary { margin-bottom: 8px; }
 .msg { max-width: 92%; line-height: 1.6; white-space: pre-wrap; word-break: break-word; }
 .msg.user { align-self: flex-end; padding: 8px 12px; border-radius: 10px 10px 3px 10px; background: #22304f; border: 1px solid #304373; color: #e8eeff; }
 .msg.bot { align-self: flex-start; }
+.msg-u { align-self: flex-end; display: flex; flex-direction: column; align-items: flex-end; gap: 3px; max-width: 92%; }
+.msg-u .msg.user { max-width: 100%; }
+.msg-undo { display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 6px; border: 0; border-radius: 5px; background: none; color: var(--ink2); font-size: 11.5px; opacity: 0; transition: opacity .12s; }
+.msg-u:hover .msg-undo, .msg-undo:focus-visible { opacity: 1; }
+.msg-undo:hover:not(:disabled) { background: var(--hover); color: var(--ink); }
+.msg-event { align-self: center; display: inline-flex; align-items: center; gap: 7px; padding: 4px 10px; border-radius: 999px; background: var(--field); border: 1px solid var(--line2); color: var(--ink2); font-size: 11.5px; }
+.msg-event.bad { color: #ffb4ab; border-color: #4d2427; }
+.msg-event .mini { height: 20px; }
 .msg .tools { display: flex; flex-direction: column; gap: 3px; margin-bottom: 8px; }
 .tool-line { display: flex; align-items: center; gap: 7px; padding: 3px 8px; border-radius: 5px; background: var(--field); border: 1px solid var(--line2); color: var(--ink2); font: 11px/1.5 var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tool-line .dot { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--ok); }
@@ -662,6 +678,22 @@ details[open] > summary { margin-bottom: 8px; }
 .app.chatwide .work > .lib { visibility: hidden; }
 .app.chatwide .chat-list { padding: 18px 22px; }
 .app.chatwide .msg { max-width: 82%; }
+.chat-head .icon[aria-pressed="true"] { color: var(--accent-hi); background: var(--accent-soft); }
+.ptabs button.pcol { align-self: center; width: 28px; height: 26px; padding: 0; justify-content: center; border: 0; margin: 0; border-radius: 5px; color: var(--ink3); }
+.ptabs button.pcol:hover { color: var(--ink); background: var(--hover); }
+.ptabs button.pcol[aria-pressed="true"] { color: var(--accent-hi); background: var(--accent-soft); }
+/* Full-height right panel: the work row's items join the app grid, so the panel keeps its state */
+.app.sidefull { position: relative; grid-template-columns: var(--lib-w, 288px) 5px minmax(0, 1fr) 5px var(--side-w, 340px); }
+.app.sidefull > .top { grid-column: 1 / -1; }
+.app.sidefull > .work { display: contents; }
+.app.sidefull .work > .lib { grid-area: 2 / 1; }
+.app.sidefull .work > .lib + .split-x { grid-area: 2 / 2; }
+.app.sidefull .work > .viewer { grid-area: 2 / 3; }
+.app.sidefull .work > .viewer + .split-x { grid-area: 2 / 4 / -1 / 5; }
+.app.sidefull .work > .side { grid-area: 2 / 5 / -1 / 6; }
+.app.sidefull > .split-y { grid-area: 3 / 1 / 4 / 4; }
+.app.sidefull > .tl { grid-area: 4 / 1 / 5 / 4; }
+.app.sidefull.filedrop .work::after { grid-area: 2 / 1 / -1 / -1; }
 .pm-item mark, .sugg-btn mark { padding: 0 3px; border-radius: 3px; background: #3a2f17; color: #ffd479; }
 .pm-foot { padding: 7px 12px 9px; border-top: 1px solid var(--line2); font-size: 11px; color: var(--ink3); }
 .sugg-more { align-self: flex-start; display: inline-flex; align-items: center; gap: 6px; margin-top: 2px; padding: 5px 4px; border: 0; background: none; color: var(--ink2); font-size: 12px; }

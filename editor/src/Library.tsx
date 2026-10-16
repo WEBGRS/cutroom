@@ -84,9 +84,8 @@ const fxOn = (fx: Fx | undefined, preset: Record<string, unknown>) => !!fx && Ob
 interface Props {
   slug: string;
   assets: string[];
-  music: { src: string; beats: boolean }[];
+  music: { src: string }[];
   theme: Theme;
-  mode: 'voice' | 'beat';
   lang: 'zh' | 'en';
   target: Scene | null;
   preview: Scene | null;
@@ -439,7 +438,7 @@ function RecordWeb({ slug }: { slug: string }) {
   );
 }
 
-function AudioRow({ src, label, sub, on, disabled, why, onUse }: { src: string; label: string; sub: string; on: boolean; disabled?: boolean; why?: string; onUse: () => void }) {
+function AudioRow({ src, label, sub, on, onUse }: { src: string; label: string; sub: string; on: boolean; onUse: () => void }) {
   const [playing, setPlaying] = useState(false);
   const el = useRef<HTMLAudioElement | null>(null);
   useEffect(() => () => el.current?.pause(), []);
@@ -468,7 +467,7 @@ function AudioRow({ src, label, sub, on, disabled, why, onUse }: { src: string; 
           {tr('In use', '使用中')}
         </span>
       ) : (
-        <button className="mini" disabled={disabled} title={why} onClick={onUse}>
+        <button className="mini" onClick={onUse}>
           {tr('Use', '使用')}
         </button>
       )}
@@ -515,7 +514,7 @@ export function Library(p: Props & { tab: LibTab; setTab: (t: LibTab) => void })
   const imgs = assets.filter(isImg);
   const pages = assets.filter(isHtml);
   const auds = assets.filter(isAud);
-  const curTrans = p.mode === 'beat' ? (target?.beatTransition ?? '') : target?.transition === 'fade' ? '' : (target?.transition ?? '');
+  const curTrans = target?.transition === 'fade' ? '' : (target?.transition ?? '');
   const curLook = target?.fx?.look ?? '';
   const warnOf = (x: Named) => (x.rule ? nm(RULES[x.rule]) : undefined);
 
@@ -624,8 +623,8 @@ export function Library(p: Props & { tab: LibTab; setTab: (t: LibTab) => void })
             ))}
           </Section>
           <Section title={tr('All transitions', '全部转场')} count={TRANSITION_LIST.length}>
-            {TRANSITION_LIST.filter((t) => p.mode === 'voice' || t.id !== 'none').map((t) => (
-              <Tile key={t.id || 'fade'} label={`${p.mode === 'beat' && !t.id ? tr('Crossfade', '交叉淡化') : nm(t)}${t.id ? '' : tr(' (default)', '（默认）')}`} warn={warnOf(t)} on={!!target && curTrans === t.id} prev={['transition', t.id]} onClick={() => p.onTransition(t.id)} />
+            {TRANSITION_LIST.map((t) => (
+              <Tile key={t.id || 'fade'} label={`${nm(t)}${t.id ? '' : tr(' (default)', '（默认）')}`} warn={warnOf(t)} on={!!target && curTrans === t.id} prev={['transition', t.id]} onClick={() => p.onTransition(t.id)} />
             ))}
           </Section>
         </>
@@ -669,13 +668,13 @@ export function Library(p: Props & { tab: LibTab; setTab: (t: LibTab) => void })
       );
       break;
     case 'voice':
-      body = <VoicePanel slug={slug} lang={p.lang} mode={p.mode} onSettings={p.onSettings} />;
+      body = <VoicePanel slug={slug} lang={p.lang} onSettings={p.onSettings} />;
       break;
     case 'sfx':
       body = <SoundList onAdd={p.onSound} />;
       break;
     case 'audio': {
-      const tracks = [...p.music.map((m) => ({ src: m.src, beats: m.beats, own: false })), ...auds.map((a) => ({ src: `${slug}/${a}`, beats: false, own: true }))];
+      const tracks = [...p.music.map((m) => ({ src: m.src, own: false })), ...auds.map((a) => ({ src: `${slug}/${a}`, own: true }))];
       body = (
         <>
           <div className="lib-bar">
@@ -683,19 +682,17 @@ export function Library(p: Props & { tab: LibTab; setTab: (t: LibTab) => void })
               <Icon name="import" />
               {tr('Import music', '导入音乐')}
             </button>
-            {hints ? <span className="lib-note">{p.mode === 'beat' ? tr('Beat cut needs a track with beat data', '卡点版只能用分析过节拍的曲子') : tr('Background music for the narrated cut', '旁白版的背景音乐')}</span> : null}
+            {hints ? <span className="lib-note">{tr('Background music, played under the narration', '背景音乐，垫在旁白下面')}</span> : null}
           </div>
-          <div className="lib-note pad">{tr('Or have the AI write one: in the AI panel type / and pick Music. It is played by real instrument recordings (XSXB-Band), needs no credit, and comes with beat data.', '也可以让 AI 写一首：在 AI 助手里输入 / 选「配乐」。用真实乐器的录音演奏（需要装 XSXB-Band），不用署名，自带节拍数据。')}</div>
+          <div className="lib-note pad">{tr('Or have the AI write one: in the AI panel type / and pick Music. It is played by real instrument recordings (XSXB-Band) and needs no credit.', '也可以让 AI 写一首：在 AI 助手里输入 / 选「配乐」。用真实乐器的录音演奏（需要装 XSXB-Band），不用署名。')}</div>
           {tracks.length ? (
             tracks.map((t) => (
               <AudioRow
                 key={t.src}
                 src={t.src}
                 label={base(t.src).replace(/\.\w+$/, '')}
-                sub={`${t.own ? tr('Project file', '项目素材') : tr('Library', '曲库')}${t.beats ? tr(' · beat data', ' · 有节拍数据') : ''}`}
+                sub={t.own ? tr('Project file', '项目素材') : tr('Library', '曲库')}
                 on={p.musicSrc === t.src}
-                disabled={p.mode === 'beat' && !t.beats}
-                why={p.mode === 'beat' && !t.beats ? tr('No beat data: run python tools/beats.py <file> first', '没有节拍数据：先运行 python tools/beats.py <文件>') : undefined}
                 onUse={() => p.onMusic(t.src)}
               />
             ))

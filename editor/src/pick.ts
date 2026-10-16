@@ -114,7 +114,7 @@ export function resolvePick(target: Element, clientX: number, clientY: number, c
         },
       };
     }
-    return { el, ref: { key: `tr:${bsid}`, label: tr(`Transition: ${name}`, `转场：${name}`), detail: `The transition into ${where}: ${name} (field transition in the narrated cut, beatTransition in the beat cut).` } };
+    return { el, ref: { key: `tr:${bsid}`, label: tr(`Transition: ${name}`, `转场：${name}`), detail: `The transition into ${where}: ${name} (field transition).` } };
   }
 
   // Timeline: scene clips, caption chips, voice clips, music

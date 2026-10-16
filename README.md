@@ -1,6 +1,6 @@
 # Cutroom
 
-A video editor for demos of the software you build. Record your app, cut it with an AI that edits the same project you do, and when the UI changes, record it again: captions and cuts are tied to moments in the recording, so the edit carries over to the new footage. Exports MP4 in 16:9 and 9:16, with voice-over, captions and a beat-synced music cut.
+A video editor for demos of the software you build. Record your app, cut it with an AI that edits the same project you do, and when the UI changes, record it again: captions and cuts are tied to moments in the recording, so the edit carries over to the new footage. Exports MP4 in 16:9 and 9:16, with voice-over and captions.
 
 [![Download for Windows](https://img.shields.io/github/v/release/WEBGRS/cutroom?label=download&color=3b6ef5)](https://github.com/WEBGRS/cutroom/releases/latest)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
@@ -55,8 +55,8 @@ Open the project in the editor afterwards to adjust it by hand; the agent sees y
 
 ## Features
 
-- **Timeline**: filmstrip thumbnails, waveforms, drag to reorder, drag edges to trim, split at the playhead, undo/redo, and a beat grid for music cuts. Lanes under the scenes show where every overlay, effect, camera move and sound effect sits, and each cut shows its transition. Drag an overlay or a sound to move it; click any bar to open its settings. Dragged edges, cues and the playhead snap to cuts, recording marks, caption starts, beats and each other (the magnet button or N; hold Alt to drag freely).
-- **Two cuts from one storyboard**: a narrated cut and a beat-synced music cut, each in 16:9 and 9:16.
+- **Timeline**: filmstrip thumbnails, waveforms, drag to reorder, drag edges to trim, split at the playhead, undo/redo. Lanes under the scenes show where every overlay, effect, camera move and sound effect sits, and each cut shows its transition. Drag an overlay or a sound to move it; click any bar to open its settings. Dragged edges, cues and the playhead snap to cuts, recording marks, caption starts and each other (the magnet button or N; hold Alt to drag freely).
+- **Both sizes from one storyboard**: 16:9 and 9:16 from the same scenes, with a separate 9:16 picture where a scene needs one. The assistant asks which size you want before it makes the first version.
 - **Library panel**: media, cards, text, overlays, transitions, effects, backdrops, voice-over, sound effects and music. Every effect has a rendered preview that plays on hover; one click applies it to the selected scene.
 - **182 effects**:
   - 39 transitions (whip pan, glitch, film burn, 3D cube, light leak, tile grid, …)
@@ -70,10 +70,10 @@ Open the project in the editor afterwards to adjust it by hand; the agent sees y
 - **Image overlays**: logos, stickers and product shots on any scene, with an entrance (pop, rise, slide, spin, fade), a turn and an optional float. `imagine` draws one with an OpenAI or Gemini key, with a transparent background on OpenAI.
 - **Shot breakdown**: `shots <video>` finds every cut in a reference video (or your own export), gives each shot's length and camera move (static, pan, push in, pull out, handheld) with three keyframes, and writes a page where clicking a shot plays it.
 - **Footage tools**: `reframe` crops a wide image or clip for 9:16 around the part with the most motion and detail; `cut-silence` turns a talking clip into jump cuts without the long pauses; `export --max-mb` fits the file under a size limit.
-- **Music written for your video**: ask the assistant for a track and it writes the score; real instrument recordings (CC0, from [XSXB-Band](https://github.com/sparklecatta-lang/XSXB-Band), installed separately) play it. The result lands in the music library at the right level, with beat data for the beat cut and no credit line to print. `cutroom my-app music help` shows how.
+- **Music written for your video**: ask the assistant for a track and it writes the score; real instrument recordings (CC0, from [XSXB-Band](https://github.com/sparklecatta-lang/XSXB-Band), installed separately) play it. The result lands in the music library at the right level, with no credit line to print. `cutroom my-app music help` shows how.
 - **58 sound effects**: whooshes, risers, booms, hits, clicks, typing, notification dings and digital blips. Listen in the library, drag one onto the Sound FX lane, then drag it to the exact frame.
 - **Captions**: box, outline or plain styles, any position and size, and most text animations; a Screen Studio-style frame for recordings, frosted cards and a chapter bar.
-- **AI voice-over**: pick a voice in Library › Voiceover and press Voice. The built-in voices are free and run offline (100 Chinese, 3 English; a 147 MB model downloads once); OpenAI, Gemini and Qwen voices use your key from Settings › AI. Only lines without current audio are voiced, so editing a line re-voices just that line.
+- **AI voice-over**: pick a voice in Library › Voiceover and press Voice. The built-in voices are free, small and run offline anywhere (100 Chinese, 3 English; a 147 MB model downloads once). The **HD voices** run [Qwen3-TTS](https://github.com/QwenLM/Qwen3-TTS) on your own NVIDIA card (6 GB or more; one install of about 10 GB): they sound like a person talking, read English words inside Chinese, and can speak in **your own voice** from a passage you read into the microphone, a clip you bring, or a voice you describe in a sentence. OpenAI, Gemini and Qwen cloud voices use your key from Settings › AI. Only lines without current audio are voiced, so editing a line re-voices just that line.
 - **Screen recordings**: Library › Media › Record a website takes a short scroll through any page; the AI assistant or the CLI records clicks and typing. Recordings keep their steps for `rerecord`. Library › Media › Record an app records a window, a window's area (menus included) or a whole screen on Windows. `import` brings in videos you recorded elsewhere.
 - **AI assistant**: works with a Claude subscription (through Claude Code), a ChatGPT plan (through the Codex CLI), a Google account (through the Gemini CLI or Antigravity), a Claude API key, or any OpenAI-compatible API: OpenAI, Gemini, DeepSeek, Qwen, Kimi, GLM, OpenRouter or a local Ollama. See [Connecting the AI](#connecting-the-ai).
 - **Export**: MP4, 2× resolution, GIF, ProRes, SRT subtitles and a chapter list, from the export menu or `export` on the command line. The export menu shows where files go (desktop app: `Documents\Cutroom\exports\editor`).
@@ -155,12 +155,17 @@ Open the **AI assistant** tab and click the connection pill at its top, or go to
 
 **Test connection** sends one short request through whichever option is active. In auto mode the editor prefers the Claude Code login, then the Claude API key, then a configured other provider.
 
-In the chat panel's header you pick the model, the reasoning effort (Claude Code, the Claude API, Codex and Antigravity take an effort; higher thinks longer and uses more of your plan) and what the AI may do. Type `/` in the message box to search the prompt library, or open it with the lightbulb; the expand button gives the chat half the window.
+In the chat panel's header you pick the model, the reasoning effort (Claude Code, the Claude API, Codex and Antigravity take an effort; higher thinks longer and uses more of your plan) and what the AI may do. Type `/` in the message box to search the prompt library, or open it with the lightbulb; the expand button gives the chat half the window, and the column button at the right end of the tabs runs the panel the full height of the window.
 
 ### What the AI may do
 
 - **Editor only** (the default): the assistant runs the editor's own CLI on the open project and nothing else, as described above.
-- **Full access**: it works like an assistant in your own terminal. It can write files (HTML scenes, SVG, scripts, subtitles), run programs such as ffmpeg, read your code, search the web and, with Claude Code, use your own skills and MCP servers. Reads and edits inside the project folder run at once. Shell commands and changes outside the project folder stop and ask in the chat: **Allow**, **Allow all in this chat** or **Decline**; a declined step does not run, and nothing is asked or run while no one is in the panel. The timeline itself still changes only through the editor CLI, so versions, undo and the live preview stay in sync. Claude Code keeps its own tools and asks through its permission prompt (`--permission-prompt-tool`); the Claude API, other models, Codex and Antigravity get Cutroom's `shell`, `read_file` and `write_file` tools, with their own shell and file tools still off. Gemini CLI stays on editor only.
+- **Full access**: it works like an assistant in your own terminal. It can write files (HTML scenes, SVG, scripts, subtitles), run programs such as ffmpeg, read your code, search the web and, with Claude Code, use your own skills and MCP servers. Reads and edits inside the project folder run at once. Shell commands and changes outside the project folder stop and ask in the chat: **Allow**, **Allow all in this chat** or **Decline**; a declined step does not run, and nothing is asked or run while no one is in the panel. The timeline itself still changes only through the editor CLI, so versions, undo and the live preview stay in sync. Claude Code keeps its own tools and asks through its permission prompt (`--permission-prompt-tool`); the Claude API, other models, Codex and Antigravity get Cutroom's `shell`, `read_file` and `write_file` tools, with their own shell and file tools still off. Gemini CLI can't ask in the panel, so here it stays on editor only.
+- **Allow everything**: the same tools as Full access, and no step stops to ask, for every connection including Gemini CLI. Pair it with rolling back.
+
+### Rolling back
+
+Before each message the editor saves a checkpoint of the project folder, plus the files outside it that the assistant changes with its file tools. Hover a message you sent and click **Roll back to here** to put the files back as they were before it; the line this leaves in the chat has **Undo**. Changes that shell commands make outside the project folder can't be rolled back. Checkpoints are kept in `.editor/<project>/checkpoints` (the last 50; files over 500 MB are not copied).
 
 ## A storyboard
 
@@ -202,7 +207,7 @@ Projects live in `public/<slug>/` together with their media. Create one from the
 The CLI is what the AI assistant uses, and you can use it too. Changes show up live in an open editor.
 
 ```bash
-node editor/dist/cli.mjs showcase ls --format tall --mode beat   # timeline as rendered
+node editor/dist/cli.mjs showcase ls --format tall              # timeline as rendered
 node editor/dist/cli.mjs showcase trim record --to @filter+0.8   # keeps the mark anchor
 node editor/dist/cli.mjs showcase split record 4.2
 node editor/dist/cli.mjs showcase set photo fx.look '"warm"'
@@ -212,9 +217,12 @@ node editor/dist/cli.mjs showcase check                           # problems to 
 node editor/dist/cli.mjs showcase look record photo+2.5           # render frames as an export would, for the AI to look at
 node editor/dist/cli.mjs showcase show all                        # every scene's JSON
 node editor/dist/cli.mjs showcase media                           # recordings (with marks), images, videos, HTML pages, music
-node editor/dist/cli.mjs showcase beat use music/realizer.mp3     # beat-cut music; the tempo comes from its beat data
+node editor/dist/cli.mjs showcase music use realizer             # background music from the library
 node editor/dist/cli.mjs showcase voice                           # voice-over for lines without current audio
 node editor/dist/cli.mjs showcase voice --lang en --redo          # re-voice the English track
+node editor/dist/cli.mjs showcase voice install                   # HD voices: Python environment + Qwen3-TTS model (NVIDIA card)
+node editor/dist/cli.mjs showcase voice clone me.wav --text "…"    # your own voice from a clip (with the words it says)
+node editor/dist/cli.mjs showcase voice use local casual_f        # use an HD voice
 node editor/dist/cli.mjs showcase inspect https://example.com     # a page's clickable elements and their selectors
 node editor/dist/cli.mjs showcase record demo https://example.com '[{"wait":800},{"mark":"more"},{"click":"text=\"Learn more\""},{"wait":1500}]'
 node editor/dist/cli.mjs showcase rerecord all                    # record the websites again from their saved steps
@@ -225,7 +233,7 @@ node editor/dist/cli.mjs showcase plan                            # per scene: w
 node editor/dist/cli.mjs showcase rules add "Captions under 16 characters"   # a standing rule the assistant follows
 node editor/dist/cli.mjs showcase export --lufs -14              # export at the loudness video platforms expect
 node editor/dist/cli.mjs showcase html vars loop                  # an HTML scene's variables and their values
-node editor/dist/cli.mjs showcase export --format tall --mode beat
+node editor/dist/cli.mjs showcase export --format tall
 node editor/dist/cli.mjs my-app new "My app"                      # a new project
 node editor/dist/cli.mjs fx                                       # every effect field and its range
 ```
@@ -261,7 +269,7 @@ node editor/dist/cli.mjs fx                                       # every effect
 
 - `src/`: the Remotion composition: scenes, camera, captions, effects, transitions. `src/lib/html.ts` is the HTML scene runtime that sets a page's clock frame by frame.
 - `src/fx/`: the effect library: text animations, transitions, overlays, cards, backdrops, scene effects, sounds, and `registry.ts`, the list that drives the UI and the previews.
-- `editor/src/`: UI (React), server, CLI, edit operations, the effects catalog behind the UI, the CLI's `fx` listing and the AI's instructions, plus the AI providers (`chat.ts`, `compat.ts`, `agents.ts`, `mcp.ts`), voice-over (`voice.ts`, `voices.ts`), web recording and re-recording (`record.ts`), desktop recording (`desktop.ts`), imports and marks (`importfile.ts`), the assistant's saved rules (`rules.ts`), export loudness (`loudness.ts`), HTML scene files (`htmlfiles.ts`) and exports (`exporter.ts`).
+- `editor/src/`: UI (React), server, CLI, edit operations, the effects catalog behind the UI, the CLI's `fx` listing and the AI's instructions, plus the AI providers (`chat.ts`, `compat.ts`, `agents.ts`, `mcp.ts`), voice-over (`voice.ts`, `voices.ts`, HD voices in `localvoice.ts` with the Python worker in `editor/py/`), web recording and re-recording (`record.ts`), desktop recording (`desktop.ts`), imports and marks (`importfile.ts`), the assistant's saved rules (`rules.ts`), export loudness (`loudness.ts`), HTML scene files (`htmlfiles.ts`) and exports (`exporter.ts`).
 - `tools/capture.mjs`: deterministic screen recorder. `editor/demo/capture.mjs` shows how to script one.
 - `tools/deskrec.cs`: the Windows helper for desktop recording (window list, record bar, pointer log), compiled on first use with the C# compiler that ships with Windows. FFmpeg's `gfxcapture` does the capture.
 - `editor/fx/previews.ts`: renders the hover previews into `public/_fx/` (`npm run previews`; `--only transition/whip` for one).
@@ -285,7 +293,7 @@ The e2e, oracle, app and screenshot scripts need the editor running (`npm run ed
 
 - The timeline is scene-based and always closed up (ripple). There is no free placement on multiple tracks; overlays and sounds attach to scenes instead.
 - Twelve of Remotion's shader transitions need an experimental Chrome flag, so they are not offered.
-- The built-in voices are clear but not studio quality, and Chinese voices now and then misread a rare word: listen back, or switch to a cloud voice. Your own recording can replace any line through `timings.json`.
+- The built-in voices are clear but not studio quality, and Chinese voices now and then misread a rare word: listen back, or switch to the HD voices or a cloud voice. HD voices sample each take, so a line can come out differently on a redo; redo a line you don't like. Your own recording can replace any line through `timings.json`.
 - Recording needs Google Chrome or Microsoft Edge. It opens a fresh browser, so pages behind a login can't be recorded; record those with Record an app instead.
 - Desktop recording is Windows-only. You work the app yourself, so `rerecord` can't repeat it. Window capture leaves out menus and pop-ups, which are separate windows: use the window area mode for those.
 - HTML scenes: sound inside a page is not exported, and pages that load scripts or fonts from the internet need a connection to preview and export. Animation driven by timers or `requestAnimationFrame` can't be seeked; `html check` points it out.
@@ -294,4 +302,4 @@ The e2e, oracle, app and screenshot scripts need the editor running (`npm run ed
 
 ## Credits and license
 
-Cutroom is MIT-licensed. Remotion has its own license: free for individuals and companies with up to three employees, while larger companies need a [company license](https://www.remotion.dev/license). HTML scenes follow the HyperFrames composition conventions (timing attributes, `window.__timelines`, adapter registries, variables) so compositions play unchanged; the runtime that plays them is Cutroom's own. The built-in voices are [Kokoro-82M v1.1-zh](https://huggingface.co/hexgrad/Kokoro-82M-v1.1-zh) (Apache-2.0) run through [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) (Apache-2.0); the model is downloaded on first use, not bundled. The JianyingPro draft writer follows the format of [pyJianYingDraft](https://github.com/GuanYixuan/pyJianYingDraft) (Apache-2.0). Bundled music and sounds, and the HyperFrames designs the effect library adapts (Apache-2.0), are listed in [CREDITS.md](CREDITS.md).
+Cutroom is MIT-licensed. Remotion has its own license: free for individuals and companies with up to three employees, while larger companies need a [company license](https://www.remotion.dev/license). HTML scenes follow the HyperFrames composition conventions (timing attributes, `window.__timelines`, adapter registries, variables) so compositions play unchanged; the runtime that plays them is Cutroom's own. The built-in voices are [Kokoro-82M v1.1-zh](https://huggingface.co/hexgrad/Kokoro-82M-v1.1-zh) (Apache-2.0) run through [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) (Apache-2.0); the model is downloaded on first use, not bundled. The HD voices run [Qwen3-TTS](https://github.com/QwenLM/Qwen3-TTS) (Apache-2.0), installed on request. The JianyingPro draft writer follows the format of [pyJianYingDraft](https://github.com/GuanYixuan/pyJianYingDraft) (Apache-2.0). Bundled music and sounds, and the HyperFrames designs the effect library adapts (Apache-2.0), are listed in [CREDITS.md](CREDITS.md).

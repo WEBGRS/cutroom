@@ -4,14 +4,13 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { loadProps } from '../../src/lib/load';
 import { LAYOUT, withFrame } from '../../src/lib/layout';
-import { buildBeatTimeline, buildTimeline } from '../../src/lib/timeline';
+import { buildTimeline } from '../../src/lib/timeline';
 import type { CaptureMeta, Format, Props, Storyboard, Timings } from '../../src/lib/types';
 import { editTimeline } from '../src/model';
-import { addScene, addSound, duplicateScene, moveScene, moveSound, removeScene, removeSound, setBeatBars, setPath, splitPoint, splitScene, toRef, trimEdge, type Doc } from '../src/ops';
+import { addScene, addSound, duplicateScene, moveScene, moveSound, removeScene, removeSound, setPath, splitPoint, splitScene, toRef, trimEdge, type Doc } from '../src/ops';
 import { BOARD_FX, CARD_LIST, LOWER_LIST, OVERLAY_LIST, SCENE_FX, TEXT_LIST, TRANSITION_LIST, BG_LIST, catalogText } from '../src/catalog';
 import { extraPresentation } from '../../src/fx/transitions';
 import { cutStarts, type Cut } from '../../src/components/Cuts';
-import { withFades, XFADE } from '../../src/lib/fades';
 import { linearTiming } from '@remotion/transitions';
 import { DEMO_CARDS } from '../../src/fx/demo';
 import { ADDABLE, boardTemplate, sceneTemplate } from '../src/templates';
@@ -26,8 +25,8 @@ const read = <T>(f: string) => JSON.parse(fs.readFileSync(path.join(ROOT, SLUG, 
 const fresh = (): Doc => ({ board: read<Storyboard>('storyboard.json'), timings: { zh: read<Timings>('timings.json') } });
 const scene = (d: Doc, id: string) => d.board.scenes.find((s) => s.id === id)!;
 
-async function props(doc: Doc, format: Format, mode: 'voice' | 'beat'): Promise<Props> {
-  const l = await loadProps({ slug: SLUG, format, mode }, getJson, getDims, doc.board);
+async function props(doc: Doc, format: Format): Promise<Props> {
+  const l = await loadProps({ slug: SLUG, format }, getJson, getDims, doc.board);
   return { ...l.props, timings: doc.timings.zh };
 }
 
@@ -54,31 +53,17 @@ test('move reorders without losing scenes', () => {
 
 test('trim writes the new point against the same mark', async () => {
   const d = fresh();
-  const caps = (await props(d, 'wide', 'voice')).captures!;
+  const caps = (await props(d, 'wide')).captures!;
   const t = caps['cap/planner.mp4'].events.find((e) => e.name === 'filter')!.t;
   const r = trimEdge(d, 'record', 'visual', 'to', t + 0.5, caps);
   assert.equal((scene(r.doc, 'record').visual as { to?: unknown }).to, '@filter+0.5');
 });
 
-test('beat cut: splitting a clip keeps total length and joins seamlessly', async () => {
-  const d = fresh();
-  const p = await props(d, 'tall', 'beat');
-  const before = buildBeatTimeline(d.board, p.grid!, 'tall', 60, p.captures, 'zh');
-  const e = editTimeline(p, 60).scenes.find((s) => s.id === 'record')!;
-  const r = splitScene(d, 'record', splitPoint(e, scene(d, 'record'), Math.round(e.dur / 2), 60, p.captures!, 'beat'), p.captures!);
-  const ids = r.doc.board.scenes.map((s) => s.id);
-  assert.equal(ids[ids.indexOf('record') + 1], 'record-2');
-  assert.equal(scene(r.doc, 'record').beat!.length + scene(r.doc, 'record-2').beat!.length, 2);
-  const after = buildBeatTimeline(r.doc.board, p.grid!, 'tall', 60, p.captures, 'zh');
-  assert.equal(after.total, before.total);
-  assert.equal(after.joins[after.scenes.findIndex((s) => s.scene.id === 'record-2')], true);
-});
-
 test('voice cut: split moves the narration clips with their lines', async () => {
   const d = fresh();
-  const p = await props(d, 'wide', 'voice');
+  const p = await props(d, 'wide');
   const e = editTimeline(p, 60).scenes.find((s) => s.id === 'record')!;
-  const at = splitPoint(e, scene(d, 'record'), e.lines[1].start, 60, p.captures!, 'voice');
+  const at = splitPoint(e, scene(d, 'record'), e.lines[1].start, 60, p.captures!);
   assert.equal(at.line, 1);
   const r = splitScene(d, 'record', at, p.captures!);
   assert.equal(r.doc.timings.zh!.scenes['record'].length, 1);
@@ -86,12 +71,6 @@ test('voice cut: split moves the narration clips with their lines', async () => 
   const z = buildTimeline(r.doc.board, r.doc.timings.zh, 'wide', 60, p.captures, false, 'zh').scenes.find((s) => s.scene.id === 'record-2')!;
   assert.ok(z.lines[0].file, 'second half keeps its voice clip');
   assert.equal(z.trans, 0);
-});
-
-test('bars resize changes only the last phrase', () => {
-  const r = setBeatBars(fresh(), 'record', 3);
-  assert.deepEqual(scene(r.doc, 'record').beat!.map((b) => b.n), [4, 8]);
-  assert.throws(() => setBeatBars(fresh(), 'record', 0.2));
 });
 
 test('setPath creates, deletes and refuses id changes', () => {
@@ -164,21 +143,15 @@ test('frame inset leaves the layout untouched when unset', () => {
 test('editor timeline matches the render timeline', async () => {
   const d = fresh();
   for (const format of ['wide', 'tall'] as Format[]) {
-    const p = await props(d, format, 'voice');
+    const p = await props(d, format);
     const ref = buildTimeline(d.board, d.timings.zh, format, 60, p.captures, false, 'zh');
     const tl = editTimeline(p, 60);
     assert.equal(tl.total, ref.total);
     assert.deepEqual(tl.scenes.map((s) => [s.id, s.start, s.dur]), ref.scenes.map((s) => [s.scene.id, s.start, s.dur]));
   }
   const onlyWide = setPath(d, 'how', 'only', 'wide').doc;
-  const pt = await props(onlyWide, 'tall', 'voice');
+  const pt = await props(onlyWide, 'tall');
   assert.deepEqual(editTimeline(pt, 60).hidden.map((h) => [h.id, h.why]), [['how', '只在横屏']]);
-  const noBeat = setPath(d, 'how', 'beat', undefined).doc;
-  const pb = await props(noBeat, 'tall', 'beat');
-  const tb = editTimeline(pb, 60);
-  assert.ok(tb.beats!.length > 8 && tb.beats![0].f === 0);
-  assert.ok(tb.hidden.some((h) => h.id === 'how' && h.why === '卡点版未用'));
-  assert.equal(tb.music?.src, 'music/aerosol-of-my-love.mp3');
 });
 
 test('sounds: add, move across a cut, remove', () => {
@@ -212,7 +185,7 @@ test('sound library: files exist, ids unique, every category used', () => {
 
 test('editor timeline places sounds and flags ones past the scene end', async () => {
   const d = addSound(addSound(fresh(), 'photo', 'ding', 0.5).doc, 'photo', 'pop', 999).doc;
-  const e = editTimeline(await props(d, 'wide', 'voice'), 60).scenes.find((s) => s.id === 'photo')!;
+  const e = editTimeline(await props(d, 'wide'), 60).scenes.find((s) => s.id === 'photo')!;
   const ding = e.sounds.find((x) => x.id === 'ding')!;
   assert.equal(ding.f, 30);
   assert.equal(ding.past, false);
@@ -222,7 +195,7 @@ test('editor timeline places sounds and flags ones past the scene end', async ()
 test('sound cues can follow a recording mark', async () => {
   const d = fresh();
   scene(d, 'record').sounds = [{ id: 'click', at: '@filter' }, { id: 'pop', at: '@nope' }];
-  const p = await props(d, 'wide', 'voice');
+  const p = await props(d, 'wide');
   const e = editTimeline(p, 60).scenes.find((s) => s.id === 'record')!;
   const v = scene(d, 'record').visual as { from?: number | string; rate?: number };
   const cap = p.captures!['cap/planner.mp4'];
@@ -235,7 +208,7 @@ test('sound cues can follow a recording mark', async () => {
 
 test('timeline shows what each scene uses: effects, camera moves, overlays, transitions', async () => {
   const d = fresh();
-  const e = editTimeline(await props(d, 'wide', 'voice'), 60).scenes;
+  const e = editTimeline(await props(d, 'wide'), 60).scenes;
   const photo = e.find((s) => s.id === 'photo')!;
   assert.deepEqual(photo.fx.map((x) => x.en), ['Warm', 'Vignette', 'Light leak']);
   assert.deepEqual(photo.camera.map((x) => [x.en, x.tab]), [['Push in', 'fx']]);
@@ -244,26 +217,18 @@ test('timeline shows what each scene uses: effects, camera moves, overlays, tran
   const record = e.find((s) => s.id === 'record')!;
   assert.ok(record.camera.length > 0 && record.camera.every((c) => c.tab === 'visual' && c.f >= 0 && c.f + c.dur <= record.dur), 'click zooms inside the scene');
   assert.equal(e[0].transIn, undefined, 'first scene has no transition');
-  // Beat cut hides overlays unless the board turns them on
-  const b = editTimeline(await props(d, 'wide', 'beat'), 60).scenes.find((s) => s.id === 'photo')!;
-  assert.equal(b.overlays[0].off?.en, 'the beat cut hides overlays');
-  assert.equal(b.transIn?.plain, true);
 });
 
 // Scenes sit where the timeline (captions, sounds, cues) expects them: transitions overlap both sides
-test('scene placement matches the timeline in both cuts', async () => {
+test('scene placement matches the timeline in both formats', async () => {
   const d = fresh();
   const join = (n: number): Cut['join'] => ({ presentation: { component: () => null, props: {} }, timing: linearTiming({ durationInFrames: n }) });
   const cut = (k: string, dur: number, n = 0): Cut => ({ key: k, dur, join: n ? join(n) : undefined, children: null });
   assert.deepEqual(cutStarts([cut('a', 100), cut('b', 80, 12), cut('c', 50), cut('d', 60, 30)], 60), [0, 88, 168, 188]);
   for (const format of ['wide', 'tall'] as Format[]) {
-    const p = await props(d, format, 'voice');
+    const p = await props(d, format);
     const tl = buildTimeline(d.board, d.timings.zh, format, 60, p.captures, false, 'zh');
     const starts = cutStarts(tl.scenes.map((s, i) => cut(s.scene.id, s.dur, i > 0 ? s.trans : 0)), 60);
     assert.deepEqual(starts, tl.scenes.map((s) => Math.max(0, s.start)), `voice ${format}`);
-    const b = await props(d, format, 'beat');
-    const bt = withFades(buildBeatTimeline(d.board, b.grid!, format, 60, b.captures, 'zh'), b.captures, 60);
-    const bs = cutStarts(bt.scenes.map((s, i) => cut(s.scene.id, s.dur, bt.fadeBefore[i] ? XFADE : 0)), 60);
-    assert.deepEqual(bs, bt.scenes.map((s) => Math.max(0, s.start)), `beat ${format}`);
   }
 });

@@ -4,6 +4,8 @@ import { useEffect, useState } from 'react';
 export interface Prefs {
   // Help text under panels, the chat's tips and suggestions
   hints: boolean;
+  // The right panel (AI assistant, properties) runs the full height; the timeline ends at its edge
+  sideFull: boolean;
   // Editing
   imageSec: number;
   imagePush: boolean;
@@ -24,6 +26,7 @@ export interface Prefs {
 
 export const DEFAULT_PREFS: Prefs = {
   hints: false,
+  sideFull: false,
   imageSec: 3,
   imagePush: true,
   newTransition: 'fade',

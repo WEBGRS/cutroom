@@ -137,6 +137,9 @@ export function SettingsPage({ tab, setTab, onClose, variant, setVariant }: { ta
         <Row label={tr('Hints and tips', '提示和说明')} desc={tr('Help lines in the panels, plus tips and sample requests in the AI chat', '面板里的说明文字，以及 AI 对话里的提示和示例')}>
           <Switch on={prefs.hints} onChange={(v) => set({ hints: v })} label={tr('Hints and tips', '提示和说明')} />
         </Row>
+        <Row label={tr('Full-height right panel', '右侧面板占满整列')} desc={tr('The AI assistant and properties run from the top bar to the bottom; the timeline stops at their edge', 'AI 助手和属性面板从顶栏一直通到底部，时间线让到左边')}>
+          <Switch on={prefs.sideFull} onChange={(v) => set({ sideFull: v })} label={tr('Full-height right panel', '右侧面板占满整列')} />
+        </Row>
         <Row label={tr('Restore defaults', '恢复默认设置')} desc={tr('Resets everything on this page except the language, AI connection and export folder', '恢复本页所有设置（界面语言、AI 连接、导出文件夹除外）')}>
           <button className="btn" onClick={resetPrefs}>
             {tr('Restore', '恢复')}
@@ -167,7 +170,7 @@ export function SettingsPage({ tab, setTab, onClose, variant, setVariant }: { ta
           <Num value={prefs.overlaySec} min={0.3} max={20} step={0.1} unit={tr('s', '秒')} onChange={(v) => set({ overlaySec: v })} />
         </Row>
         <h4>{tr('Timeline', '时间线')}</h4>
-        <Row label={tr('Snapping', '吸附')} desc={tr('The playhead, trimmed edges, sound effects and overlays snap to cuts, recording marks, captions, beats and each other while you drag. N toggles it; hold Alt to drag freely.', '拖动播放头、裁剪边缘、音效和叠加元素时，自动吸到切点、录屏打点、字幕起点、节拍和彼此上。按 N 开关；按住 Alt 拖动可临时不吸。')}>
+        <Row label={tr('Snapping', '吸附')} desc={tr('The playhead, trimmed edges, sound effects and overlays snap to cuts, recording marks, captions and each other while you drag. N toggles it; hold Alt to drag freely.', '拖动播放头、裁剪边缘、音效和叠加元素时，自动吸到切点、录屏打点、字幕起点和彼此上。按 N 开关；按住 Alt 拖动可临时不吸。')}>
           <Switch on={prefs.snap} onChange={(v) => set({ snap: v })} label={tr('Snapping', '吸附')} />
         </Row>
         <Row label={tr('Follow the playhead', '播放时跟随播放头')} desc={tr('Scroll the timeline while playing so the playhead stays in view', '播放时时间线自动滚动，播放头一直在视野内')}>

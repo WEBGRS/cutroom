@@ -1,6 +1,6 @@
 // Voice-over engines and their voices, shared by the server, the CLI and the UI
 
-export type EngineId = 'builtin' | 'openai' | 'gemini' | 'qwen' | 'test';
+export type EngineId = 'builtin' | 'local' | 'openai' | 'gemini' | 'qwen' | 'test';
 
 export interface VoiceDef {
   id: string;
@@ -9,6 +9,8 @@ export interface VoiceDef {
   // Language the voice was made for; 'any' speaks both
   lang: 'zh' | 'en' | 'any';
   gender?: 'f' | 'm';
+  // The user's own voice (HD engine): how it was made
+  mine?: 'record' | 'import' | 'design';
 }
 
 export interface EngineDef {
@@ -44,6 +46,29 @@ const kokoroVoices = (): VoiceDef[] =>
     return { id, en: `${f ? 'Female' : 'Male'} ${Number(n)}`, zh: `${f ? '女声' : '男声'} ${Number(n)}`, lang: 'zh', gender: f ? 'f' : 'm' };
   });
 
+// HD voices (Qwen3-TTS on this computer): each preset is cloned from a reference clip in editor/voices/<id>.wav
+export const LOCAL_PRESETS: VoiceDef[] = [
+  { id: 'casual_m', en: 'Casual · male', zh: '随口聊 · 男', lang: 'zh', gender: 'm' },
+  { id: 'casual_f', en: 'Casual · female', zh: '随口聊 · 女', lang: 'zh', gender: 'f' },
+  { id: 'calm_m', en: 'Explainer · male', zh: '讲解 · 男', lang: 'zh', gender: 'm' },
+  { id: 'bright_f', en: 'Lively · female', zh: '活泼 · 女', lang: 'zh', gender: 'f' },
+  { id: 'en_m', en: 'Casual · male (US)', zh: '随口聊 · 男（美式英语）', lang: 'en', gender: 'm' },
+  { id: 'en_f', en: 'Casual · female (US)', zh: '随口聊 · 女（美式英语）', lang: 'en', gender: 'f' },
+];
+
+// What each reference clip says; a recording of your own voice reads the line for its language
+export const LOCAL_REF_TEXT: Record<string, string> = {
+  casual_m: '哎，跟你说个事儿。我前阵子自己做了个小网站，其实就是因为选课的时候老得开一堆网页，烦死了。你看，就这个，搜一下就出来了，还挺好用的。',
+  casual_f: '哎，跟你说个事儿。我最近在 GitHub 上发现一个挺有意思的小工具，以前剪个视频要折腾一下午，现在十分钟就搞定了，真的方便太多了。',
+  calm_m: '哎，跟你说个事儿。我最近在 GitHub 上发现一个挺有意思的小工具，以前剪个视频要折腾一下午，现在十分钟就搞定了，真的方便太多了。',
+  bright_f: '哎，跟你说个事儿。我最近在 GitHub 上发现一个挺有意思的小工具，以前剪个视频要折腾一下午，现在十分钟就搞定了，真的方便太多了。',
+  en_m: "Hey, so I found this little tool on GitHub the other day. Editing a video used to take me a whole afternoon, and now it's done in about ten minutes. Honestly, it's so much easier.",
+  en_f: "Hey, so I found this little tool on GitHub the other day. Editing a video used to take me a whole afternoon, and now it's done in about ten minutes. Honestly, it's so much easier.",
+  check: '好了，可以用了。',
+};
+// The sentence you read aloud when recording your own voice
+export const RECORD_TEXT = { zh: LOCAL_REF_TEXT.casual_f, en: LOCAL_REF_TEXT.en_m };
+
 const named = (list: [string, string, string, ('f' | 'm')?][]): VoiceDef[] => list.map(([id, en, zh, gender]) => ({ id, en, zh, lang: 'any', gender }));
 
 export const ENGINES: EngineDef[] = [
@@ -55,6 +80,15 @@ export const ENGINES: EngineDef[] = [
     noteZh: '免费、离线。第一次用要下载一次语音模型。100 个中文音色，3 个英文音色。',
     voices: kokoroVoices(),
     def: { zh: 'zm_041', en: 'af_maple' },
+  },
+  {
+    id: 'local',
+    en: 'HD voices (on this computer)',
+    zh: '高清配音（本机）',
+    noteEn: 'Qwen3-TTS: sounds like a person talking and reads English words inside Chinese. Free, runs on your graphics card (NVIDIA, 6 GB or more); installs once, about 10 GB. Can also speak in your own voice.',
+    noteZh: 'Qwen3-TTS：像真人说话，中文里夹英文也读得顺。免费，用你的显卡运行（NVIDIA，6 GB 以上显存），装一次约 10 GB。还能用你自己的声音。',
+    voices: LOCAL_PRESETS,
+    def: { zh: 'casual_m', en: 'en_m' },
   },
   {
     id: 'openai',

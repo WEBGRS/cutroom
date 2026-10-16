@@ -10,6 +10,7 @@ import { PUBLIC, STATE, readDoc, writeTimings } from './store';
 import { readSettings, writeSettings, L } from './settings';
 import { preset } from './compat';
 import { ENGINES, KOKORO, SAMPLE, TEST_ENGINE, engineDef, type EngineDef, type EngineId } from './voices';
+import { customVoices, localReady, speakLocal } from './localvoice';
 
 export type Lang = 'zh' | 'en';
 const TEST = () => process.env.CUTROOM_VOICE_TEST === '1';
@@ -37,18 +38,23 @@ export function writeVoiceSettings(p: { engine?: string; voice?: string; lang?: 
   if (p.engine && engineDef(p.engine, TEST())) s.engine = p.engine as EngineId;
   if (p.voice) {
     const def = engineDef(s.engine, TEST())!;
-    if (!def.voices.some((v) => v.id === p.voice)) throw new Error(L(`No voice ${p.voice} in ${def.en}`, `${def.zh}里没有音色 ${p.voice}`));
+    if (!hasVoice(def, p.voice)) throw new Error(L(`No voice ${p.voice} in ${def.en}`, `${def.zh}里没有音色 ${p.voice}`));
     s.voices = { ...s.voices, [s.engine]: { ...(s.voices[s.engine] ?? {}), [p.lang ?? 'zh']: p.voice } };
   }
   if (typeof p.speed === 'number' && p.speed >= 0.5 && p.speed <= 2) s.speed = Math.round(p.speed * 100) / 100;
-  writeSettings({ voice: s });
+  // Keep other voice keys (the HD install's paths)
+  writeSettings({ voice: { ...(readSettings().voice ?? {}), ...s } });
   return s;
 }
+
+// Voices of an engine; the HD engine adds the user's own
+export const voicesOf = (def: EngineDef) => (def.id === 'local' ? [...def.voices, ...customVoices()] : def.voices);
+const hasVoice = (def: EngineDef, id: string | undefined) => !!id && voicesOf(def).some((v) => v.id === id);
 
 export const voiceOf = (s: VoiceSettings, engine: EngineId, lang: Lang) => {
   const def = engineDef(engine, TEST())!;
   const id = s.voices[engine]?.[lang];
-  return def.voices.some((v) => v.id === id) ? id! : def.def[lang];
+  return hasVoice(def, id) ? id! : def.def[lang];
 };
 
 // Key for a cloud engine: env variable first, then the key saved for that preset in Settings › AI
@@ -463,6 +469,7 @@ export function notReady(engine: EngineId): string | null {
   const def = engineDef(engine, TEST())!;
   if (def.keyPreset && !keyFor(def)) return L(`Add a ${preset(def.keyPreset)?.en ?? def.en} key in Settings › AI to use these voices`, `要用这些音色，先在「设置 › AI」里填 ${preset(def.keyPreset)?.zh ?? def.zh} 的 Key`);
   if (engine === 'builtin' && !modelInstalled()) return L('The built-in voices need their model: download it in the Voiceover panel first', '内置配音需要先在「配音」面板下载语音模型');
+  if (engine === 'local' && !localReady()) return L('The HD voices are not installed yet: install them in the Voiceover panel', '高清配音还没安装，先在「配音」面板安装');
   return null;
 }
 
@@ -483,6 +490,15 @@ async function synthOne(engine: EngineId, voice: string, text: string, lang: Lan
       const sid = Math.max(0, KOKORO.speakers.indexOf(voice));
       const a = useCli() ? await cliSynth(speakable(text, lang), sid, speed) : await withKokoro((t) => t.generateAsync({ text: speakable(text, lang), sid, speed }));
       return { samples: a.samples, sr: a.sampleRate };
+    }
+    case 'local': {
+      const out = path.join(os.tmpdir(), `cutroom-hd-${process.pid}-${crypto.randomBytes(6).toString('hex')}.wav`);
+      try {
+        await speakLocal({ text: plain(text), lang, voice, speed, out });
+        return decodeWav(fs.readFileSync(out));
+      } finally {
+        fs.rmSync(out, { force: true });
+      }
     }
     case 'openai': {
       const r = await fetch(`${OPENAI_BASE().replace(/\/+$/, '')}/audio/speech`, {
@@ -600,7 +616,7 @@ export async function voiceProject(run: VoiceRun, onProgress?: (p: VoiceProgress
   const engine = run.engine && engineDef(run.engine, TEST()) ? run.engine : settings.engine;
   const voice = run.voice ?? voiceOf(settings, engine, run.lang);
   const def = engineDef(engine, TEST())!;
-  if (!def.voices.some((v) => v.id === voice)) throw new Error(L(`No voice ${voice} in ${def.en}`, `${def.zh}里没有音色 ${voice}`));
+  if (!hasVoice(def, voice)) throw new Error(L(`No voice ${voice} in ${def.en}`, `${def.zh}里没有音色 ${voice}`));
   const why = notReady(engine);
   if (why) throw new Error(why);
   const speed = settings.speed;
@@ -611,7 +627,9 @@ export async function voiceProject(run: VoiceRun, onProgress?: (p: VoiceProgress
   fs.mkdirSync(voDir, { recursive: true });
   const id = `${engine}:${voice}`;
   // The text rules version is part of the name, so a reading fix makes new files instead of reusing old ones
-  const fileOf = (text: string) => `vo/${crypto.createHash('md5').update(`${id}|${speed}|${lang}|${engine === 'builtin' ? `r${RULES}|` : ''}${text}`).digest('hex').slice(0, 12)}.wav`;
+  // The HD voice samples each take, so redoing a line asks for a new one instead of reusing the file
+  const take = run.redo && engine === 'local' ? `|${Date.now().toString(36)}` : '';
+  const fileOf = (text: string) => `vo/${crypto.createHash('md5').update(`${id}|${speed}|${lang}|${engine === 'builtin' ? `r${RULES}|` : ''}${text}${take}`).digest('hex').slice(0, 12)}.wav`;
 
   type Todo = { scene: string; k: number; line: Line; text: string };
   const inScope = (scene: string, k: number) => (!run.scenes?.length || run.scenes.includes(scene)) && (!run.lines?.length || run.lines.includes(`${scene}:${k}`));
@@ -646,8 +664,8 @@ export async function voiceProject(run: VoiceRun, onProgress?: (p: VoiceProgress
     done++;
     onProgress?.({ done, total: todo.length, line: t.text });
   };
-  // Cloud engines take a few requests at once; the built-in pool sets its own width
-  const width = !todo.length ? 0 : engine === 'builtin' ? (useCli() ? 3 : (await kokoroPool().catch(() => [null])).length) : engine === 'test' ? 4 : 3;
+  // Cloud engines take a few requests at once; the built-in pool sets its own width; the HD worker batches 4 lines
+  const width = !todo.length ? 0 : engine === 'builtin' ? (useCli() ? 3 : (await kokoroPool().catch(() => [null])).length) : engine === 'test' || engine === 'local' ? 4 : 3;
   const queue = [...todo];
   await Promise.all(
     Array.from({ length: Math.min(width, queue.length) }, async () => {
@@ -717,7 +735,7 @@ export function engineStatus() {
   const list = TEST() ? [...ENGINES, TEST_ENGINE] : ENGINES;
   return list.map((e) => ({
     id: e.id,
-    ready: e.id === 'builtin' ? modelInstalled() : e.keyPreset ? !!keyFor(e) : true,
-    need: e.id === 'builtin' ? (modelInstalled() ? undefined : 'model') : e.keyPreset && !keyFor(e) ? 'key' : undefined,
+    ready: e.id === 'builtin' ? modelInstalled() : e.id === 'local' ? localReady() : e.keyPreset ? !!keyFor(e) : true,
+    need: e.id === 'builtin' ? (modelInstalled() ? undefined : 'model') : e.id === 'local' ? (localReady() ? undefined : 'install') : e.keyPreset && !keyFor(e) ? 'key' : undefined,
   }));
 }
