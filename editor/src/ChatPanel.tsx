@@ -1,4 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
+import type { Workflow } from '../../src/lib/types';
+import { GateCard } from './GateCard';
+import { passText } from './gatekeys';
 import { Icon } from './icons';
 import { nm, tr } from './i18n';
 import type { AiRef } from './pick';
@@ -667,7 +670,7 @@ interface Pointing {
 }
 
 // Connection setup lives in Settings › AI; statusKey changes when that window closes
-export function ChatPanel({ slug, context, where, refs, onRemoveRef, onClearRefs, armed, onArm, focusKey, onSettings, statusKey, wide, onWide }: { slug: string; context: () => ChatContext; where: string; onSettings: () => void; statusKey: number; wide: boolean; onWide: () => void } & Pointing) {
+export function ChatPanel({ slug, workflow, context, where, refs, onRemoveRef, onClearRefs, armed, onArm, focusKey, onSettings, statusKey, wide, onWide }: { slug: string; workflow?: Workflow; context: () => ChatContext; where: string; onSettings: () => void; statusKey: number; wide: boolean; onWide: () => void } & Pointing) {
   const [items, setItems] = useState<Item[]>([]);
   const [status, setStatus] = useState<AiStatus | null>(null);
   const [running, setRunning] = useState(false);
@@ -723,12 +726,13 @@ export function ChatPanel({ slug, context, where, refs, onRemoveRef, onClearRefs
 
   const patchLast = (fn: (it: Item) => Item) => setItems((xs) => (xs.length ? [...xs.slice(0, -1), fn(xs[xs.length - 1])] : xs));
 
-  const send = async (text = input) => {
+  // withRefs false: the refs stay in the input for a later message
+  const send = async (text = input, withRefs = true) => {
     const msg = text.trim();
-    const sent = refs;
+    const sent = withRefs ? refs : [];
     if ((!msg && !sent.length) || running) return;
     setInput('');
-    onClearRefs();
+    if (withRefs) onClearRefs();
     setRunning(true);
     setItems((xs) => [...xs, { role: 'user', text: msg, refs: sent.map((r) => r.label), tools: [] }, { role: 'assistant', text: '', tools: [], pending: true }]);
     try {
@@ -953,6 +957,18 @@ ${text}` : text));
         )}
       </div>
       {provider || !status ? (
+        <>
+          {workflow?.waiting && !running ? (
+            <GateCard
+              slug={slug}
+              workflow={workflow}
+              onPass={(m) => {
+                // Words already typed in the input go with the pass message
+                const p = passText(m, input);
+                void send(p.text, p.withRefs);
+              }}
+            />
+          ) : null}
         <div className="chat-input">
           {hints ? <div className="ctx">{where}</div> : null}
           {refs.length ? (
@@ -1037,6 +1053,7 @@ ${text}` : text));
             )}
           </div>
         </div>
+        </>
       ) : null}
     </div>
   );

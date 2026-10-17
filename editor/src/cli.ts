@@ -8,6 +8,8 @@ import { editTimeline, fmtTime, lineFrames, type ETimeline } from './model';
 import { addScene, duplicateScene, getPath, moveScene, removeScene, replaceScene, setMinSec, setPath, splitPoint, splitScene, toggleTall, trimEdge, uniqueId, type Caps, type Op } from './ops';
 import { PUBLIC, STATE, readDoc, readLog, readSnapshot, slugs, writeDoc } from './store';
 import { HELP as HELP_TEXT } from './help';
+import { briefCmd, flowCmd, formatFor, plansCmd, reviewFallback, reviewLogCmd, lengthNote, saveReview, tableNotes } from './flowcli';
+import { callReviewer } from './review';
 import { catalogText } from './catalog';
 import { boardTemplate, sceneTemplate } from './templates';
 import { installModel, lineStates, modelInstalled, voiceOf, voiceProject, voiceSettings, voicesOf, writeVoiceSettings } from './voice';
@@ -26,6 +28,10 @@ import { analyzeFocus } from './reframe';
 import { pcm, probe } from './media';
 import { speechRanges } from './silence';
 import { renderFrames } from './look';
+import { reviewFrames } from './reviewframes';
+import { reviewSheets } from './sheets';
+import { checklistText, readBrief } from './stagefiles';
+import { contentKey } from './flow';
 import { importHtml, isHtml, lintHtml, listHtml, pageName, readHtml, starterHtml, writeHtml } from './htmlfiles';
 import { varValues } from '../../src/lib/html';
 import { MUSIC_LUFS, STUDIO_URL, api, ensureStudio, expand, installTrack, libraryText, rangeWarnings, renderProject, slugOf, studioHome, type Draft, type Inst } from './compose';
@@ -80,6 +86,8 @@ const allFlag = has('all');
 const keepOverlays = has('keep-overlays');
 const lufsArg = flag('lufs');
 const textArg = flag('text');
+const atArg = flag('at');
+const motionArg = flag('motion');
 // An option this CLI doesn't know is an error, not something to silently ignore
 const unknown = args.find((a) => /^--[a-z][\w-]*$/.test(a));
 if (unknown) {
@@ -100,8 +108,8 @@ const getDims = async (p: string) => {
   return b.toString('ascii', 1, 4) === 'PNG' ? { w: b.readUInt32BE(16), h: b.readUInt32BE(20) } : { w: 1920, h: 4000 };
 };
 
-async function timeline(doc = readDoc(slug).doc): Promise<{ tl: ETimeline; props: Props; caps: Caps }> {
-  const base: Props = { slug, format, lang };
+async function timeline(doc = readDoc(slug).doc, fmt: Format = format): Promise<{ tl: ETimeline; props: Props; caps: Caps }> {
+  const base: Props = { slug, format: fmt, lang };
   const loaded = await loadProps(base, getJson, getDims, doc.board);
   const props = { ...loaded.props, timings: lang === 'en' ? doc.timings.en : doc.timings.zh };
   return { tl: editTimeline(props, loaded.fps), props, caps: props.captures ?? {} };
@@ -249,6 +257,7 @@ async function main() {
     case 'set': {
       const [id, p, ...v] = rest;
       const raw = v.join(' ');
+      if (id === '-' && (p ?? '').split('.').filter(Boolean)[0] === 'workflow') throw new Error('the workflow changes only through flow commands (and the user’s buttons in the panel)');
       let value: unknown;
       if (raw === 'undefined') value = undefined;
       else
@@ -438,6 +447,34 @@ async function main() {
       return swapCmd(rest);
     case 'plan':
       return planCmd();
+    case 'flow':
+      return flowCmd(slug, doc, rest, save);
+    case 'brief':
+      return briefCmd(slug, rest);
+    case 'plans':
+      return plansCmd(slug, rest, { at: atArg, motion: motionArg, format, formatGiven, boardFormat: doc.board.format });
+    case 'review': {
+      if (rest[0] === 'log') return reviewLogCmd(slug, doc, rest.slice(1).join(' '), save);
+      const fmt = formatFor({ format, formatGiven, boardFormat: doc.board.format });
+      if (rest[0] === 'run') {
+        const args = rest.slice(1);
+        const version = contentKey(readDoc(slug).doc.board);
+        const { images, scope } = await reviewRender(args, fmt);
+        const server = process.env.CUTROOM_SERVER ?? `http://127.0.0.1:${process.env.PORT ?? 8814}`;
+        const brief = readBrief(slug) ?? '';
+        const table = (await planLines(fmt)).join(String.fromCharCode(10));
+        console.log('asking an independent reviewer (a fresh run of your AI connection, no chat history)…');
+        // node:http, not fetch: a reviewer run can take longer than fetch waits for response headers (5 min)
+        const r = await callReviewer(server, { slug, brief, table, scope, images, partial: args.length > 0 });
+        if (!r.text) return console.log(reviewFallback(r.unavailable ?? r.error ?? 'unknown error'));
+        saveReview(slug, r.text, version, save);
+        return;
+      }
+      // Looking only: review run renders the same sheets and has them judged
+      await reviewRender(rest, fmt);
+      console.log(`\nchecklist:\n${checklistText()}\nTo have them judged: review run ${rest.join(' ')} (it renders these sheets again itself); if that is not available, open both sheets, judge them as a critic and save it with review log '<report>' (first line ready or revise, then scope:, scores: P 8 F 7 …, numbered problems with scene id, time, problem, fix).`);
+      return;
+    }
     case 'rules': {
       const [sub, ...words] = rest;
       if (sub === 'add') {
@@ -503,39 +540,66 @@ function spokenShare(screen: string, said: string): number {
 }
 const ACTION = /点击|点开|打开|拖|输入|搜索|选中|切换|导出|上传|录制|安装|运行|\b(click|open|drag|type|search|select|switch|export|upload|install|run|press)\b/i;
 const FOOTAGE_KINDS = new Set(['screen', 'clip', 'image', 'html', 'scroll']);
-async function planCmd() {
+// Frames for a review, joined into a contact sheet and a phone-size sheet; image lines the AI opens
+async function reviewRender(args: string[], fmt: Format): Promise<{ images: string[]; scope: string }> {
+  const { tl } = await timeline(readDoc(slug).doc, fmt);
+  const { frames, scope, dropped } = reviewFrames(tl.scenes, tl.total, tl.fps, args);
+  console.log(`rendering ${frames.length} frames of ${slug} (${fmt}) for review: ${scope}${dropped ? `; ${dropped} more thinned out, name scenes or a time range to see them` : ''}`);
+  const shots = await renderFrames({ slug, format: fmt, lang, frames, log: (s) => console.log(s) });
+  const sheets = await reviewSheets(slug, shots, fmt);
+  const images = sheets ? [sheets.sheet, sheets.phone] : shots.map((s) => path.resolve(s.file));
+  if (sheets) {
+    console.log(`image: ${sheets.sheet}  (contact sheet: ${scope})`);
+    console.log(`image: ${sheets.phone}  (phone size, 360 px per frame)`);
+  } else for (const s of shots) console.log(`image: ${path.resolve(s.file)}  (${s.label})`);
+  return { images, scope };
+}
+async function planLines(fmt: Format = format): Promise<string[]> {
+  const out: string[] = [];
   const { doc } = readDoc(slug);
-  const { tl } = await timeline(doc);
+  const { tl } = await timeline(doc, fmt);
   const fps = tl.fps;
   const cut = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
-  console.log(`${slug} · plan (${lang}, ${format}): what each scene says, what its picture adds, the text on screen`);
+  out.push(`${slug} · plan (${lang}, ${fmt}): what each scene says, what its picture adds, the text on screen`);
   let flagged = 0;
   for (const e of tl.scenes) {
     const sc = doc.board.scenes.find((x) => x.id === e.id)!;
-    const v = (format === 'tall' && sc.tall ? sc.tall : sc.visual) as { kind: string; src?: string };
+    const v = (fmt === 'tall' && sc.tall ? sc.tall : sc.visual) as { kind: string; src?: string };
     const said = e.lines.map((l) => l.text).join(' ');
     const text = [...screenText(v), ...(sc.overlays ?? []).flatMap((o) => (o && 'text' in o && typeof o.text === 'string' ? [o.text] : []))].map((t) => plain(t).replace(/\s+/g, ' ')).join(' / ');
     const shows = v.kind === 'screen' ? `recording ${v.src} ${e.from?.toFixed(1)}→${e.to?.toFixed(1)} s` : v.src ? `${v.kind} ${v.src}` : `${v.kind} card`;
-    console.log(`${String(e.index + 1).padStart(2)} ${pad(e.id, 12)} ${fmtTime(e.start, fps).padStart(7)} ${sec(e.dur, fps).padStart(5)}s`);
-    if (sc.shot) console.log(`     shot:  ${cut(sc.shot.replace(/\s+/g, ' '), 110)}`);
-    console.log(`     says:  ${said ? cut(said, 110) : '(no narration)'}`);
-    console.log(`     shows: ${shows}`);
-    if (text) console.log(`     text:  ${cut(text, 110)}`);
+    out.push(`${String(e.index + 1).padStart(2)} ${pad(e.id, 12)} ${fmtTime(e.start, fps).padStart(7)} ${sec(e.dur, fps).padStart(5)}s`);
+    if (sc.shot) out.push(`     shot:  ${cut(sc.shot.replace(/\s+/g, ' '), 110)}`);
+    if (sc.role) out.push(`     role:  ${sc.role} (${sc.role === 'a' ? 'real footage of the product' : 'made explanation'})`);
+    if (sc.intent) out.push(`     intent: ${cut(sc.intent.replace(/\s+/g, ' '), 110)}`);
+    if (sc.seam) out.push(`     seam:  ${cut(sc.seam.replace(/\s+/g, ' '), 110)}`);
+    out.push(`     says:  ${said ? cut(said, 110) : '(no narration)'}`);
+    out.push(`     shows: ${shows}`);
+    if (text) out.push(`     text:  ${cut(text, 110)}`);
     const share = text && said ? spokenShare(text, said) : 0;
     if (share >= 0.6 && [...plain(text)].length >= 8) {
       flagged++;
-      console.log(`     ! ${Math.round(share * 100)}% of the on-screen text is also spoken: the picture repeats the words instead of adding to them (show the thing itself, or cut the text to a short label)`);
+      out.push(`     ! ${Math.round(share * 100)}% of the on-screen text is also spoken: the picture repeats the words instead of adding to them (show the thing itself, or cut the text to a short label)`);
     }
     if (!sc.shot?.trim()) {
       flagged++;
-      console.log(`     ! no shot design: write what this shot shows and how it is made (set ${e.id} shot "<page or app · actions · camera>")`);
+      out.push(`     ! no shot design: write what this shot shows and how it is made (set ${e.id} shot "<page or app · actions · camera>")`);
     }
     if (said && ACTION.test(said) && !FOOTAGE_KINDS.has(v.kind)) {
       flagged++;
-      console.log(`     ! the narration describes doing something, but the picture is a ${v.kind} card: footage of it would show it (record, record-window, or import, then swap ${e.id} cap/<name>.mp4)`);
+      out.push(`     ! the narration describes doing something, but the picture is a ${v.kind} card: footage of it would show it (record, record-window, or import, then swap ${e.id} cap/<name>.mp4)`);
     }
   }
-  console.log(flagged ? `${flagged} note(s). A note is a suggestion: the user's request decides.` : 'no notes');
+  const table = tableNotes(doc, slug);
+  const len = doc.board.workflow ? lengthNote(tl.total / fps, readBrief(slug)) : null;
+  if (len) table.push(len);
+  for (const n of table) out.push(n);
+  flagged += table.length;
+  out.push(flagged ? `${flagged} note(s). A note is a suggestion: the user's request decides.` : 'no notes');
+  return out;
+}
+async function planCmd() {
+  for (const l of await planLines()) console.log(l);
 }
 
 // Windows a desktop recording can capture, front to back; a word narrows the list to matching titles or programs

@@ -70,6 +70,21 @@ export const HELP = `node editor/dist/cli.mjs <slug> <command> [args] [--format 
                            name a moment in a recording (for imported ones, or a Mark that was missed)
   plan                     production table: per scene what the narration says, what the picture shows and the text
                            on screen; notes where the picture repeats the words or an action has no footage
+  flow                     whole-video process: mode, stage, files, and the current stage's contract (run it first in every
+                           turn of a whole-video build). flow start plan+sample|plan|none · flow stage <stage> · flow wait plan|sample
+                           · flow choose a|b|c (mode none: the plan you took; the reviewer judges the look against it)
+  brief | brief write '<text>'   the video's brief.md (seven blocks; features:, terms:, data: lists); write reports what is missing.
+                           Long text: brief write - (reads stdin) or brief write <file>
+  plans | plans write <a|b|c> '<md>'   the three plans (long text: plans write <a|b|c> - for stdin, or a file path)
+  plans preview <a|b|c> '<scene json>' [--at s] [--motion s]   render that plan's key shot (any scene: html page, card, image,
+                           recording) like the export, saved to plans/plan-<x>.jpeg; --motion 3 also makes a 3 s clip
+  review [id … | a-b …]    contact sheet + phone-size sheet, to look at: every scene's middle and both sides of every cut; ids = only
+                           those scenes and their cuts (the sample); a-b = a frame every 0.5 s in that time range. Board's size
+                           unless --format is given
+  review run [id … | a-b …]   renders the same sheets itself and has them judged by an independent reviewer (a fresh run of
+                           the AI connection that sees only brief.md, the chosen plan, the shot table and the sheets); saves the
+                           round. Claude Code, API key or OpenAI-compatible
+  review log '<report>'    save a self-review round: first line ready|revise, then scope:, scores: (P 8 F 7 …), numbered problems
   rules [add "…" | rm <n>] [--all]
                            the user's standing rules (this project; --all = every project), read with every request
   swap <id> <src> [--tall] [--keep-overlays]

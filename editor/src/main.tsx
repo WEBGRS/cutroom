@@ -1,3 +1,4 @@
+import { NewProjectDialog } from './NewProjectDialog';
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Player, type PlayerRef } from '@remotion/player';
@@ -246,7 +247,7 @@ function App() {
   const [pickArmed, setPickArmed] = useState(false);
   const [pickHl, setPickHl] = useState<{ x: number; y: number; w: number; h: number; label: string } | null>(null);
   const [chatFocus, setChatFocus] = useState(0);
-  const [ask, setAsk] = useState<{ title: string; hint: string; ok: (v: string) => void } | null>(null);
+  const [newOpen, setNewOpen] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
   const pendingAdd = useRef<string | null>(null);
@@ -948,18 +949,7 @@ function App() {
   const fh = fw / ar;
 
   // Electron has no window.prompt, so new projects use an in-app dialog
-  const newProject = () =>
-    setAsk({
-      title: tr('New project', '新建项目'),
-      hint: tr('Letters, digits and dashes only, e.g. my-first-video', '项目名只用英文字母、数字和横线，例如 my-first-video'),
-      ok: async (name) => {
-        const r = await fetch('/api/projects', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ slug: name, title: name }) });
-        const j = await r.json();
-        if (!r.ok) return flash(j.error ?? tr('Could not create the project', '新建失败'), 'error');
-        setProjects(await getProjects());
-        update({ slug: j.slug });
-      },
-    });
+  const newProject = () => setNewOpen(true);
   const ctxNow = () => ({ format: st.format, lang: st.lang, variant: st.variant, sel, t: (player?.getCurrentFrame() ?? 0) / fps });
   const versionText = `${st.format === 'tall' ? tr('9:16 vertical', '竖屏 9:16') : tr('16:9 widescreen', '横屏 16:9')} · ${st.lang === 'en' ? tr('English', '英文版') : tr('Chinese', '中文版')}${st.variant === 'clean' ? tr(' · no URLs', ' · 无网址') : ''}`;
   const where = `${sel ? tr(`Selected: ${sel}`, `选中 ${sel}`) : tr('No scene selected', '未选中段落')} · ${versionText}`;
@@ -1297,6 +1287,7 @@ function App() {
           {side === 'ai' ? (
             <ChatPanel
               slug={st.slug}
+              workflow={doc?.board.workflow}
               context={ctxNow}
               where={where}
               refs={aiRefs}
@@ -1500,33 +1491,18 @@ function App() {
         </div>
       ) : null}
       {toast ? <div className={`toast${toast.kind === 'error' ? ' error' : ''}`}>{toast.text}</div> : null}
-      {ask ? <AskDialog {...ask} close={() => setAsk(null)} /> : null}
-    </div>
-  );
-}
-
-function AskDialog({ title, hint, ok, close }: { title: string; hint: string; ok: (v: string) => void; close: () => void }) {
-  const [v, setV] = useState('');
-  const submit = () => {
-    if (!v.trim()) return;
-    close();
-    ok(v.trim());
-  };
-  return (
-    <div className="modal-back" onPointerDown={close}>
-      <div className="modal" onPointerDown={(e) => e.stopPropagation()}>
-        <h3>{title}</h3>
-        <input autoFocus value={v} onChange={(e) => setV(e.target.value)} onKeyDown={(e) => (e.key === 'Enter' ? submit() : e.key === 'Escape' ? close() : undefined)} />
-        <div className="hint">{hint}</div>
-        <div className="modal-acts">
-          <button className="ghost" onClick={close}>
-            {tr('Cancel', '取消')}
-          </button>
-          <button className="primary" onClick={submit} disabled={!v.trim()}>
-            {tr('Create', '创建')}
-          </button>
-        </div>
-      </div>
+      {newOpen ? (
+        <NewProjectDialog
+          close={() => setNewOpen(false)}
+          ok={async ({ slug: name, format, gates }) => {
+            const r = await fetch('/api/projects', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ slug: name, title: name, format, gates }) });
+            const j = await r.json();
+            if (!r.ok) return flash(j.error ?? tr('Could not create the project', '新建失败'), 'error');
+            setProjects(await getProjects());
+            update({ slug: j.slug });
+          }}
+        />
+      ) : null}
     </div>
   );
 }

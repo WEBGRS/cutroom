@@ -39,3 +39,16 @@ test('Gemini CLI gets Cutroom’s shell and file tools only with full tools pass
   assert.equal(full.mcpServers.cutroom.env.CUTROOM_FULL, '1');
   assert.equal(full.mcpServers.cutroom.env.CUTROOM_SERVER, 'http://127.0.0.1:1');
 });
+
+test('the independent reviewer runs in the look folder and can only read there', async () => {
+  const { lookDir } = await import('../src/look');
+  const { args, cwd } = C.reviewerSpawn('prompt.md', 'opus');
+  assert.equal(cwd, lookDir());
+  assert.ok(!args.includes('--resume'));
+  const allowed = args.slice(args.indexOf('--allowedTools') + 1, args.indexOf('--disallowedTools'));
+  assert.equal(allowed.length, 1);
+  assert.match(allowed[0], /^Read\(/);
+  const denied = args.slice(args.indexOf('--disallowedTools') + 1);
+  for (const t of ['Bash', 'Edit', 'Write', 'NotebookEdit', 'WebFetch', 'WebSearch', 'Glob', 'Grep', 'LS', 'Task', 'TodoWrite', 'Skill']) assert.ok(denied.includes(t), t);
+  assert.deepEqual(args.slice(-2), ['--model', 'opus']);
+});

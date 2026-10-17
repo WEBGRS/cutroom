@@ -272,6 +272,12 @@ export interface Scene {
   id: string;
   // Shot design: what this shot shows and how it is made (page or app, actions, camera), for people and the assistant
   shot?: string;
+  // Whole-video process: a = real footage of the product, b = made explanation (cards, HTML)
+  role?: 'a' | 'b';
+  // The one conclusion the viewer takes from this scene
+  intent?: string;
+  // What carries over the cut into the next scene, and in what state
+  seam?: string;
   lines: Line[];
   visual: Visual;
   tall?: Visual;
@@ -300,6 +306,38 @@ export interface Theme {
   bgFx?: string;
 }
 
+// How much the user checks during a whole-video build, and where the project is
+export type Gates = 'plan+sample' | 'plan' | 'none';
+export type Stage = 'brief' | 'plans' | 'script' | 'table' | 'sample' | 'full' | 'sound' | 'review' | 'done';
+export type Gate = 'plan' | 'sample';
+
+export interface ReviewRound {
+  round: number;
+  at: string;
+  by: 'independent' | 'self';
+  // sample = a round at the sample stage, batch = a check at any other stage but review; only final rounds count toward the round limit
+  phase: 'sample' | 'batch' | 'final';
+  verdict: 'ready' | 'revise';
+  // What was looked at
+  scope: string;
+  // 1–10 per checklist group
+  scores: Record<string, number>;
+  defects: number;
+  // contentKey of the board that was reviewed
+  version: string;
+}
+
+export interface Workflow {
+  gates: Gates;
+  stage: Stage;
+  waiting?: Gate;
+  // Set only by the panel
+  passed?: Gate[];
+  choice?: string;
+  review?: ReviewRound;
+  startedAt?: string;
+}
+
 export interface Storyboard {
   slug: string;
   title: string;
@@ -309,6 +347,8 @@ export interface Storyboard {
   fps?: number;
   // Size the video is made for; the editor opens in it
   format?: Format;
+  // Staged process for making a whole video; absent on projects that don't use it
+  workflow?: Workflow;
   theme: Theme;
   music?: { src: string; volume?: number; duck?: number; fadeIn?: number; fadeOut?: number };
   captions?: CaptionStyle;

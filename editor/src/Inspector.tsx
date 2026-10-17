@@ -1,10 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react';
-import type { Format, Fx, Overlay, Scene, SoundCue, StatsVisual, Visual } from '../../src/lib/types';
+import type { Format, Fx, Gates, Overlay, Scene, SoundCue, StatsVisual, Visual } from '../../src/lib/types';
 import { SOUNDS, SOUND_CATS, soundDef, soundSrc } from '../../src/fx/sounds';
 import { fmtTime, visualKey, type ETimeline } from './model';
 import { getPath, removeSound, replaceScene, setPath, toggleTall, type Caps, type Doc, type Op } from './ops';
 import { BOARD_FX, CARD_LIST, DIR_LIST, DIR_TRANSITIONS, LOWER_LIST, OVERLAY_LIST, RULES, SCENE_FX, TEXT_LIST, TRANSITION_LIST, allFields, type FieldDef } from './catalog';
 import { Field, FieldControl, JsonEdit, Row, asRef, isNum, num, refOk } from './Fields';
+import { MODE_OPTIONS, STAGE_LABEL, contentKey, newWorkflow, setMode } from './flow';
+import { Scores } from './GateCard';
 import { Icon } from './icons';
 import { nm, tr } from './i18n';
 import { getPrefs, usePrefs } from './prefs';
@@ -853,6 +855,40 @@ function BoardPanel(p: Props) {
               <option value="tall">{tr('9:16 vertical (TikTok, Douyin, Xiaohongshu)', '9:16 竖屏（抖音、小红书）')}</option>
             </select>
           </Row>
+          <Row label={tr('Whole-video checks', '整片把关')}>
+            <select
+              value={b.workflow?.gates ?? ''}
+              onChange={(e) => {
+                const v = e.target.value as Gates;
+                // From the board being committed, not the one this panel rendered (the AI may have moved the stage since)
+                p.commit((d) => setPath(d, null, 'workflow', d.board.workflow ? setMode(d.board.workflow, v) : newWorkflow(v)), { coalesce: 'board.workflow' });
+              }}
+            >
+              {b.workflow ? null : <option value="">{tr('Not set (edits only)', '未设置（只做修改）')}</option>}
+              {MODE_OPTIONS.map((o) => (
+                <option key={o.id} value={o.id}>
+                  {tr(o.en, o.zh)}
+                </option>
+              ))}
+            </select>
+          </Row>
+          {b.workflow ? (
+            <Row label={tr('Stage', '进度')}>
+              <span className="stage-line">
+                {tr(STAGE_LABEL[b.workflow.stage][0], STAGE_LABEL[b.workflow.stage][1])}
+                {b.workflow.waiting ? tr(' · waiting for you in the AI panel', ' · 在 AI 面板等你确认') : ''}
+              </span>
+            </Row>
+          ) : null}
+          {b.workflow?.review ? (
+            <Row label={tr('Last review', '最近审片')}>
+              <span className="stage-line">
+                {b.workflow.review.verdict === 'ready' ? tr('ready', '可交付') : tr('needs changes', '需要修改')}
+                {b.workflow.review.version !== contentKey(b) ? tr(' · out of date', ' · 已过期') : ''}
+              </span>
+              <Scores scores={b.workflow.review.scores} />
+            </Row>
+          ) : null}
           <Row label={tr('9:16 header', '竖屏顶栏')}>
             <Field value={b.header} placeholder={tr('Line at the top of 9:16', '竖屏顶部的一行字')} onCommit={(s) => set('header', s || undefined)} />
           </Row>

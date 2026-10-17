@@ -3,14 +3,17 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import Anthropic from '@anthropic-ai/sdk';
-import { PUBLIC, ROOT, STATE, appendLog, hash, snapshot } from './store';
+import { PUBLIC, ROOT, STATE, appendLog, hash, readDoc, snapshot } from './store';
+import { workflowSection } from './flowprompt';
+import { pausedLine } from './flow';
 import { killTree } from './proc';
 import { HELP } from './help';
-import { imagesIn, lookReadRule, pathRule } from './look';
+import { imagesIn, lookDir, lookReadRule, pathRule } from './look';
+import { REVIEWER_SYSTEM, reviewAnswer } from './review';
 import { catalogText } from './catalog';
 import { rulesBlock } from './rules';
 import { L, readSettings, writeSettings } from './settings';
-import { PRESETS, chatLoop, listModels, pickModel, ping, preset, trimHistory, type Conn } from './compat';
+import { PRESETS, askOnce, chatLoop, listModels, pickModel, ping, preset, trimHistory, type Conn } from './compat';
 import { AGENTS, agentDef, agentState, cliOf, forgetAgents, mcpEnv, startAgent, type AgentId } from './agents';
 import { FULL_TOOLS, fullLabel, isFullTool, runFullTool, type FullResult } from './fulltools';
 import { list as checkpoints, fileAt, noteOutside, placeOf, rollback, take, type Rollback } from './checkpoints';
@@ -405,23 +408,7 @@ ${how}${access}
 - Some commands take minutes (record, record-window, voice, look, export). Wait for them; don't run them twice.
 - When a command fails, read its message: it says what was wrong and usually the command that fixes it.
 
-## Workflow: do the steps the request needs, in this order
-0. Size first. Before you make the first version of a video (a new or empty project, or a request to make or rebuild a whole video), the size must be known: 16:9 widescreen (Bilibili, YouTube) or 9:16 vertical (Douyin, Xiaohongshu, Shorts, Reels). Take it from the request when it names one or a platform that implies one; otherwise ask only that, in one sentence, and stop until they answer. Then record it with \`set - format '"wide"'\` or \`set - format '"tall"'\` (the editor's preview switches to it) and build for it: \`ls\` and \`look\` with that --format, HTML scenes at its size, \`reframe\` for footage in 9:16. A project whose board already has a format has its size; don't ask again.
-1. Find out first. \`ls\` (with the --format of the user's current view, given in each message) shows the timeline; \`show <id>\` a scene's JSON; \`media\` the footage the project already has; \`windows <word>\` the apps open on this computer. Never ask the user for something these tell you. For a request to improve, restructure or review the video, also run \`plan\`: per scene what the narration says, what the picture shows and the text on screen, with notes where the picture only repeats the words or the words describe an action no footage shows.
-2. Shot list, before any recording for a new video or a rebuild: for each narration line write the page and the action that shows it ("courses site: search COMP SCI 400, open it, the grade chart"). Every site, page or feature the narration names gets footage of its own; a line goes only over footage of what it says. A home page that lists or links to things is not footage of those things: record each of them. Plan one scene per line or per page, and build from that list. Each scene is one shot: write its shot design into the scene with \`set <id> shot "…"\` (in the user's language: the page or app, the actions in order, the camera and any card or text, e.g. "选课网站：搜索框输入 COMP SCI 400，点开课程，镜头推近成绩分布"), so the user can read and change how every shot is made.
-3. Get the footage. Choose by what has to be on screen:
-   - A website or web app: \`inspect <url>\`, then \`record <name> <url> '<steps>'\`. You work it (scripted clicks and typing).
-   - Cutroom itself: \`record\` with this editor's address (below). You work it.
-   - A desktop app (JianyingPro/剪映, DaVinci Resolve, Excel, an IDE, a game, anything not in a browser): \`windows <word>\` to find it, then \`record-window <name> "<program or title>" --note "<what to do>" --marks <beat1>,<beat2>\`. The PERSON works the app while a record bar on their screen shows your note; the command returns when they press Stop. Clicks and pointer moves are logged, so the camera zooms in on each click like in a web recording.
-   - Several apps or the desktop: \`record-screen <name> [n] --note … --marks …\`, worked by the person the same way.
-   - A video they already have (OBS, Game Bar, a phone, an export): \`import <path>\`; name its key moments with \`mark <recording> <name> <seconds>\` (find them with \`look\` or \`shots\`).
-   - Something that doesn't exist as footage (numbers, a diagram, a comparison, a title): a card (\`add <kind>\`) or an HTML scene.
-4. Put it on the timeline. A new scene: \`add screen cap/<name>.mp4 <after-id>\`. Different footage in an existing scene (keeps its lines, sounds and transition; overlays made for the old picture are removed): \`swap <id> cap/<name>.mp4\`. Show only the part that matters: \`trim <id> --from @mark --to @mark\`.
-5. Words. Narration lines: \`set <id> lines '[…]'\` or \`set <id> lines.<k>.zh "…"\`; tie a line to the moment it describes with "at": "@mark".
-6. Voice. Run \`voice\` after lines change (it only voices lines without current audio).
-7. Look, line by line. \`look lines\` renders one frame in the middle of every narration line with that line's caption on it. Open every frame and check that the picture shows what its line says (the page, the feature, the result it names); for each one that doesn't, fix it (record the right page, swap, trim, move or rewrite the line) and look again. \`look <id>\` checks layout, text and colour in a scene.
-8. Check. Run \`check\` after your last edit (again if you changed anything since) and fix what it lists. A recording shorter than its narration can't be fixed by you alone: shorten the lines, or say in the reply that a longer recording is needed and how long.
-9. Reply (rules at the end).
+${workflowSection((() => { try { return readDoc(slug).doc.board; } catch { return null; } })())}
 
 ## Recording desktop apps (record-window / record-screen)
 - You can't click in desktop apps; the person can. So you never say a desktop app "can't be recorded": you record it through them.
@@ -470,10 +457,12 @@ ${rulesBlock(slug)}
 
 ## How to reply (this matters most)
 - The reply is plain text in the user's language, 1–3 short sentences: what you changed (scene ids, before → after), or the one thing you need from the user.
+- Exception: when \`flow stage done\` lists problems the reviewer still asks for, say that the reviewer's verdict is revise and name each listed problem in a short clause (scene and what is wrong); this reply may run longer than three sentences.
 - No headings, no bold, no bullet or numbered lists, no code blocks, no links, no menu of options, no explanations of how the editor works unless asked. Scene ids and file names are plain words (checklist-2, cap/demo.mp4).
 - If the request is ambiguous, pick the most likely reading, do it, and say which reading you chose.
 - Say that the words and the picture match only when you opened the \`look lines\` frame of every line; otherwise say which lines you checked.
 - When only the user can do something (open an app, work it while you record, hand over a file, sign in), first do everything else, then ask for exactly that in one sentence.
+- Your turn ends with your reply and nothing keeps running after it: never say you will keep polling, wait, or come back later. When something outside blocks you (a site limits requests, a login is needed, a file is missing), stop, say in one sentence what blocks you, and that they can send “继续”/“continue” once it is clear.
 - Do not print any status/canary line like "[dir · turn N]"; this is an app panel, not a terminal.
 - Good: "checklist-2 换成了你刚录的剪映画面（cap/jianying.mp4），两句字幕对齐到 @drag 和 @export，配音已更新。"
 - Good: "可以：checklist-2 讲剪映，我弹出录制条请你在剪映里拖一段素材到时间线；code-2 没有现成软件可录，建议保留代码卡片。要开始录吗？"
@@ -829,13 +818,19 @@ function viaClaudeCode(slug: string, prompt: string, model: string | undefined, 
     saved.cwd = cwd;
     if (saved.sessionId) args.push('--resume', saved.sessionId);
     // Voice-over and screen recordings can outlast Bash's default 2-minute limit
-    const child: ChildProcess = spawn(findClaude()!, args, { cwd, windowsHide: true, env: { ...process.env, BASH_DEFAULT_TIMEOUT_MS: '900000', BASH_MAX_TIMEOUT_MS: '900000' } });
+    const child: ChildProcess = spawn(findClaude()!, args, { cwd, windowsHide: true, env: { ...process.env, BASH_DEFAULT_TIMEOUT_MS: '900000', BASH_MAX_TIMEOUT_MS: '900000', CUTROOM_SERVER: `http://127.0.0.1:${process.env.PORT ?? 8814}` } });
     let done = false;
     const kill = () => killTree(child);
     running.set(slug, { kill });
     // A whole cut with voice-over and recordings takes a while
     // Full access has no time limit (Stop ends it)
-    const timer = full ? undefined : setTimeout(kill, 30 * 60_000);
+    let limited = false;
+    const timer = full
+      ? undefined
+      : setTimeout(() => {
+          limited = true;
+          kill();
+        }, 30 * 60_000);
     let wrote = false;
     let gap = false;
     const filter = new CanaryFilter((s) => {
@@ -899,7 +894,11 @@ function viaClaudeCode(slug: string, prompt: string, model: string | undefined, 
     child.on('close', (code) => {
       clearTimeout(timer);
       filter.flush();
-      if (!done) emit(code === 0 ? { type: 'done', ms: Date.now() - t0 } : { type: 'error', message: L(`The AI process exited (${code})${err ? ': ' + err.slice(-300) : ''}`, `AI 进程退出（${code}）${err ? '：' + err.slice(-300) : ''}`) });
+      const paused = !done && limited ? pausedNote(slug) : null;
+      if (paused) {
+        emit({ type: 'text', delta: `\n\n${paused}` });
+        emit({ type: 'done', ms: Date.now() - t0 });
+      } else if (!done) emit(code === 0 ? { type: 'done', ms: Date.now() - t0 } : { type: 'error', message: L(`The AI process exited (${code})${err ? ': ' + err.slice(-300) : ''}`, `AI 进程退出（${code}）${err ? '：' + err.slice(-300) : ''}`) });
       resolve();
     });
   });
@@ -925,7 +924,9 @@ async function viaApi(slug: string, prompt: string, saved: Saved, emit: (e: Chat
   ];
   const messages: Anthropic.Beta.BetaMessageParam[] = [...(saved.api ?? []), { role: 'user', content: prompt }];
   const effort = aiEffort();
-  for (let turn = 0; turn < (full ? 200 : 24); turn++) {
+  const maxTurns = full ? 200 : 24;
+  let turn = 0;
+  for (; turn < maxTurns; turn++) {
     const stream = client.beta.messages.stream(
       {
         model: readAi().models?.anthropic || API_MODELS[0],
@@ -975,6 +976,8 @@ async function viaApi(slug: string, prompt: string, saved: Saved, emit: (e: Chat
     }
     messages.push({ role: 'user', content: results });
   }
+  const paused = turn >= maxTurns ? pausedNote(slug) : null;
+  if (paused) emit({ type: 'text', delta: `\n\n${paused}` });
   // Frames are kept out of the saved history so later messages don't resend them
   saved.api = messages.map((m) =>
     Array.isArray(m.content)
@@ -1004,6 +1007,7 @@ async function viaAgent(slug: string, prompt: string, saved: Saved, emit: (e: Ch
   const full = fullOn() && (id !== 'gemini' || aiAccess() === 'auto');
   const text = `<instructions>\n${systemPrompt(slug, id === 'antigravity' ? 'files' : 'tool', full)}\n</instructions>\n\n${recent ? `<conversation so far>\n${recent}\n</conversation so far>\n\n` : ''}${prompt}`;
   let timer: ReturnType<typeof setTimeout> | undefined;
+  let limited = false;
   await new Promise<void>((resolve) => {
     let finished = false;
     let failed = false;
@@ -1024,7 +1028,9 @@ async function viaAgent(slug: string, prompt: string, saved: Saved, emit: (e: Ch
       (code, stderr) => {
         if (timer) clearTimeout(timer);
         running.delete(slug);
-        if (!finished && !failed && code !== 0) emit({ type: 'error', message: L(`${def.en} exited (${code})${stderr ? ': ' + stderr.trim().slice(-300) : ''}`, `${def.zh} 退出了（${code}）${stderr ? '：' + stderr.trim().slice(-300) : ''}`) });
+        const paused = limited && !finished ? pausedNote(slug) : null;
+        if (paused) emit({ type: 'text', delta: `\n\n${paused}` });
+        else if (!finished && !failed && code !== 0) emit({ type: 'error', message: L(`${def.en} exited (${code})${stderr ? ': ' + stderr.trim().slice(-300) : ''}`, `${def.zh} 退出了（${code}）${stderr ? '：' + stderr.trim().slice(-300) : ''}`) });
         emit({ type: 'done', ms: Date.now() - t0 });
         resolve();
       },
@@ -1037,7 +1043,12 @@ async function viaAgent(slug: string, prompt: string, saved: Saved, emit: (e: Ch
     }
     running.set(slug, { kill: r.kill });
     // A whole cut with voice-over and recordings takes a while; full access has no limit (Stop ends it)
-    timer = full ? undefined : setTimeout(r.kill, 30 * 60_000);
+    timer = full
+      ? undefined
+      : setTimeout(() => {
+          limited = true;
+          r.kill();
+        }, 30 * 60_000);
   });
 }
 
@@ -1063,6 +1074,10 @@ async function viaCompat(slug: string, prompt: string, saved: Saved, emit: (e: C
       onToolResult: (tid, ok, out) => emit({ type: 'tool_result', id: tid, ok, out }),
       signal: controller.signal,
       ...(fullOn() ? { extra: FULL_TOOLS, runExtra: (name: string, input: unknown) => fullStep(slug, path.join(PUBLIC, slug), name, input, controller.signal), maxTurns: 200 } : {}),
+      onLimit: () => {
+        const paused = pausedNote(slug);
+        if (paused) emit({ type: 'text', delta: `\n\n${paused}` });
+      },
     });
     saved.compat = { id, messages: trimHistory(messages) };
   } catch (e) {
@@ -1071,9 +1086,80 @@ async function viaCompat(slug: string, prompt: string, saved: Saved, emit: (e: C
   emit({ type: 'done', ms: Date.now() - t0 });
 }
 
+// A workflow run cut off by a turn or time limit says where it stopped and how to go on
+function pausedNote(slug: string): string | null {
+  try {
+    const p = pausedLine(readDoc(slug).doc.board.workflow);
+    return p ? L(...p) : null;
+  } catch {
+    return null;
+  }
+}
+
+// Claude Code reads the sheets by path; the other connections get them attached
+export const reviewViaFiles = (): boolean => provider() === 'claude-code';
+
+// The Claude Code reviewer: a fresh run in the look folder that can only read the sheets there
+export function reviewerSpawn(promptFile: string, model?: string): { args: string[]; cwd: string } {
+  const args = ['-p', '--output-format', 'json', '--setting-sources', 'project,local', '--strict-mcp-config', '--allowedTools', lookReadRule(), '--disallowedTools', 'Bash', 'Edit', 'Write', 'NotebookEdit', 'WebFetch', 'WebSearch', 'Glob', 'Grep', 'LS', 'Task', 'TodoWrite', 'Skill', '--append-system-prompt-file', promptFile];
+  if (model) args.push('--model', model);
+  return { args, cwd: lookDir() };
+}
+
+// One fresh request with no history and no editing tools: the independent reviewer
+export async function reviewOnce(slug: string, user: string, images: string[]): Promise<{ text: string } | { unavailable: string }> {
+  const prov = provider();
+  if (prov === 'claude-code') {
+    const bin = findClaude();
+    if (!bin) return { unavailable: L('Claude Code is not installed or not found', '没有找到 Claude Code') };
+    // The instructions go through a file: a command line is limited in length
+    const promptFile = path.join(STATE, slug, 'reviewer-prompt.md');
+    fs.mkdirSync(path.dirname(promptFile), { recursive: true });
+    fs.writeFileSync(promptFile, REVIEWER_SYSTEM);
+    return new Promise((resolve) => {
+      const { args, cwd } = reviewerSpawn(promptFile, readAi().models?.['claude-code']);
+      fs.mkdirSync(cwd, { recursive: true });
+      const child = spawn(bin, args, { cwd, windowsHide: true });
+      let out = '';
+      let err = '';
+      const timer = setTimeout(() => killTree(child), 15 * 60_000);
+      child.stdout!.on('data', (d) => (out += d));
+      child.stderr!.on('data', (d) => (err += d));
+      child.stdin!.on('error', () => {});
+      child.on('error', (e) => {
+        clearTimeout(timer);
+        resolve({ unavailable: e.message.slice(0, 300) });
+      });
+      child.stdin!.end(user);
+      child.on('close', () => {
+        clearTimeout(timer);
+        try {
+          const j = JSON.parse(out);
+          if (j.is_error) return resolve({ unavailable: String(j.result ?? 'the reviewer run failed').slice(0, 300) });
+          resolve(reviewAnswer(String(j.result ?? '')));
+        } catch {
+          resolve({ unavailable: (err || out || 'the reviewer run did not answer').trim().slice(-300) });
+        }
+      });
+    });
+  }
+  if (prov === 'anthropic') {
+    const client = new Anthropic({ apiKey: apiKey() });
+    const msg = await client.messages.create({
+      model: readAi().models?.anthropic || API_MODELS[0],
+      max_tokens: 8000,
+      system: REVIEWER_SYSTEM,
+      messages: [{ role: 'user', content: [{ type: 'text', text: user }, ...images.map((f) => ({ type: 'image' as const, source: { type: 'base64' as const, media_type: (/\.png$/i.test(f) ? 'image/png' : 'image/jpeg') as 'image/png', data: fs.readFileSync(f).toString('base64') } }))] }],
+    });
+    return reviewAnswer(msg.content.map((b) => (b.type === 'text' ? b.text : '')).join('').trim());
+  }
+  if (prov === 'compat') return reviewAnswer(await askOnce(compatConn()!, REVIEWER_SYSTEM, user, images));
+  return { unavailable: L('An independent review run is not available on this connection yet (Codex, Gemini CLI and Antigravity come later).', '这个连接暂时不能开独立审片（Codex、Gemini CLI、Antigravity 之后支持）。') };
+}
+
 function runCli(slug: string, args: string[]): Promise<{ ok: boolean; out: string }> {
   return new Promise((resolve) => {
-    const p = spawn(process.execPath, [path.join(ROOT, 'editor', 'dist', 'cli.mjs'), slug, ...args], { cwd: ROOT, windowsHide: true });
+    const p = spawn(process.execPath, [path.join(ROOT, 'editor', 'dist', 'cli.mjs'), slug, ...args], { cwd: ROOT, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, CUTROOM_SERVER: `http://127.0.0.1:${process.env.PORT ?? 8814}` } });
     let out = '';
     p.stdout.on('data', (d) => (out += d));
     p.stderr.on('data', (d) => (out += d));

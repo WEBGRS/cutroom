@@ -196,6 +196,33 @@ try {
   await crop(p, '.settings', '18-ai-settings');
   await p.close();
 
+  // Checkpoint card with three plans, then Compare
+  const sbf = path.join(PUB, '_shots', 'storyboard.json');
+  const sb0 = fs.readFileSync(sbf, 'utf8');
+  const sb = JSON.parse(sb0);
+  sb.workflow = { gates: 'plan+sample', stage: 'plans', waiting: 'plan', passed: [] };
+  fs.writeFileSync(sbf, JSON.stringify(sb, null, 2));
+  fs.mkdirSync(path.join(PUB, '_shots', 'plans'), { recursive: true });
+  for (const id of ['a', 'b', 'c']) fs.writeFileSync(path.join(PUB, '_shots', 'plans', `plan-${id}.md`), `# Plan ${id.toUpperCase()}: Test ${id}
+
+One line about plan ${id}.
+
+- Beat one
+- Beat two
+- Beat three`);
+  p = await open(SC, { ls: { 'vs-side': 'ai' }, w: 1280, h: 800 });
+  await ready(p);
+  await p.waitForSelector('.gate-plan');
+  await p.waitForTimeout(500);
+  await shot(p, '17b-gate-card');
+  await p.locator('.gate-head .btn').click();
+  await p.waitForSelector('.gate-compare');
+  await p.waitForTimeout(300);
+  await shot(p, '17c-gate-compare');
+  await p.close();
+  fs.rmSync(path.join(PUB, '_shots', 'plans'), { recursive: true, force: true });
+  fs.writeFileSync(sbf, sb0);
+
   // 9:16 on a voiced project
   p = await open(`slug=${VOICED}&format=tall&lang=zh&variant=default&frame=420`);
   await ready(p);

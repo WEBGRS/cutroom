@@ -11,9 +11,14 @@ import { addCustomVoice, designCustomVoice, installLocal, localStatus, removeCus
 import { findBrowser, recordPage } from './record';
 import { cleanName, desktopSupported, ffmpegStatus, listMonitors, listWindows, recordDesktop, stopActive } from './desktop';
 import type { Doc } from './ops';
-import { ASK_TOKEN, aiStatus, aiTest, answerAsk, askDetail, askUser, chat, compatModels, editorOnly, fullStep, history, keepBeforeWrite, rollbackTo, isRunning, pendingAsks, provider, reset, stop, toolLabel, writeAi } from './chat';
+import { ASK_TOKEN, aiStatus, aiTest, answerAsk, askDetail, askUser, chat, compatModels, editorOnly, fullStep, history, keepBeforeWrite, reviewOnce, reviewViaFiles, rollbackTo, isRunning, pendingAsks, provider, reset, stop, toolLabel, writeAi } from './chat';
+import { reviewRequest } from './review';
+import { lookDir } from './look';
 import { agentDef, installAgent, openSignIn, forgetAgents, type AgentId } from './agents';
 import { boardTemplate } from './templates';
+import { checkProject, flowView, fromPage, passGate } from './flowapi';
+import { chosenPlan } from './stagefiles';
+import { isGate, isMode } from './flow';
 import { L, readSettings, uiLang, writeSettings } from './settings';
 import { DEFAULT_EXPORTS, exportDir, exportPlan } from './exporter';
 import { isHtml, listHtml, safeName, writeHtml } from './htmlfiles';
@@ -389,7 +394,9 @@ const server = http.createServer(async (req, res) => {
       const dir = path.join(PUBLIC, s);
       if (fs.existsSync(path.join(dir, 'storyboard.json'))) return send(res, 409, { error: L(`A project called ${s} already exists`, `已经有项目 ${s}`) });
       fs.mkdirSync(path.join(dir, 'media'), { recursive: true });
-      fs.writeFileSync(path.join(dir, 'storyboard.json'), JSON.stringify(boardTemplate(s, String(b.title ?? s), uiLang()), null, 2));
+      const format = b.format === 'tall' || b.format === 'wide' ? b.format : undefined;
+      const gates = isMode(b.gates) ? b.gates : undefined;
+      fs.writeFileSync(path.join(dir, 'storyboard.json'), JSON.stringify(boardTemplate(s, String(b.title ?? s), uiLang(), { format, gates }), null, 2));
       return send(res, 200, { slug: s });
     }
     if (p === '/api/projects') return send(res, 200, slugs().filter((s) => !s.startsWith('_') || process.env.VS_TEST));
@@ -610,6 +617,24 @@ const server = http.createServer(async (req, res) => {
       return send(res, 200, { ok: true });
     }
     if (p === '/api/ai/test' && req.method === 'POST') return send(res, 200, await aiTest());
+    if (p === '/api/flow' && req.method === 'GET') {
+      try {
+        return send(res, 200, flowView(slug));
+      } catch (e) {
+        return send(res, 404, { error: (e as Error).message });
+      }
+    }
+    // Only the panel passes a checkpoint: a request another site's page sends is refused
+    if (p === '/api/flow/pass' && req.method === 'POST') {
+      if (!fromPage(req.headers)) return send(res, 403, { error: L('Only the editor page can pass a checkpoint', '只有编辑器页面能通过确认') });
+      const b = await body(req);
+      if (!isGate(b.gate)) return send(res, 400, { error: L('The checkpoint is plan or sample', '确认点只能是 plan 或 sample') });
+      try {
+        return send(res, 200, { message: passGate(String(b.slug ?? ''), b.gate, b.choice ? String(b.choice) : undefined, uiLang()) });
+      } catch (e) {
+        return send(res, 409, { error: (e as Error).message });
+      }
+    }
     if (p === '/api/chat' && req.method === 'GET') return send(res, 200, { provider: provider(), history: history(slug), running: isRunning(slug), asks: pendingAsks(slug) });
     // Full access: Claude Code asks through the MCP helper (with this server's token) and waits for the panel's answer
     if (p === '/api/chat/permission' && req.method === 'POST') {
@@ -653,6 +678,24 @@ const server = http.createServer(async (req, res) => {
     if (p === '/api/chat/stop' && req.method === 'POST') {
       stop((await body(req)).slug);
       return send(res, 200, { ok: true });
+    }
+    // One fresh reviewer run; the CLI sends the brief, table, scope and sheet paths; the request text is built here
+    if (p === '/api/review/run' && req.method === 'POST') {
+      const b = await body(req);
+      try {
+        checkProject(b.slug);
+      } catch (e) {
+        return send(res, 404, { error: (e as Error).message });
+      }
+      // The look is judged against the plan that was taken
+      const plan = chosenPlan(b.slug, readDoc(b.slug).doc.board.workflow?.choice);
+      const rq = reviewRequest({ brief: String(b.brief ?? ''), table: String(b.table ?? ''), scope: String(b.scope ?? ''), images: Array.isArray(b.images) ? b.images.map(String) : [], dir: lookDir(), files: reviewViaFiles(), partial: b.partial === true, plan });
+      if (!rq.images.length) return send(res, 400, { error: L('No review sheets: run review first', '没有审片拼图：先运行 review') });
+      try {
+        return send(res, 200, await reviewOnce(b.slug, rq.user, rq.images));
+      } catch (e) {
+        return send(res, 200, { unavailable: (e as Error).message.slice(0, 300) });
+      }
     }
     if (p === '/api/chat' && req.method === 'POST') {
       const b = await body(req);

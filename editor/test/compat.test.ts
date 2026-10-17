@@ -118,3 +118,17 @@ test('history is trimmed only at a user message', () => {
   assert.deepEqual(trimHistory(msgs, 5).map((x) => x.role), ['user', 'assistant', 'tool', 'assistant']);
   assert.equal(trimHistory(msgs, 20).length, 8);
 });
+
+test('tool loop: a run that ends at its turn limit says so; one that finishes does not', async () => {
+  const m = await mock();
+  try {
+    const base = { c: { preset: 'custom', base: m.base, model: 'chat-a', key: 'k' }, system: 'sys', history: [], prompt: 'go', toolDescription: 'run', run: async () => ({ ok: true, out: 'ok' }), onText: () => undefined, onTool: () => undefined, onToolResult: () => undefined, signal: new AbortController().signal };
+    let limited = 0;
+    await chatLoop({ ...base, maxTurns: 1, onLimit: () => limited++ });
+    assert.equal(limited, 1);
+    await chatLoop({ ...base, onLimit: () => limited++ });
+    assert.equal(limited, 1);
+  } finally {
+    m.close();
+  }
+});

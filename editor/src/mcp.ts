@@ -51,7 +51,7 @@ async function ask(p: { tool_name?: string; input?: Record<string, unknown> }): 
 
 function run(args: string[]): Promise<{ ok: boolean; out: string }> {
   return new Promise((resolve) => {
-    const p = spawn(process.execPath, [CLI, slug, ...args], { cwd: ROOT, windowsHide: true });
+    const p = spawn(process.execPath, [CLI, slug, ...args], { cwd: ROOT, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
     let out = '';
     p.stdout.on('data', (d) => (out += d));
     p.stderr.on('data', (d) => (out += d));

@@ -1,4 +1,5 @@
 // Other model providers through the OpenAI-compatible Chat Completions API (plain fetch + SSE, no SDK)
+import fs from 'node:fs';
 import { fullLabel, type FullResult, type FullTool } from './fulltools';
 
 export interface Preset {
@@ -98,6 +99,20 @@ export async function ping(c: Conn): Promise<string> {
   return j.model || c.model;
 }
 
+// One request with pictures and no tools (the independent reviewer)
+export async function askOnce(c: Conn, system: string, text: string, images: string[]): Promise<string> {
+  const parts = [{ type: 'text', text }, ...images.map((f) => ({ type: 'image_url', image_url: { url: `data:image/${/\.png$/i.test(f) ? 'png' : 'jpeg'};base64,${fs.readFileSync(f).toString('base64')}` } }))];
+  const r = await fetch(join(c.base, '/chat/completions'), {
+    method: 'POST',
+    headers: headers(c),
+    body: JSON.stringify({ model: c.model, messages: [{ role: 'system', content: system }, { role: 'user', content: parts }] }),
+    signal: AbortSignal.timeout(600_000),
+  });
+  if (!r.ok) throw await failure(r);
+  const j = (await r.json()) as { choices?: { message?: { content?: string } }[] };
+  return String(j.choices?.[0]?.message?.content ?? '').trim();
+}
+
 type Msg = Record<string, unknown>;
 
 export interface LoopOpts {
@@ -115,6 +130,8 @@ export interface LoopOpts {
   extra?: FullTool[];
   runExtra?: (name: string, input: unknown) => Promise<FullResult>;
   maxTurns?: number;
+  // The loop stopped at maxTurns with work left
+  onLimit?: () => void;
 }
 
 // Read an SSE stream of chat-completion chunks into one assistant message
@@ -201,7 +218,9 @@ export async function chatLoop(o: LoopOpts): Promise<Msg[]> {
   const pics: { mime: string; data: string }[] = [];
   let seeing = true;
   const isPics = (m: Msg) => m.role === 'user' && Array.isArray(m.content);
-  for (let turn = 0; turn < (o.maxTurns ?? 24); turn++) {
+  const max = o.maxTurns ?? 24;
+  let turn = 0;
+  for (; turn < max; turn++) {
     const r = await fetch(join(o.c.base, '/chat/completions'), {
       method: 'POST',
       headers: headers(o.c),
@@ -269,6 +288,7 @@ export async function chatLoop(o: LoopOpts): Promise<Msg[]> {
     if (pics.length && seeing) messages.push({ role: 'user', content: [{ type: 'text', text: 'The images from the tool calls above (frames from look, files you read), in order:' }, ...pics.splice(0).map((x) => ({ type: 'image_url' as const, image_url: { url: `data:${x.mime};base64,${x.data}` } }))] });
     pics.length = 0;
   }
+  if (turn >= max) o.onLimit?.();
   // Earlier turns' reasoning and frames are not sent again
   return messages.map((x) => {
     if (isPics(x)) return { role: 'user', content: '(frames from look were shown here)' };

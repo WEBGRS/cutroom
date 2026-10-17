@@ -284,7 +284,7 @@ test('panel labels for Claude Code tools', () => {
 
 test('the assistant confirms 16:9 or 9:16 before the first version, and knows no beat cut', () => {
   const p = systemPrompt('demo');
-  assert.match(p, /Size first/);
+  assert.match(p, /0\. Start\. The size/);
   assert.match(p, /16:9 widescreen/);
   assert.match(p, /9:16 vertical/);
   assert.match(p, /set - format '"tall"'/);

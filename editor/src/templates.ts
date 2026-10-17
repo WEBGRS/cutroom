@@ -1,4 +1,5 @@
-import type { Scene, Storyboard } from '../../src/lib/types';
+import type { Format, Gates, Scene, Storyboard } from '../../src/lib/types';
+import { newWorkflow } from './flow';
 import { DEMO_CARDS } from '../../src/fx/demo';
 import { CARD_LIST } from '../../src/fx/registry';
 
@@ -48,11 +49,13 @@ export function sceneTemplate(kind: string, id: string, src?: string, lang: 'en'
 }
 
 // Starting storyboard for a new project
-export function boardTemplate(slug: string, title: string, lang: 'en' | 'zh' = 'en'): Storyboard {
+export function boardTemplate(slug: string, title: string, lang: 'en' | 'zh' = 'en', opts: { format?: Format; gates?: Gates } = {}): Storyboard {
   return {
     slug,
     title,
     fps: 60,
+    ...(opts.format ? { format: opts.format } : {}),
+    ...(opts.gates ? { workflow: newWorkflow(opts.gates) } : {}),
     theme: { accent: '#3b6ef5', accent2: '#8fb0ff', bg: ['#0b1020', '#1a2140'] },
     scenes: [sceneTemplate('title', 'intro', undefined, lang), sceneTemplate('outro', 'outro', undefined, lang)].map((s, i) => (i === 0 ? { ...s, visual: { kind: 'title', title: title, sub: '' } } : s)) as Scene[],
   };

@@ -38,6 +38,8 @@ function setup() {
   }
 }
 function cleanup() {
+  fs.rmSync(path.join(PUB, 'e2eflow'), { recursive: true, force: true });
+  fs.rmSync(path.join(DIR, 'plans'), { recursive: true, force: true });
   for (const f of ['storyboard.json', 'timings.json', 'timings-en.json']) fs.rmSync(path.join(DIR, f), { force: true });
   const media = path.join(DIR, 'media');
   if (fs.existsSync(media)) {
@@ -339,6 +341,47 @@ try {
     } finally {
       await p2.close();
     }
+  });
+
+  await step('new project dialog writes size and checking mode', async () => {
+    await page.selectOption('select:has(option[value="__new"])', '__new');
+    await page.locator('.new-project > input').fill('e2eflow');
+    await page.locator('.np-seg button', { hasText: '9:16' }).click();
+    await page.locator('.np-opt', { hasText: '只确认方案' }).click();
+    await page.locator('.new-project .primary').click();
+    const f = path.join(PUB, 'e2eflow', 'storyboard.json');
+    await until('project created', () => fs.existsSync(f));
+    const b = JSON.parse(fs.readFileSync(f, 'utf8'));
+    if (b.format !== 'tall' || b.workflow?.gates !== 'plan' || b.workflow?.stage !== 'brief') throw new Error(JSON.stringify({ format: b.format, workflow: b.workflow }));
+    await page.goto(`${BASE}/?slug=${SLUG}&format=wide&lang=zh&variant=default&ui=zh`);
+    fs.rmSync(path.join(PUB, 'e2eflow'), { recursive: true, force: true });
+    await page.waitForSelector('.clip', { timeout: 15000 });
+  });
+
+  await step('checkpoint card passes the plan and sends the message', async () => {
+    const f = path.join(DIR, 'storyboard.json');
+    const b = JSON.parse(fs.readFileSync(f, 'utf8'));
+    b.workflow = { gates: 'plan', stage: 'plans', waiting: 'plan', passed: [] };
+    fs.writeFileSync(f, JSON.stringify(b, null, 2));
+    fs.mkdirSync(path.join(DIR, 'plans'), { recursive: true });
+    for (const id of ['a', 'b', 'c']) fs.writeFileSync(path.join(DIR, 'plans', `plan-${id}.md`), `# Plan ${id.toUpperCase()}: Test ${id}\n\nLine ${id}.`);
+    let sent = '';
+    await page.route('**/api/chat', (route) => {
+      if (route.request().method() !== 'POST') return route.continue();
+      sent = JSON.parse(route.request().postData() ?? '{}').message ?? '';
+      return route.fulfill({ status: 200, body: '' });
+    });
+    await page.getByRole('tab', { name: 'AI 助手' }).click();
+    await page.waitForSelector('.gate-plan', { timeout: 8000 });
+    await page.locator('.gate-plan', { hasText: 'Test b' }).locator('.primary').click();
+    await until('message sent', () => sent.includes('方案 B'));
+    const after = JSON.parse(fs.readFileSync(f, 'utf8'));
+    if (after.workflow.stage !== 'script' || after.workflow.choice !== 'b') throw new Error(JSON.stringify(after.workflow));
+    await page.unroute('**/api/chat');
+    fs.rmSync(path.join(DIR, 'plans'), { recursive: true, force: true });
+    delete after.workflow;
+    fs.writeFileSync(f, JSON.stringify(after, null, 2));
+    await page.getByRole('tab', { name: '属性' }).click();
   });
 
   await step('no console errors', async () => {
