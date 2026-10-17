@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { AGY_DENY, AGY_FULL_ALLOW, agentArgs, findCli, parseAgentLine, parseAgyModels, parseCodexModels, type AgentEvent } from '../src/agents';
+import { AGY_DENY, AGY_FULL_ALLOW, agentArgs, codexNative, findCli, parseAgentLine, parseAgyModels, parseCodexModels, type AgentEvent } from '../src/agents';
 import { lookDir } from '../src/look';
 import { runFullTool } from '../src/fulltools';
 import { editorOnly, fullStep, shellCommands, systemPrompt, toolLabel } from '../src/chat';
@@ -288,6 +288,9 @@ test('the assistant confirms 16:9 or 9:16 before the first version, and knows no
   assert.match(p, /16:9 widescreen/);
   assert.match(p, /9:16 vertical/);
   assert.match(p, /set - format '"tall"'/);
+  assert.match(p, /set <id> shot/);
+  assert.match(p, /rebuild that scene to match it/);
+  assert.match(p, /look lines/);
   assert.doesNotMatch(p, /beat cut|--mode/i);
 });
 
@@ -308,4 +311,28 @@ test('full access: Bash lines that only run the editor need no go-ahead; anythin
   assert.equal(editorOnly(`cd C:/ && ${cli} demo ls`, 'demo'), false);
   assert.equal(editorOnly(`cd ${proj}`, 'demo'), false);
   assert.match(systemPrompt('demo', 'bash', true), /no cd, no variables or aliases/);
+});
+
+// Under the desktop app the npm wrapper (codex.js) starts codex.exe in a visible terminal window; the exe is run directly
+test('Codex: the npm shim resolves to its bundled codex.exe, with the wrapper environment', { skip: process.platform !== 'win32' }, () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cutroom-codex-'));
+  const root = path.join(dir, 'node_modules', '@openai', 'codex');
+  const js = path.join(root, 'bin', 'codex.js');
+  const exe = path.join(root, 'node_modules', '@openai', `codex-win32-${process.arch === 'arm64' ? 'arm64' : 'x64'}`, 'vendor', 'x86_64-pc-windows-msvc', 'bin', 'codex.exe');
+  fs.mkdirSync(path.dirname(js), { recursive: true });
+  fs.mkdirSync(path.dirname(exe), { recursive: true });
+  fs.writeFileSync(js, '');
+  fs.writeFileSync(exe, '');
+  fs.writeFileSync(path.join(dir, 'codex.cmd'), '@ECHO off\r\n"%_prog%"  "%dp0%\\node_modules\\@openai\\codex\\bin\\codex.js" %*\r\n');
+  // Only the test folder, not the Codex installed on this machine
+  const saved = process.env.PATH;
+  process.env.PATH = '';
+  const l = findCli('codex', [dir])!;
+  process.env.PATH = saved;
+  assert.equal(l.cmd, exe);
+  assert.deepEqual(l.pre, []);
+  assert.equal(l.env?.CODEX_MANAGED_PACKAGE_ROOT, root);
+  assert.equal(l.env?.CODEX_MANAGED_BY_NPM, '1');
+  // Any other npm script still runs under node
+  assert.equal(codexNative(path.join(dir, 'node_modules', 'other', 'bin', 'cli.js')), null);
 });

@@ -159,6 +159,8 @@ async function main() {
         const vis = v.kind === 'screen' ? `${s.label} ${s.from?.toFixed(2)}→${s.to?.toFixed(2)}${s.rate !== 1 ? ` ×${s.rate.toFixed(2)}` : ''}` : `${v.kind}: ${s.label}`;
         console.log(`${String(s.index + 1).padStart(2)} ${pad(s.id, 10)} ${fmtTime(s.start, fps).padStart(8)} ${sec(s.dur, fps).padStart(6)}s  ${pad(vis, 44)} ${s.lines.map((l) => (l.stale ? '⚠' : '') + l.text).join(' / ')}`);
         if (s.marks.length) console.log(`${' '.repeat(14)}marks: ${s.marks.map((m) => `${m.name}@${sec(m.f, fps)}`).join('  ')}`);
+        const shot = doc.board.scenes[s.index]?.shot;
+        if (shot) console.log(`${' '.repeat(14)}shot: ${shot.replace(/\s+/g, ' ')}`);
       }
       return;
     }
@@ -515,6 +517,7 @@ async function planCmd() {
     const text = [...screenText(v), ...(sc.overlays ?? []).flatMap((o) => (o && 'text' in o && typeof o.text === 'string' ? [o.text] : []))].map((t) => plain(t).replace(/\s+/g, ' ')).join(' / ');
     const shows = v.kind === 'screen' ? `recording ${v.src} ${e.from?.toFixed(1)}→${e.to?.toFixed(1)} s` : v.src ? `${v.kind} ${v.src}` : `${v.kind} card`;
     console.log(`${String(e.index + 1).padStart(2)} ${pad(e.id, 12)} ${fmtTime(e.start, fps).padStart(7)} ${sec(e.dur, fps).padStart(5)}s`);
+    if (sc.shot) console.log(`     shot:  ${cut(sc.shot.replace(/\s+/g, ' '), 110)}`);
     console.log(`     says:  ${said ? cut(said, 110) : '(no narration)'}`);
     console.log(`     shows: ${shows}`);
     if (text) console.log(`     text:  ${cut(text, 110)}`);
@@ -522,6 +525,10 @@ async function planCmd() {
     if (share >= 0.6 && [...plain(text)].length >= 8) {
       flagged++;
       console.log(`     ! ${Math.round(share * 100)}% of the on-screen text is also spoken: the picture repeats the words instead of adding to them (show the thing itself, or cut the text to a short label)`);
+    }
+    if (!sc.shot?.trim()) {
+      flagged++;
+      console.log(`     ! no shot design: write what this shot shows and how it is made (set ${e.id} shot "<page or app · actions · camera>")`);
     }
     if (said && ACTION.test(said) && !FOOTAGE_KINDS.has(v.kind)) {
       flagged++;

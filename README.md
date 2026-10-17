@@ -58,6 +58,7 @@ Open the project in the editor afterwards to adjust it by hand; the agent sees y
 - **Timeline**: filmstrip thumbnails, waveforms, drag to reorder, drag edges to trim, split at the playhead, undo/redo. Lanes under the scenes show where every overlay, effect, camera move and sound effect sits, and each cut shows its transition. Drag an overlay or a sound to move it; click any bar to open its settings. Dragged edges, cues and the playhead snap to cuts, recording marks, caption starts and each other (the magnet button or N; hold Alt to drag freely).
 - **Both sizes from one storyboard**: 16:9 and 9:16 from the same scenes, with a separate 9:16 picture where a scene needs one. The size is a project setting (Properties › Project); the assistant asks which one you want before it makes the first version.
 - **Every line over the right picture**: the assistant plans a shot for each narration line before it records, and `look lines` renders one frame per line with its caption so the assistant (or you) can check that each picture shows what its line says.
+- **A shot design per scene**: one line under the scene's name says what the shot shows and how it is made (the page or app, the actions, the camera). The assistant writes it; edit it and ask the assistant to follow it, and it rebuilds that scene.
 - **Library panel**: media, cards, text, overlays, transitions, effects, backdrops, voice-over, sound effects and music. Every effect has a rendered preview that plays on hover; one click applies it to the selected scene.
 - **182 effects**:
   - 39 transitions (whip pan, glitch, film burn, 3D cube, light leak, tile grid, …)
@@ -156,7 +157,7 @@ Open the **AI assistant** tab and click the connection pill at its top, or go to
 
 **Test connection** sends one short request through whichever option is active. In auto mode the editor prefers the Claude Code login, then the Claude API key, then a configured other provider.
 
-In the chat panel's header you pick the model, the reasoning effort (Claude Code, the Claude API, Codex and Antigravity take an effort; higher thinks longer and uses more of your plan) and what the AI may do. Type `/` in the message box to search the prompt library, or open it with the lightbulb; the expand button gives the chat half the window, and the column button at the right end of the tabs runs the panel the full height of the window.
+In the chat panel's header you pick the model, the reasoning effort (Claude Code, the Claude API, Codex and Antigravity take an effort; higher thinks longer and uses more of your plan) and what the AI may do. Type `/` in the message box to search the prompt library, or open it with the lightbulb; the expand button gives the chat half the window, and the column button at the right end of the tabs runs the panel the full height of the window. Select text anywhere (a caption, a setting, a shot design, a reply) and click **Add to chat** to quote it with the scene and field it belongs to. The button next to the logo folds the library away.
 
 ### What the AI may do
 

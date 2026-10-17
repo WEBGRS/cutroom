@@ -360,6 +360,11 @@ export function Inspector(p: Props) {
           </button>
         </div>
         <div className="meta">{e ? tr(`Starts at ${fmtTime(e.start, fps)}, ${(e.dur / fps).toFixed(2)} s`, `从 ${fmtTime(e.start, fps)} 开始，${(e.dur / fps).toFixed(2)} 秒`) : tr(`Not in this version: ${hidden?.why ?? 'unused'}`, `这一版没用到：${hidden?.why ?? '未用'}`)}</div>
+        {/* One shot per scene: what it shows and how it is made, so it can be changed by editing this line */}
+        <label className="shot" data-pick={`field|shot|${tr('Shot design', '镜头设计')}`}>
+          <span>{tr('Shot design', '镜头设计')}</span>
+          <Field multiline rows={3} value={scene.shot} placeholder={tr('What this shot shows and how: the page or app, the actions, the camera', '这个镜头拍什么、怎么做：哪个页面或软件、做什么操作、镜头怎么动')} onCommit={(s) => set('shot', s.trim() || undefined)} />
+        </label>
       </div>
       <Tabs<STab>
         value={tab}

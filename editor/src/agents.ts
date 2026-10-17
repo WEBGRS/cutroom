@@ -42,6 +42,46 @@ export interface Launch {
   cmd: string;
   pre: string[];
   path: string;
+  // Variables the npm wrapper would have set
+  env?: Record<string, string>;
+}
+
+// Under the desktop app the server runs as electron.exe, a GUI program with no console. A script it runs there
+// starts console programs in visible terminal windows, so scripts run under a console node.exe when there is one;
+// its hidden console is shared by whatever the script starts.
+let consoleNodeCache: string | undefined;
+export function consoleNode(): string {
+  if (consoleNodeCache !== undefined) return consoleNodeCache;
+  consoleNodeCache = process.execPath;
+  if (process.platform === 'win32' && process.versions.electron)
+    for (const dir of (process.env.PATH ?? '').split(path.delimiter).filter(Boolean)) {
+      const exe = path.join(dir, 'node.exe');
+      if (fs.existsSync(exe)) {
+        consoleNodeCache = exe;
+        break;
+      }
+    }
+  return consoleNodeCache;
+}
+
+// Codex's npm wrapper only starts its bundled native codex.exe (without hiding it); start that exe directly
+export function codexNative(js: string): Launch | null {
+  if (process.platform !== 'win32' || !/[\\/]@openai[\\/]codex[\\/]bin[\\/]codex\.js$/i.test(js)) return null;
+  const root = path.dirname(path.dirname(js));
+  const arch = process.arch === 'arm64' ? 'arm64' : 'x64';
+  for (const vendor of [path.join(root, 'node_modules', '@openai', `codex-win32-${arch}`, 'vendor'), path.join(root, 'vendor')]) {
+    let triples: string[] = [];
+    try {
+      triples = fs.readdirSync(vendor);
+    } catch {
+      continue;
+    }
+    for (const t of triples) {
+      const exe = path.join(vendor, t, 'bin', 'codex.exe');
+      if (fs.existsSync(exe)) return { cmd: exe, pre: [], path: exe, env: { CODEX_MANAGED_PACKAGE_ROOT: root, CODEX_MANAGED_BY_NPM: '1' } };
+    }
+  }
+  return null;
 }
 
 export function findCli(name: string, extra: string[] = []): Launch | null {
@@ -57,7 +97,7 @@ export function findCli(name: string, extra: string[] = []): Launch | null {
         const m = ms.at(-1);
         if (m) {
           const js = path.join(dir, m[1]);
-          if (fs.existsSync(js)) return { cmd: process.execPath, pre: [js], path: js };
+          if (fs.existsSync(js)) return codexNative(js) ?? { cmd: consoleNode(), pre: [js], path: js };
         }
       }
     } else {
@@ -71,7 +111,7 @@ export const cliOf = (def: AgentDef) => findCli(def.bin, def.dirs?.() ?? []);
 
 const run = (l: Launch, args: string[], timeout = 20_000) =>
   new Promise<{ code: number | null; out: string; stdout: string }>((resolve) => {
-    execFile(l.cmd, [...l.pre, ...args], { windowsHide: true, timeout, maxBuffer: 8 << 20 }, (err, stdout, stderr) => resolve({ code: err ? ((err as { code?: number }).code ?? 1) : 0, out: `${stdout}${stderr}`, stdout: `${stdout}` }));
+    execFile(l.cmd, [...l.pre, ...args], { windowsHide: true, timeout, maxBuffer: 8 << 20, env: l.env ? { ...process.env, ...l.env } : undefined }, (err, stdout, stderr) => resolve({ code: err ? ((err as { code?: number }).code ?? 1) : 0, out: `${stdout}${stderr}`, stdout: `${stdout}` }));
   });
 
 export interface ModelList {
@@ -394,7 +434,7 @@ export function startAgent(id: AgentId, slug: string, model: string | undefined,
   const l = cliOf(agentDef(id)!);
   if (!l) return null;
   const { args, cwd, env } = agentArgs(id, slug, model, o);
-  const child = spawn(l.cmd, [...l.pre, ...args], { cwd, windowsHide: true, env: { ...process.env, ...env } });
+  const child = spawn(l.cmd, [...l.pre, ...args], { cwd, windowsHide: true, env: { ...process.env, ...(l.env ?? {}), ...env } });
   const state = { textSince: false, wrote: false, full: !!o.full };
   let buf = '';
   let err = '';

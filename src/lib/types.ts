@@ -270,6 +270,8 @@ export type Dir = 'left' | 'right' | 'up' | 'down';
 
 export interface Scene {
   id: string;
+  // Shot design: what this shot shows and how it is made (page or app, actions, camera), for people and the assistant
+  shot?: string;
   lines: Line[];
   visual: Visual;
   tall?: Visual;

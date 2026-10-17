@@ -526,7 +526,9 @@ export function Timeline(p: Props) {
                   data-scene={s.id}
                   className={`clip${p.sel === s.id ? ' sel' : ''}${dragging ? ' dragging' : ''}${p.missing.has(s.id) ? ' missing' : ''}`}
                   style={{ left: LAB + X(s.start), width: w, transform: dragging ? `translateX(${moving!.px}px)` : undefined }}
-                  title={tr(`${s.id}, ${(s.dur / fps).toFixed(2)} s`, `${s.id}，${(s.dur / fps).toFixed(2)} 秒`)}
+                  title={tr(`${s.id}, ${(s.dur / fps).toFixed(2)} s${s.shot ? `
+Shot: ${s.shot}` : ''}`, `${s.id}，${(s.dur / fps).toFixed(2)} 秒${s.shot ? `
+镜头：${s.shot}` : ''}`)}
                   onPointerDown={(ev) => onClipDown(ev, s)}
                 >
                   {p.missing.has(s.id) ? (

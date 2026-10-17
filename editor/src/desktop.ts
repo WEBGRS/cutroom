@@ -63,7 +63,7 @@ async function buildHelper(): Promise<string> {
 
 async function helperJson<T>(args: string[]): Promise<T> {
   const exe = await helperExe();
-  const r = spawnSync(exe, args, { encoding: 'utf8', timeout: 20000 });
+  const r = spawnSync(exe, args, { encoding: 'utf8', timeout: 20000, windowsHide: true });
   if (r.status !== 0) throw new Error(`recorder helper ${args[0]} failed: ${(r.stderr || r.stdout || '').trim().slice(-300)}`);
   return JSON.parse(r.stdout) as T;
 }

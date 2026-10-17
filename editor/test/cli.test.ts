@@ -109,3 +109,15 @@ test('music help teaches the draft format and does not need the studio', () => {
   assert.match(r.out, /You cannot hear it/);
   assert.equal(cli('music', 'compose', 'x').ok, false, 'compose needs a draft');
 });
+
+test('shot design: one line per scene, shown in ls and plan; plan asks for the missing ones', () => {
+  const id = board().scenes[0].id;
+  const other = board().scenes[1].id;
+  assert.ok(cli('set', id, 'shot', '"选课网站：搜索 COMP SCI 400，点开课程，镜头推近成绩分布"').ok);
+  assert.equal(board().scenes[0].shot, '选课网站：搜索 COMP SCI 400，点开课程，镜头推近成绩分布');
+  assert.match(cli('ls').out, /shot: 选课网站：搜索 COMP SCI 400/);
+  const plan = cli('plan').out;
+  assert.match(plan, /shot: {2}选课网站/);
+  assert.match(plan, new RegExp(`no shot design: .*set ${other} shot`));
+  assert.doesNotMatch(plan, new RegExp(`no shot design: .*set ${id} shot`));
+});

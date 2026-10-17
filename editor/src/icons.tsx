@@ -49,6 +49,12 @@ const P: Record<string, React.ReactNode> = {
   close: <path d="M4 4l8 8M12 4l-8 8" />,
   expand: <path d="M9.5 2.5h4v4M13.5 2.5 9 7M6.5 13.5h-4v-4M2.5 13.5 7 9" />,
   shrink: <path d="M13.5 6.5h-4v-4M9.5 6.5 14 2M2.5 9.5h4v4M6.5 9.5 2 14" />,
+  sidecolL: (
+    <>
+      <rect x="2" y="2.5" width="12" height="11" rx="1.5" />
+      <path d="M6 2.5v11" />
+    </>
+  ),
   sidecol: (
     <>
       <rect x="2" y="2.5" width="12" height="11" rx="1.5" />

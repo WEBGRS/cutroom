@@ -17,6 +17,7 @@ import { OVERLAY_LIST } from './catalog';
 import { LANG, nm, tr } from './i18n';
 import { textSample } from '../../src/fx/demo';
 import { resolvePick, type AiRef } from './pick';
+import { SelectAsk } from './SelectAsk';
 import { soundDef } from '../../src/fx/sounds';
 import { fetchHtml, isHtml } from './HtmlParts';
 import { SettingsPage, type SettingsTab } from './SettingsPage';
@@ -235,6 +236,8 @@ function App() {
   // The AI tab keeps its own, wider width; "wide" gives the chat about half the window and folds the library away
   const [size, setSize] = useState(() => ({ lib: pref.get('vs-w-lib2', innerWidth < 1440 ? 300 : 340), side: pref.get('vs-w-side2', innerWidth < 1440 ? 330 : 356), ai: pref.get('vs-w-ai', innerWidth < 1440 ? 420 : 480), tl: pref.get('vs-h-tl2', innerHeight < 860 ? 280 : 340) }));
   const [chatWide, setChatWide] = useState(() => pref.get('vs-chat-wide', 0) === 1);
+  // The library panel (top left) folded away with one click
+  const [libHidden, setLibHidden] = useState(() => pref.get('vs-lib-hidden', 0) === 1);
   const size0 = useRef(size);
   const [phId, setPhId] = useState<string | null>(null);
   // Ctrl+click pointing: references waiting in the AI input
@@ -1032,8 +1035,8 @@ function App() {
 
   return (
     <div
-      className={`app${dragOver ? ' filedrop' : ''}${pickHeld || pickArmed ? ' picking' : ''}${wideNow ? ' chatwide' : ''}${prefs.sideFull ? ' sidefull' : ''}`}
-      style={{ ['--lib-w' as string]: wideNow ? '0px' : `${size.lib}px`, ['--side-w' as string]: wideNow ? 'max(46vw, 560px)' : `${side === 'ai' ? size.ai : size.side}px`, ['--tl-h' as string]: `${size.tl}px` }}
+      className={`app${dragOver ? ' filedrop' : ''}${pickHeld || pickArmed ? ' picking' : ''}${wideNow ? ' chatwide' : ''}${prefs.sideFull ? ' sidefull' : ''}${libHidden ? ' libhidden' : ''}`}
+      style={{ ['--lib-w' as string]: wideNow || libHidden ? '0px' : `${size.lib}px`, ['--side-w' as string]: wideNow ? 'max(46vw, 560px)' : `${side === 'ai' ? size.ai : size.side}px`, ['--tl-h' as string]: `${size.tl}px` }}
       onDragOver={(e) => {
         if (![...e.dataTransfer.types].includes('Files')) return;
         e.preventDefault();
@@ -1065,6 +1068,18 @@ function App() {
           <Logo size={20} />
           Cutroom
         </span>
+        <button
+          className="icon lib-toggle"
+          onClick={() => {
+            pref.set('vs-lib-hidden', libHidden ? 0 : 1);
+            setLibHidden(!libHidden);
+          }}
+          title={libHidden ? tr('Show the library', '显示素材库') : tr('Hide the library', '隐藏素材库')}
+          aria-label={tr('Library panel', '素材库面板')}
+          aria-pressed={!libHidden}
+        >
+          <Icon name="sidecolL" size={16} />
+        </button>
         <span className="top-sep" />
         <label className="proj" title={tr('Switch project', '切换项目')}>
           <Icon name="folder" size={14} />
@@ -1450,6 +1465,14 @@ function App() {
           <span>{pickHl.label}</span>
         </div>
       ) : null}
+      <SelectAsk
+        ctx={() => pickRef.current.pickCtx()}
+        onAdd={(ref) => {
+          setAiRefs((rs) => (rs.some((r) => r.key === ref.key) ? rs : [...rs, ref].slice(-6)));
+          setSide('ai');
+          setChatFocus((n) => n + 1);
+        }}
+      />
       {doneCard && job?.state === 'done' ? (
         <div className="done-card" role="status">
           <div className="done-head">

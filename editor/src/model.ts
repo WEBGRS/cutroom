@@ -57,6 +57,8 @@ export interface EMark {
 export interface EScene {
   id: string;
   index: number;
+  // Shot design written on the scene
+  shot?: string;
   start: number;
   dur: number;
   trans: number;
@@ -188,7 +190,7 @@ export function editTimeline(p: Props, fps: number): ETimeline {
   const out = scenes.map((s): EScene => {
     const v = s.visual;
     const index = board.scenes.indexOf(s.scene);
-    const e: EScene = { id: s.scene.id, index, start: s.start, dur: s.dur, trans: s.trans, key: visualKey(s.scene, p.format), visual: v, label: label(v), lines: [], marks: [], sounds: [], overlays: [], fx: [], camera: [], rate: 1 };
+    const e: EScene = { id: s.scene.id, index, shot: s.scene.shot, start: s.start, dur: s.dur, trans: s.trans, key: visualKey(s.scene, p.format), visual: v, label: label(v), lines: [], marks: [], sounds: [], overlays: [], fx: [], camera: [], rate: 1 };
     e.sounds = (s.scene.sounds ?? []).map((c, i) => {
       const def = soundDef(c.id);
       const at = cueFrame(s, c.at, caps, fps);
