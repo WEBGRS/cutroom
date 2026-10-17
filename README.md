@@ -59,6 +59,7 @@ Open the project in the editor afterwards to adjust it by hand; the agent sees y
 - **Both sizes from one storyboard**: 16:9 and 9:16 from the same scenes, with a separate 9:16 picture where a scene needs one. The size is a project setting (Properties › Project); the assistant asks which one you want before it makes the first version.
 - **Every line over the right picture**: the assistant plans a shot for each narration line before it records, and `look lines` renders one frame per line with its caption so the assistant (or you) can check that each picture shows what its line says.
 - **A shot design per scene**: one line under the scene's name says what the shot shows and how it is made (the page or app, the actions, the camera). The assistant writes it; edit it and ask the assistant to follow it, and it rebuilds that scene.
+- **Shot recipes**: 29 named ways to build a shot (result first, follow the click, whip chain, spotlight, number climb, before / after and more), each written as the exact effects and commands that make it. The assistant picks from them and names the recipe in the shot design, so "use the spotlight here" or "swap the whip chain for hard cuts" works. `fx` lists them.
 - **Library panel**: media, cards, text, overlays, transitions, effects, backdrops, voice-over, sound effects and music. Every effect has a rendered preview that plays on hover; one click applies it to the selected scene.
 - **182 effects**:
   - 39 transitions (whip pan, glitch, film burn, 3D cube, light leak, tile grid, …)

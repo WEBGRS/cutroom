@@ -147,13 +147,16 @@ test('sample rounds do not use up the three final rounds; going back to brief ar
   const run = (...a: string[]) => cliIn('phases', a);
   assert.ok(run('flow', 'start', 'none').ok);
   assert.ok(run('flow', 'stage', 'sample').ok);
-  for (let i = 1; i <= 3; i++) {
+  for (let i = 1; i <= 2; i++) {
     const r = run('review', 'log', 'revise\nscope: sample intro\n1. intro caption — move it');
     assert.ok(r.out.includes(`sample round ${i} (self-review)`), r.out);
     assert.doesNotMatch(r.out, /rounds reached/);
     if (i < 2) assert.doesNotMatch(r.out, /2 sample rounds done/);
     else assert.match(r.out, /2 sample rounds done: stop fixing, flow wait sample \(or flow stage full when there is no sample checkpoint\) and list what is left in your reply/);
   }
+  const third = run('review', 'log', 'revise\nscope: sample intro\n1. intro caption — move it');
+  assert.ok(!third.ok, 'a third sample round is over the limit');
+  assert.match(third.out, /the sample already had 2 review rounds, the limit at tier 1/);
   assert.equal(board('phases').workflow.review.phase, 'sample');
   assert.ok(run('flow', 'stage', 'full').ok);
   for (let i = 1; i <= 4; i++) {
@@ -168,8 +171,10 @@ test('sample rounds do not use up the three final rounds; going back to brief ar
     if (i < 3) assert.doesNotMatch(r.out, /rounds reached/);
     else assert.match(r.out, /3 final rounds reached/);
   }
+  assert.ok(!run('review', 'log', 'revise\nscope: whole cut\n1. x').ok, 'no fourth final round');
   const log = fs.readFileSync(path.join(DATA, 'phases', 'review', 'log.md'), 'utf8');
-  assert.match(log, /## Round 3 · sample · self-review/);
+  assert.match(log, /## Round 2 · sample · self-review/);
+  assert.doesNotMatch(log, /## Round 3 · sample/);
   assert.match(log, /## Round 3 · final · self-review/);
   assert.match(log, /## Round 4 · batch · self-review/);
   const back = run('flow', 'stage', 'brief');
@@ -197,7 +202,7 @@ test('flow stage done after a revise verdict prints its verdict, scope and first
   assert.match(r.out, /1\. intro caption covers the click/);
   assert.match(r.out, /3\. cut is 34 s/);
   assert.doesNotMatch(r.out, /fourth one/);
-  assert.match(r.out, /Say in your reply that the reviewer still asks for these, and list them/);
+  assert.match(r.out, /The panel shows the verdict and these problems under your reply: don't repeat them\.$/m);
   project('donerdy');
   const q = (...a: string[]) => cliIn('donerdy', a);
   assert.ok(q('flow', 'start', 'none').ok && q('flow', 'stage', 'review').ok);
@@ -246,4 +251,94 @@ test('flow choose records the plan in mode none and is refused where the user pi
   const refused = cliIn('choose2', ['flow', 'choose', 'a']);
   assert.ok(!refused.ok);
   assert.match(refused.out, /picks the plan in the panel/);
+});
+
+test('flow start takes a tier; a tier without a sample turns plan+sample into plan', () => {
+  project('tierstart');
+  const run = (...a: string[]) => cliIn('tierstart', a);
+  assert.ok(!run('flow', 'start', 'none', '9').ok);
+  const r = run('flow', 'start', 'plan+sample', '4');
+  assert.ok(r.ok, r.out);
+  assert.match(r.out, /tier 4 has no sample, so the mode is plan/);
+  assert.equal(board('tierstart').workflow.tier, 4);
+  assert.equal(board('tierstart').workflow.gates, 'plan');
+  const shown = run('flow').out;
+  assert.match(shown, /mode plan · tier 4 lean · stage brief \(1\/8\)/);
+  assert.match(shown, /review rounds: batch 0, final 0 of 1/);
+  assert.match(shown, /Stage brief \(tier 4: short brief\)/);
+  project('tier1');
+  assert.ok(cliIn('tier1', ['flow', 'start', 'plan']).ok);
+  assert.equal('tier' in board('tier1').workflow, false, 'tier 1 is the default and is not stored');
+});
+
+test('one-plan, text-only tiers refuse plans b and c and previews; tier 2 refuses motion clips', () => {
+  project('tierplans', { gates: 'none', tier: 4, stage: 'plans', passed: [] });
+  const run = (...a: string[]) => cliIn('tierplans', a);
+  const b = run('plans', 'write', 'b', '# Plan B: x');
+  assert.ok(!b.ok);
+  assert.match(b.out, /tier 4 makes one plan: plans write a/);
+  assert.ok(run('plans', 'write', 'a', '# Plan A: Calm\nOne sentence.').ok);
+  assert.match(run('plans', 'preview', 'a', '{"visual":{"kind":"title"}}').out, /tier 4 plans are text only: no previews/);
+  assert.ok(!run('flow', 'choose', 'b').ok);
+  assert.doesNotMatch(run('plans').out, /^b:/m);
+  project('tier2plans', { gates: 'none', tier: 2, stage: 'plans', passed: [] });
+  const m = cliIn('tier2plans', ['plans', 'preview', 'a', '{"visual":{"kind":"title"}}', '--motion', '3']);
+  assert.ok(!m.ok);
+  assert.match(m.out, /tier 2 previews are stills: leave out --motion/);
+});
+
+test('tiers without a sample go from table to full; a short brief needs three blocks', () => {
+  project('tiernos', { gates: 'none', tier: 5, stage: 'table', passed: [] });
+  const run = (...a: string[]) => cliIn('tiernos', a);
+  assert.match(run('flow').out, /Then: flow stage full\./);
+  const s = run('flow', 'stage', 'sample');
+  assert.ok(!s.ok);
+  assert.match(s.out, /tier 5 has no sample stage: after table comes full/);
+  assert.ok(run('flow', 'stage', 'full').ok);
+  const brief = run('brief', 'write', '<inputs>\nLength: 30 s\nfeatures:\n- search\nterms:\n- Cutroom\ndata:\n- all public\n</inputs>\n<direction>why</direction>\n<structure>a, b</structure>');
+  assert.match(brief.out, /nothing missing/);
+});
+
+test('review rounds follow the tier: no reviewer where the tier has none, one final round, and a self-check at tier 5', () => {
+  project('tier3s', { gates: 'none', tier: 3, stage: 'sample', passed: [] });
+  const s3 = cliIn('tier3s', ['review', 'run']);
+  assert.ok(!s3.ok);
+  assert.match(s3.out, /tier 3 checks the sample without a reviewer/);
+  project('tier2f', { gates: 'none', tier: 2, stage: 'full', passed: [] });
+  assert.match(cliIn('tier2f', ['review', 'run']).out, /tier 2 runs no reviewer during full/);
+  assert.ok(cliIn('tier2f', ['review', 'log', 'ready\nscope: batch']).ok, 'a batch self-check is still saved');
+  project('tier4r', { gates: 'none', tier: 4, stage: 'review', passed: [] });
+  const r4 = cliIn('tier4r', ['review', 'log', 'revise\nscope: whole cut\n1. intro caption — move it\n2. outro too short']);
+  assert.ok(r4.ok, r4.out);
+  assert.match(r4.out, /tier 4 has one final review: fix what it lists/);
+  assert.match(cliIn('tier4r', ['review', 'run']).out, /1 final round done, the limit at tier 4/);
+  const done = cliIn('tier4r', ['flow', 'stage', 'done']);
+  assert.match(done.out, /The final review listed these/);
+  assert.match(done.out, /Name in one sentence the ones you fixed after the review/);
+  project('tier5r', { gates: 'none', tier: 5, stage: 'review', passed: [] });
+  assert.match(cliIn('tier5r', ['flow']).out, /hard failures only/);
+  const r5 = cliIn('tier5r', ['review', 'log', 'revise\nscope: contact sheet\n1. outro shows an email']);
+  assert.match(r5.out, /fix only these hard failures/);
+  assert.ok(!cliIn('tier5r', ['review', 'log', 'ready\nscope: again']).ok, 'one round at tier 5');
+  project('waitfb', { gates: 'plan+sample', tier: 2, stage: 'sample', waiting: 'sample', passed: ['plan'] });
+  assert.ok(cliIn('waitfb', ['review', 'log', 'revise\nscope: sample\n1. x']).ok);
+  assert.ok(cliIn('waitfb', ['review', 'log', 'revise\nscope: sample\n1. x']).ok, "the user's feedback at a checkpoint is not limited");
+});
+
+test('tiers 3–5 limit look and review renders per stage; feedback at a checkpoint is not limited', () => {
+  project('budget', { gates: 'none', tier: 5, stage: 'full', passed: [] });
+  const count = path.join(DATA, '.editor', 'budget', 'looks.json');
+  fs.mkdirSync(path.dirname(count), { recursive: true });
+  fs.writeFileSync(count, JSON.stringify({ stage: 'full', n: 4 }));
+  for (const args of [['look', 'lines'], ['look', 'intro'], ['review']]) {
+    const r = cliIn('budget', args);
+    assert.ok(!r.ok, args.join(' '));
+    assert.match(r.out, /tier 5 allows 4 look renders per stage and full has used them: stop tuning/, args.join(' '));
+  }
+});
+
+test('look lines checks only the scenes named and refuses unknown ones', () => {
+  const r = cli('look', 'lines', 'nope');
+  assert.ok(!r.ok);
+  assert.match(r.out, /no scene nope/);
 });

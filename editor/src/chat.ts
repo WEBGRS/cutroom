@@ -5,7 +5,8 @@ import path from 'node:path';
 import Anthropic from '@anthropic-ai/sdk';
 import { PUBLIC, ROOT, STATE, appendLog, hash, readDoc, snapshot } from './store';
 import { workflowSection } from './flowprompt';
-import { pausedLine } from './flow';
+import { finalNote, pausedLine } from './flow';
+import { lastProblems } from './stagefiles';
 import { killTree } from './proc';
 import { HELP } from './help';
 import { imagesIn, lookDir, lookReadRule, pathRule } from './look';
@@ -457,10 +458,10 @@ ${rulesBlock(slug)}
 
 ## How to reply (this matters most)
 - The reply is plain text in the user's language, 1–3 short sentences: what you changed (scene ids, before → after), or the one thing you need from the user.
-- Exception: when \`flow stage done\` lists problems the reviewer still asks for, say that the reviewer's verdict is revise and name each listed problem in a short clause (scene and what is wrong); this reply may run longer than three sentences.
+- When \`flow stage done\` lists the final review's problems, the panel adds the verdict and those problems under your reply: don't repeat them; if you fixed some of them after the review, name those in one sentence.
 - No headings, no bold, no bullet or numbered lists, no code blocks, no links, no menu of options, no explanations of how the editor works unless asked. Scene ids and file names are plain words (checklist-2, cap/demo.mp4).
 - If the request is ambiguous, pick the most likely reading, do it, and say which reading you chose.
-- Say that the words and the picture match only when you opened the \`look lines\` frame of every line; otherwise say which lines you checked.
+- Say that the words and the picture match only when you opened the \`look lines\` frame (or sheet cell) of every line; otherwise say which lines you checked.
 - When only the user can do something (open an app, work it while you record, hand over a file, sign in), first do everything else, then ask for exactly that in one sentence.
 - Your turn ends with your reply and nothing keeps running after it: never say you will keep polling, wait, or come back later. When something outside blocks you (a site limits requests, a login is needed, a file is missing), stop, say in one sentence what blocks you, and that they can send “继续”/“continue” once it is clear.
 - Do not print any status/canary line like "[dir · turn N]"; this is an app panel, not a terminal.
@@ -750,7 +751,21 @@ export async function chat(slug: string, message: string, ctx: ChatContext, mode
   const toolIds = new Map<string, number>();
   // Text before a command is a working note; the answer is what comes after the last one
   let aside = '';
+  // A build that reaches done during this message gets the review verdict under the reply
+  const stageBefore = (() => {
+    try {
+      return readDoc(slug).doc.board.workflow?.stage;
+    } catch {
+      return undefined;
+    }
+  })();
+  let noted = false;
   const wrapped = (e: ChatEvent) => {
+    if (e.type === 'done' && !noted) {
+      noted = true;
+      const n = stageBefore === 'done' ? null : doneNote(slug);
+      if (n) wrapped({ type: 'text', delta: `\n\n${n}` });
+    }
     if (e.type === 'text') reply.text += e.delta;
     if (e.type === 'tool') {
       aside = [aside, reply.text.trim()].filter(Boolean).join('\n\n');
@@ -1084,6 +1099,16 @@ async function viaCompat(slug: string, prompt: string, saved: Saved, emit: (e: C
     if (!controller.signal.aborted) emit({ type: 'error', message: compatError(e, c) });
   }
   emit({ type: 'done', ms: Date.now() - t0 });
+}
+
+// The final review's verdict and problems when the build ended at revise
+function doneNote(slug: string): string | null {
+  try {
+    const n = finalNote(readDoc(slug).doc.board.workflow, lastProblems(slug, 5));
+    return n ? L(...n) : null;
+  } catch {
+    return null;
+  }
 }
 
 // A workflow run cut off by a turn or time limit says where it stopped and how to go on

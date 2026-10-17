@@ -39,11 +39,14 @@ export async function tile(files: string[], labels: string[], out: string, cellW
           const x = (k % cols) * cellW;
           const y = Math.floor(k / cols) * cellH;
           g.drawImage(im, x, y, cellW, cellH);
-          const w = g.measureText(labels[k] ?? '').width + 10;
+          // A label stays inside its cell
+          let text = labels[k] ?? '';
+          while (text.length > 2 && g.measureText(text).width + 10 > cellW) text = `${text.slice(0, -2)}…`;
+          const w = g.measureText(text).width + 10;
           g.fillStyle = 'rgba(0,0,0,.7)';
           g.fillRect(x, y, w, 20);
           g.fillStyle = '#ffd479';
-          g.fillText(labels[k] ?? '', x + 5, y + 14);
+          g.fillText(text, x + 5, y + 14);
         });
         return c.toDataURL('image/jpeg', 0.85).split(',')[1];
       },
@@ -55,6 +58,21 @@ export async function tile(files: string[], labels: string[], out: string, cellW
   } finally {
     await b.close();
   }
+}
+
+// look frames as contact sheets in the look folder: size 3 = 9 frames (16:9) or 10 (9:16) per image, size 2 = 4 at half size
+export async function lineSheets(slug: string, shots: { file: string; label: string }[], format: Format, size: 2 | 3 = 3): Promise<{ file: string; from: number; to: number }[]> {
+  const cols = format === 'tall' ? (size === 2 ? 4 : 5) : size;
+  const per = format === 'tall' ? (size === 2 ? 4 : 10) : size * size;
+  const cellW = format === 'tall' ? (size === 2 ? 390 : 300) : size === 2 ? 780 : 520;
+  const out: { file: string; from: number; to: number }[] = [];
+  for (let i = 0; i < shots.length; i += per) {
+    const part = shots.slice(i, i + per);
+    const file = path.resolve(lookDir(), `${slug}-sheet-${i / per + 1}.jpeg`);
+    if (!(await tile(part.map((s) => s.file), part.map((s) => s.label), file, cellW, cols))) return [];
+    out.push({ file, from: i + 1, to: i + part.length });
+  }
+  return out;
 }
 
 // Two sheets in the look folder (the AI can open them) and a copy in the project for the panel

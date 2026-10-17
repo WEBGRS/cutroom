@@ -262,13 +262,13 @@ export const fmtTime = (f: number, fps: number) => {
 };
 
 // Frames for `look lines`: the middle of each narration line, labelled with the line, at most 24
-export function lineFrames(tl: ETimeline): { f: number; label: string }[] {
+export function lineFrames(tl: ETimeline, ids: string[] = [], max = 24): { f: number; label: string }[] {
   const out: { f: number; label: string }[] = [];
-  for (const s of tl.scenes)
+  for (const s of tl.scenes.filter((x) => !ids.length || ids.includes(x.id)))
     s.lines.forEach((l, k) => {
       if (!l.text.trim()) return;
       const f = Math.round(s.start + l.start + l.dur / 2);
       out.push({ f, label: `${fmtTime(f, tl.fps)}, ${s.id} line ${k + 1}: "${l.text.slice(0, 40)}"` });
     });
-  return out.slice(0, 24);
+  return out.slice(0, max);
 }

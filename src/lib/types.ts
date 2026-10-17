@@ -310,6 +310,8 @@ export interface Theme {
 export type Gates = 'plan+sample' | 'plan' | 'none';
 export type Stage = 'brief' | 'plans' | 'script' | 'table' | 'sample' | 'full' | 'sound' | 'review' | 'done';
 export type Gate = 'plan' | 'sample';
+// How many tokens a whole-video build may spend: 1 every check … 5 the fewest
+export type Tier = 1 | 2 | 3 | 4 | 5;
 
 export interface ReviewRound {
   round: number;
@@ -329,6 +331,8 @@ export interface ReviewRound {
 
 export interface Workflow {
   gates: Gates;
+  // Absent = 1
+  tier?: Tier;
   stage: Stage;
   waiting?: Gate;
   // Set only by the panel

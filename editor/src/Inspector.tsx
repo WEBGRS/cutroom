@@ -1,11 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react';
-import type { Format, Fx, Gates, Overlay, Scene, SoundCue, StatsVisual, Visual } from '../../src/lib/types';
+import type { Format, Fx, Gates, Overlay, Scene, SoundCue, StatsVisual, Tier, Visual } from '../../src/lib/types';
 import { SOUNDS, SOUND_CATS, soundDef, soundSrc } from '../../src/fx/sounds';
 import { fmtTime, visualKey, type ETimeline } from './model';
 import { getPath, removeSound, replaceScene, setPath, toggleTall, type Caps, type Doc, type Op } from './ops';
 import { BOARD_FX, CARD_LIST, DIR_LIST, DIR_TRANSITIONS, LOWER_LIST, OVERLAY_LIST, RULES, SCENE_FX, TEXT_LIST, TRANSITION_LIST, allFields, type FieldDef } from './catalog';
 import { Field, FieldControl, JsonEdit, Row, asRef, isNum, num, refOk } from './Fields';
-import { MODE_OPTIONS, STAGE_LABEL, contentKey, newWorkflow, setMode } from './flow';
+import { MODE_OPTIONS, TIERS, TIER_IDS, TIER_OPTIONS, contentKey, newWorkflow, setMode, setTier, stageLabel, tierOf } from './flow';
 import { Scores } from './GateCard';
 import { Icon } from './icons';
 import { nm, tr } from './i18n';
@@ -866,16 +866,34 @@ function BoardPanel(p: Props) {
             >
               {b.workflow ? null : <option value="">{tr('Not set (edits only)', '未设置（只做修改）')}</option>}
               {MODE_OPTIONS.map((o) => (
-                <option key={o.id} value={o.id}>
+                <option key={o.id} value={o.id} disabled={o.id === 'plan+sample' && !!b.workflow && !TIERS[tierOf(b.workflow)].sample}>
                   {tr(o.en, o.zh)}
                 </option>
               ))}
             </select>
           </Row>
           {b.workflow ? (
+            <Row label={tr('Token use', '用量档位')}>
+              <select
+                value={tierOf(b.workflow)}
+                title={tr(TIER_OPTIONS[tierOf(b.workflow)].hintEn, TIER_OPTIONS[tierOf(b.workflow)].hintZh)}
+                onChange={(e) => {
+                  const t = Number(e.target.value) as Tier;
+                  p.commit((d) => setPath(d, null, 'workflow', d.board.workflow ? setTier(d.board.workflow, t) : newWorkflow('plan', t)), { coalesce: 'board.workflow' });
+                }}
+              >
+                {TIER_IDS.map((t) => (
+                  <option key={t} value={t}>
+                    {t} {tr(TIER_OPTIONS[t].en, TIER_OPTIONS[t].zh)}
+                  </option>
+                ))}
+              </select>
+            </Row>
+          ) : null}
+          {b.workflow ? (
             <Row label={tr('Stage', '进度')}>
               <span className="stage-line">
-                {tr(STAGE_LABEL[b.workflow.stage][0], STAGE_LABEL[b.workflow.stage][1])}
+                {tr(...stageLabel(b.workflow.stage, tierOf(b.workflow)))}
                 {b.workflow.waiting ? tr(' · waiting for you in the AI panel', ' · 在 AI 面板等你确认') : ''}
               </span>
             </Row>

@@ -1,6 +1,6 @@
 // The assistant's workflow instructions: whole videos follow the stages, edits follow the editing steps
-import type { Storyboard } from '../../src/lib/types';
-import { contentKey, describe } from './flow';
+import type { Storyboard, Workflow } from '../../src/lib/types';
+import { TIERS, contentKey, describe, tierOf } from './flow';
 
 export const EDIT_STEPS = `1. Find out first. \`ls\` (with the --format of the user's current view, given in each message) shows the timeline; \`show <id>\` a scene's JSON; \`media\` the footage the project already has; \`windows <word>\` the apps open on this computer. Never ask the user for something these tell you. For a request to improve, restructure or review the video, also run \`plan\`: per scene what the narration says, what the picture shows and the text on screen, with notes where the picture only repeats the words or the words describe an action no footage shows.
 2. Shot list, before any recording for a new video or a rebuild: for each narration line write the page and the action that shows it ("courses site: search COMP SCI 400, open it, the grade chart"). Every site, page or feature the narration names gets footage of its own; a line goes only over footage of what it says. A home page that lists or links to things is not footage of those things: record each of them. Plan one scene per line or per page, and build from that list. Each scene is one shot: write its shot design into the scene with \`set <id> shot "…"\` (in the user's language: the page or app, the actions in order, the camera and any card or text, e.g. "选课网站：搜索框输入 COMP SCI 400，点开课程，镜头推近成绩分布"), so the user can read and change how every shot is made.
@@ -18,6 +18,25 @@ export const EDIT_STEPS = `1. Find out first. \`ls\` (with the --format of the u
 8. Check. Run \`check\` after your last edit (again if you changed anything since) and fix what it lists. A recording shorter than its narration can't be fixed by you alone: shorten the lines, or say in the reply that a longer recording is needed and how long.
 9. Reply (rules at the end).`;
 
+// The stages of this project's tier, one line
+export function stageList(wf: Workflow | undefined): string {
+  const tier = tierOf(wf);
+  const t = TIERS[tier];
+  const steps = [
+    'brief',
+    t.plans === 1 ? 'one plan (checkpoint plan)' : 'plans (checkpoint plan)',
+    'script and voice',
+    'shot table',
+    ...(t.sample ? ['sample (checkpoint sample)'] : []),
+    t.batches === 'none' ? 'full, in one pass' : 'full, in batches',
+    'sound',
+    t.final.by === 'self' ? 'review, a self-check of hard failures' : t.final.rounds === 1 ? 'review, one round by an independent reviewer' : 'review, by an independent reviewer',
+    'done',
+  ];
+  const line = `${steps.map((s, i) => `${i + 1}. ${s}`).join(' → ')}.`;
+  return tier === 1 ? line : `${line} Tier ${tier}: the user chose to spend fewer tokens, so do only what each stage contract asks (no extra plans, previews, reviews or rounds).`;
+}
+
 export function workflowSection(board: Storyboard | null): string {
   const now = board ? describe(board.workflow, contentKey(board)) : 'unknown';
   return `## Workflow
@@ -26,8 +45,8 @@ This project: ${now}
 
 ### Making a whole video
 Run \`flow\` first in every turn of this process: it prints the mode, the stage, whether the user is choosing, and the current stage's contract (what to do, what to deliver, when it is done). Work only in that stage, and move on with \`flow stage <next>\` when its contract says so.
-0. Start. The size (16:9 widescreen for Bilibili or YouTube, 9:16 vertical for Douyin, Xiaohongshu, Shorts or Reels) and the checking mode must be known. Modes: plan+sample (the user approves the plan, then a finished sample), plan (only the plan), none (no stops). Take them from the request or the board; ask only for what is missing, both in one sentence, and stop until they answer. Then \`set - format '"wide"'\` or \`set - format '"tall"'\` (the editor's preview switches to it) and \`flow start <mode>\`. Build for the size: \`ls\` and \`look\` with that --format, HTML scenes at its size, \`reframe\` for footage in 9:16. A board with a workflow has both: don't ask again.
-1. brief → 2. plans (checkpoint plan) → 3. script and voice → 4. shot table → 5. sample (checkpoint sample) → 6. full, in batches → 7. sound → 8. review, by an independent reviewer → 9. done.
+0. Start. The size (16:9 widescreen for Bilibili or YouTube, 9:16 vertical for Douyin, Xiaohongshu, Shorts or Reels) and the checking mode must be known. Modes: plan+sample (the user approves the plan, then a finished sample), plan (only the plan), none (no stops). Take them from the request or the board; ask only for what is missing, both in one sentence, and stop until they answer. The tier (1 every check … 5 fewest tokens) also comes from the request; ask for it only together with something else missing, otherwise use 1. Then \`set - format '"wide"'\` or \`set - format '"tall"'\` (the editor's preview switches to it) and \`flow start <mode> [tier]\`. Build for the size: \`ls\` and \`look\` with that --format, HTML scenes at its size, \`reframe\` for footage in 9:16. A board with a workflow has both: don't ask again.
+${stageList(board?.workflow)}
 - At a checkpoint: write the products, run \`flow wait <plan|sample>\`, and end your turn with one sentence saying the plans (or the sample) are in the card above. Don't list them: the card shows them.
 - While \`flow\` says the user is choosing, their message is feedback on that stage. Change only what it names, at the smallest slice (wording, timing, picture or code); \`brief write\` the updated brief when a decision changed; re-render what changed; \`flow wait\` again. Only the user passes a checkpoint, with the buttons in the panel; never try to move past it.
 - Mode none: never stop. Where a checkpoint would be, add one line to your final reply instead (e.g. "Took plan B: …").

@@ -38,6 +38,23 @@ test('brief lists and gaps', () => {
   assert.equal(S.readBrief('demo')?.trim(), BRIEF.trim());
 });
 
+test('a short brief (tiers 4–5) needs only inputs, direction and structure', () => {
+  const short = BRIEF.replace(/<(role|build|gotchas|start)>[^<]*<\/\1>/g, '');
+  assert.deepEqual(S.briefGaps(short, true), []);
+  assert.deepEqual(S.briefGaps(short), ['<role>', '<build>', '<gotchas>', '<start>']);
+  assert.deepEqual(S.briefGaps('<inputs>x</inputs>', true), ['<direction>', '<structure>', 'features: list', 'terms: list', 'data: list']);
+});
+
+test('look renders are counted per stage against the tier budget', async () => {
+  const { countLook } = await import('../src/flowcli');
+  const wf = { gates: 'none' as const, tier: 4 as const, stage: 'full' as const, passed: [] };
+  assert.equal(countLook('demo', { ...wf, tier: undefined }), null, 'tier 1 has no budget');
+  for (let i = 1; i <= 5; i++) assert.deepEqual(countLook('demo', wf), [i, 5]);
+  assert.throws(() => countLook('demo', wf), /tier 4 allows 5 look renders per stage and full has used them/);
+  assert.equal(countLook('demo', { ...wf, waiting: 'plan' as const }), null, 'feedback at a checkpoint is not counted');
+  assert.deepEqual(countLook('demo', { ...wf, stage: 'review' }), [1, 5], 'a new stage starts from zero');
+});
+
 test('a brief list may start after blank lines; a blank line after items ends it', () => {
   assert.deepEqual(S.briefList('features:\n\n- search\n- chart\n\n- not a feature', 'features'), ['search', 'chart']);
   assert.deepEqual(S.briefList('features:\r\n  \r\n- search', 'features'), ['search']);

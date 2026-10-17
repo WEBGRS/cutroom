@@ -348,11 +348,14 @@ try {
     await page.locator('.new-project > input').fill('e2eflow');
     await page.locator('.np-seg button', { hasText: '9:16' }).click();
     await page.locator('.np-opt', { hasText: '只确认方案' }).click();
+    await page.locator('.np-tier button', { hasText: '4' }).click();
+    if (!(await page.locator('.np-opt.off', { hasText: '确认方案和样片' }).count())) throw new Error('tier 4 should rule out the sample checkpoint');
+    if (!(await page.locator('.np-tier-hint', { hasText: '只出一个方案' }).count())) throw new Error('tier 4 hint missing');
     await page.locator('.new-project .primary').click();
     const f = path.join(PUB, 'e2eflow', 'storyboard.json');
     await until('project created', () => fs.existsSync(f));
     const b = JSON.parse(fs.readFileSync(f, 'utf8'));
-    if (b.format !== 'tall' || b.workflow?.gates !== 'plan' || b.workflow?.stage !== 'brief') throw new Error(JSON.stringify({ format: b.format, workflow: b.workflow }));
+    if (b.format !== 'tall' || b.workflow?.gates !== 'plan' || b.workflow?.stage !== 'brief' || b.workflow?.tier !== 4) throw new Error(JSON.stringify({ format: b.format, workflow: b.workflow }));
     await page.goto(`${BASE}/?slug=${SLUG}&format=wide&lang=zh&variant=default&ui=zh`);
     fs.rmSync(path.join(PUB, 'e2eflow'), { recursive: true, force: true });
     await page.waitForSelector('.clip', { timeout: 15000 });
@@ -377,6 +380,37 @@ try {
     await until('message sent', () => sent.includes('方案 B'));
     const after = JSON.parse(fs.readFileSync(f, 'utf8'));
     if (after.workflow.stage !== 'script' || after.workflow.choice !== 'b') throw new Error(JSON.stringify(after.workflow));
+    await page.unroute('**/api/chat');
+    fs.rmSync(path.join(DIR, 'plans'), { recursive: true, force: true });
+    delete after.workflow;
+    fs.writeFileSync(f, JSON.stringify(after, null, 2));
+    await page.getByRole('tab', { name: '属性' }).click();
+  });
+
+  await step('a one-plan tier shows its plan as text with one button and no compare', async () => {
+    const f = path.join(DIR, 'storyboard.json');
+    const b = JSON.parse(fs.readFileSync(f, 'utf8'));
+    b.workflow = { gates: 'plan', tier: 4, stage: 'plans', waiting: 'plan', passed: [] };
+    fs.writeFileSync(f, JSON.stringify(b, null, 2));
+    fs.mkdirSync(path.join(DIR, 'plans'), { recursive: true });
+    fs.writeFileSync(path.join(DIR, 'plans', 'plan-a.md'), '# Plan A: Calm\n\nOne sentence.\n\nLook: navy and white, Inter.\nShots: search, chart.');
+    // A leftover plan b is not shown at a one-plan tier
+    fs.writeFileSync(path.join(DIR, 'plans', 'plan-b.md'), '# Plan B: Old\n\nOld.');
+    let sent = '';
+    await page.route('**/api/chat', (route) => {
+      if (route.request().method() !== 'POST') return route.continue();
+      sent = JSON.parse(route.request().postData() ?? '{}').message ?? '';
+      return route.fulfill({ status: 200, body: '' });
+    });
+    await page.getByRole('tab', { name: 'AI 助手' }).click();
+    await page.waitForSelector('.gate-plan', { timeout: 8000 });
+    if ((await page.locator('.gate-plan').count()) !== 1) throw new Error('one plan expected');
+    if (!(await page.locator('.gate-excerpt', { hasText: 'navy and white' }).count())) throw new Error('plan text excerpt missing');
+    if (await page.locator('.gate-head button', { hasText: '并排对比' }).count()) throw new Error('no compare with one plan');
+    await page.locator('.gate-plan .primary', { hasText: '就用这个' }).click();
+    await until('message sent', () => sent.includes('方案 A'));
+    const after = JSON.parse(fs.readFileSync(f, 'utf8'));
+    if (after.workflow.stage !== 'script') throw new Error(JSON.stringify(after.workflow));
     await page.unroute('**/api/chat');
     fs.rmSync(path.join(DIR, 'plans'), { recursive: true, force: true });
     delete after.workflow;

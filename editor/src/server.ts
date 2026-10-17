@@ -18,7 +18,7 @@ import { agentDef, installAgent, openSignIn, forgetAgents, type AgentId } from '
 import { boardTemplate } from './templates';
 import { checkProject, flowView, fromPage, passGate } from './flowapi';
 import { chosenPlan } from './stagefiles';
-import { isGate, isMode } from './flow';
+import { isGate, isMode, isTier, planOf } from './flow';
 import { L, readSettings, uiLang, writeSettings } from './settings';
 import { DEFAULT_EXPORTS, exportDir, exportPlan } from './exporter';
 import { isHtml, listHtml, safeName, writeHtml } from './htmlfiles';
@@ -396,7 +396,8 @@ const server = http.createServer(async (req, res) => {
       fs.mkdirSync(path.join(dir, 'media'), { recursive: true });
       const format = b.format === 'tall' || b.format === 'wide' ? b.format : undefined;
       const gates = isMode(b.gates) ? b.gates : undefined;
-      fs.writeFileSync(path.join(dir, 'storyboard.json'), JSON.stringify(boardTemplate(s, String(b.title ?? s), uiLang(), { format, gates }), null, 2));
+      const tier = isTier(b.tier) ? b.tier : undefined;
+      fs.writeFileSync(path.join(dir, 'storyboard.json'), JSON.stringify(boardTemplate(s, String(b.title ?? s), uiLang(), { format, gates, tier }), null, 2));
       return send(res, 200, { slug: s });
     }
     if (p === '/api/projects') return send(res, 200, slugs().filter((s) => !s.startsWith('_') || process.env.VS_TEST));
@@ -688,7 +689,7 @@ const server = http.createServer(async (req, res) => {
         return send(res, 404, { error: (e as Error).message });
       }
       // The look is judged against the plan that was taken
-      const plan = chosenPlan(b.slug, readDoc(b.slug).doc.board.workflow?.choice);
+      const plan = chosenPlan(b.slug, planOf(readDoc(b.slug).doc.board.workflow));
       const rq = reviewRequest({ brief: String(b.brief ?? ''), table: String(b.table ?? ''), scope: String(b.scope ?? ''), images: Array.isArray(b.images) ? b.images.map(String) : [], dir: lookDir(), files: reviewViaFiles(), partial: b.partial === true, plan });
       if (!rq.images.length) return send(res, 400, { error: L('No review sheets: run review first', '没有审片拼图：先运行 review') });
       try {

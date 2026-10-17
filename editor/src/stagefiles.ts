@@ -44,9 +44,12 @@ export function briefList(text: string, key: string): string[] {
 // How a list is written, for the "missing" message
 export const LIST_FORM = (key: string) => `a line "${key}:" then one "- item" line per item`;
 
+// The blocks a short brief (tiers 4–5) needs
+export const SHORT_BLOCKS: readonly string[] = ['inputs', 'direction', 'structure'];
+
 // Missing blocks and lists, e.g. ["<gotchas>", "data: list"]
-export function briefGaps(text: string): string[] {
-  const blocks = BRIEF_BLOCKS.filter((b) => !new RegExp(`<${b}>[\\s\\S]*?</${b}>`).test(text)).map((b) => `<${b}>`);
+export function briefGaps(text: string, short = false): string[] {
+  const blocks = BRIEF_BLOCKS.filter((b) => (!short || SHORT_BLOCKS.includes(b)) && !new RegExp(`<${b}>[\\s\\S]*?</${b}>`).test(text)).map((b) => `<${b}>`);
   const lists = BRIEF_LISTS.filter((k) => !briefList(text, k).length).map((k) => `${k}: list`);
   return [...blocks, ...lists];
 }
@@ -59,9 +62,9 @@ export function briefSeconds(text: string): number | null {
 }
 
 export const readBrief =(slug: string) => read(briefFile(slug));
-export function writeBrief(slug: string, text: string): string[] {
+export function writeBrief(slug: string, text: string, short = false): string[] {
   write(briefFile(slug), text);
-  return briefGaps(text);
+  return briefGaps(text, short);
 }
 
 export function writePlan(slug: string, id: PlanId, md: string) {

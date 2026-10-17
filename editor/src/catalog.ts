@@ -1,6 +1,7 @@
 // Every editable effect in one place: drives the inspector controls, the CLI `fx` listing and the AI's instructions
 import { BG_LIST, CARD_LIST, DIR_LIST, DIR_TRANSITIONS, DUOTONE_LIST, LOOK_LIST, LOWER_LIST, OVERLAY_LIST, RULES, TEXT_LIST, TRANSITION_LIST, type Named, type OverlayItem, type Rule } from '../../src/fx/registry';
 import { SOUNDS } from '../../src/fx/sounds';
+import { recipesText } from './recipes';
 
 export { BG_LIST, CARD_LIST, DIR_LIST, DIR_TRANSITIONS, LOWER_LIST, OVERLAY_LIST, RULES, TEXT_LIST, TRANSITION_LIST };
 export type { Named, OverlayItem, Rule };
@@ -207,5 +208,6 @@ export function catalogText(): string {
       ].join(' '),
   );
   out.push('Cards: ' + CARD_LIST.map((c) => `${c.id}=${c.en}`).join(', '));
+  out.push(recipesText());
   return out.join('\n');
 }

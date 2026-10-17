@@ -8,7 +8,7 @@ import { editTimeline, fmtTime, lineFrames, type ETimeline } from './model';
 import { addScene, duplicateScene, getPath, moveScene, removeScene, replaceScene, setMinSec, setPath, splitPoint, splitScene, toggleTall, trimEdge, uniqueId, type Caps, type Op } from './ops';
 import { PUBLIC, STATE, readDoc, readLog, readSnapshot, slugs, writeDoc } from './store';
 import { HELP as HELP_TEXT } from './help';
-import { briefCmd, flowCmd, formatFor, plansCmd, reviewFallback, reviewLogCmd, lengthNote, saveReview, tableNotes } from './flowcli';
+import { briefCmd, countLook, flowCmd, formatFor, plansCmd, reviewFallback, reviewLogCmd, lengthNote, roundRefusal, saveReview, selfCheck, tableNotes } from './flowcli';
 import { callReviewer } from './review';
 import { catalogText } from './catalog';
 import { boardTemplate, sceneTemplate } from './templates';
@@ -29,9 +29,9 @@ import { pcm, probe } from './media';
 import { speechRanges } from './silence';
 import { renderFrames } from './look';
 import { reviewFrames } from './reviewframes';
-import { reviewSheets } from './sheets';
+import { lineSheets, reviewSheets } from './sheets';
 import { checklistText, readBrief } from './stagefiles';
-import { contentKey } from './flow';
+import { contentKey, phaseOf, rulesOf, tierOf } from './flow';
 import { importHtml, isHtml, lintHtml, listHtml, pageName, readHtml, starterHtml, writeHtml } from './htmlfiles';
 import { varValues } from '../../src/lib/html';
 import { MUSIC_LUFS, STUDIO_URL, api, ensureStudio, expand, installTrack, libraryText, rangeWarnings, renderProject, slugOf, studioHome, type Draft, type Inst } from './compose';
@@ -88,6 +88,8 @@ const lufsArg = flag('lufs');
 const textArg = flag('text');
 const atArg = flag('at');
 const motionArg = flag('motion');
+const sheetFlag = has('sheet');
+const framesFlag = has('frames');
 // An option this CLI doesn't know is an error, not something to silently ignore
 const unknown = args.find((a) => /^--[a-z][\w-]*$/.test(a));
 if (unknown) {
@@ -450,16 +452,22 @@ async function main() {
     case 'flow':
       return flowCmd(slug, doc, rest, save);
     case 'brief':
-      return briefCmd(slug, rest);
+      return briefCmd(slug, rest, doc.board.workflow);
     case 'plans':
-      return plansCmd(slug, rest, { at: atArg, motion: motionArg, format, formatGiven, boardFormat: doc.board.format });
+      return plansCmd(slug, rest, { at: atArg, motion: motionArg, format, formatGiven, boardFormat: doc.board.format, wf: doc.board.workflow });
     case 'review': {
       if (rest[0] === 'log') return reviewLogCmd(slug, doc, rest.slice(1).join(' '), save);
       const fmt = formatFor({ format, formatGiven, boardFormat: doc.board.format });
+      const wf = doc.board.workflow;
+      // The minimal tier's final check is the AI's own, on hard failures only
+      const selfOnly = !!wf && wf.stage !== 'done' && phaseOf(wf) === 'final' && rulesOf(wf).final.by === 'self';
       if (rest[0] === 'run') {
         const args = rest.slice(1);
+        const why = roundRefusal(slug, wf, 'independent');
+        if (why) throw new Error(why);
         const version = contentKey(readDoc(slug).doc.board);
         const { images, scope } = await reviewRender(args, fmt);
+        if (selfOnly) return console.log(selfCheck(tierOf(wf)));
         const server = process.env.CUTROOM_SERVER ?? `http://127.0.0.1:${process.env.PORT ?? 8814}`;
         const brief = readBrief(slug) ?? '';
         const table = (await planLines(fmt)).join(String.fromCharCode(10));
@@ -471,7 +479,9 @@ async function main() {
         return;
       }
       // Looking only: review run renders the same sheets and has them judged
+      countLook(slug, wf);
       await reviewRender(rest, fmt);
+      if (selfOnly) return console.log(selfCheck(tierOf(wf)));
       console.log(`\nchecklist:\n${checklistText()}\nTo have them judged: review run ${rest.join(' ')} (it renders these sheets again itself); if that is not available, open both sheets, judge them as a critic and save it with review log '<report>' (first line ready or revise, then scope:, scores: P 8 F 7 …, numbered problems with scene id, time, problem, fix).`);
       return;
     }
@@ -770,11 +780,20 @@ async function lookCmd(rest: string[]) {
   const at = (s: (typeof tl.scenes)[number], rel: number) => ({ f: s.start + rel * fps, label: `${fmtTime(Math.round(s.start + rel * fps), fps)}, ${s.id} +${rel.toFixed(2)} s` });
   const frames: { f: number; label: string }[] = [];
   // One frame in the middle of every narration line, to check each line against its picture
-  if (rest[0] === 'lines') {
-    frames.push(...lineFrames(tl));
-    if (!frames.length) throw new Error('no narration lines yet: look lines needs lines to check');
+  const lines = rest[0] === 'lines';
+  if (lines) {
+    const ids = rest.slice(1);
+    const bad = ids.filter((id) => !tl.scenes.some((s) => s.id === id));
+    if (bad.length) throw new Error(`look lines [scene id …]: no scene ${bad.join(', ')}`);
+    const all = lineFrames(tl, ids, Infinity);
+    frames.push(...all.slice(0, 24));
+    if (!frames.length) throw new Error(ids.length ? `no narration lines in ${ids.join(' ')}` : 'no narration lines yet: look lines needs lines to check');
+    if (all.length > 24) {
+      const later = [...new Set(all.slice(24).map((x) => tl.scenes.find((s) => x.f >= s.start && x.f < s.start + s.dur)?.id).filter(Boolean))];
+      console.log(`${all.length - 24} more lines after these 24: look lines ${later.join(' ')}`);
+    }
   }
-  const picks = rest[0] === 'lines' ? [] : rest.length ? rest : tl.scenes.filter((_, i, all) => all.length <= 8 || i % Math.ceil(all.length / 8) === 0).map((s) => s.id);
+  const picks = lines ? [] : rest.length ? rest : tl.scenes.filter((_, i, all) => all.length <= 8 || i % Math.ceil(all.length / 8) === 0).map((s) => s.id);
   for (const a of picks.slice(0, 8)) {
     const m = /^(\d+):(\d+(?:\.\d+)?)$/.exec(a);
     const sec = /^\d+(?:\.\d+)?$/.test(a) ? Number(a) : m ? Number(m[1]) * 60 + Number(m[2]) : null;
@@ -789,11 +808,25 @@ async function lookCmd(rest: string[]) {
     if (!s) throw new Error(`look takes seconds (12.5), m:ss (0:12.5), a scene id (its middle) or id+seconds; no scene "${a}"`);
     frames.push(at(s, r![2] !== undefined ? Math.min(Number(r![2]), s.dur / fps - 0.05) : (s.dur / fps) * 0.55));
   }
-  console.log(`rendering ${frames.length} frame(s) of ${slug} (${format}, ${lang}) as an export would…`);
+  const used = countLook(slug, doc.board.workflow);
+  console.log(`rendering ${frames.length} frame(s) of ${slug} (${format}, ${lang}) as an export would…${used ? ` (look ${used[0]} of ${used[1]} in this stage at tier ${tierOf(doc.board.workflow)})` : ''}`);
   const shots = await renderFrames({ slug, format, lang, frames, log: (s) => console.log(s) });
+  // Lower tiers (or --sheet) see three or more frames as a few contact sheets instead of one image each
+  const size = framesFlag ? 0 : sheetFlag ? 3 : rulesOf(doc.board.workflow).lookSheet;
+  if (size && shots.length >= 3) {
+    const sheets = await lineSheets(slug, shots, format, size);
+    if (sheets.length) {
+      for (const s of sheets) console.log(`image: ${s.file}  (${lines ? 'lines' : 'frames'} ${s.from}–${s.to} of ${shots.length})`);
+      return console.log(
+        lines
+          ? `Each cell is one narration line: the frame in its middle with its caption, labelled with the line. Open every sheet: each picture must show what its line says (the page, the feature, the result). Fix each line that does not before you call the cut done; look lines --frames <ids> shows single frames when a cell is too small to judge.`
+          : 'Each cell is one frame exactly as exported, labelled with its time and scene. Open every sheet before judging layout, text or colour; look --frames <t …> shows a frame at full size when a cell is too small to judge.',
+      );
+    }
+  }
   for (const x of shots) console.log(`image: ${path.resolve(x.file)}  (${x.label})`);
   console.log(
-    rest[0] === 'lines'
+    lines
       ? 'One image per narration line, in order. Open every one: the picture must show what its line says (the page, the feature, the result). Fix each line that does not before you call the cut done.'
       : 'Each image is one frame exactly as exported. Look at them before judging layout, text or colour.',
   );

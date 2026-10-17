@@ -1494,8 +1494,8 @@ function App() {
       {newOpen ? (
         <NewProjectDialog
           close={() => setNewOpen(false)}
-          ok={async ({ slug: name, format, gates }) => {
-            const r = await fetch('/api/projects', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ slug: name, title: name, format, gates }) });
+          ok={async ({ slug: name, format, gates, tier }) => {
+            const r = await fetch('/api/projects', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ slug: name, title: name, format, gates, tier }) });
             const j = await r.json();
             if (!r.ok) return flash(j.error ?? tr('Could not create the project', '新建失败'), 'error');
             setProjects(await getProjects());

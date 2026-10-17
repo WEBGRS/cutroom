@@ -5,7 +5,7 @@ import path from 'node:path';
 import type { Gate, Workflow } from '../../src/lib/types';
 import { boardFile, readDoc, writeDoc } from './store';
 import { L } from './settings';
-import { contentKey, pass } from './flow';
+import { contentKey, pass, rulesOf } from './flow';
 import { isPlanId, lastProblems, planClip, planStill, readPlans, reviewDir, type PlanId } from './stagefiles';
 
 export interface FlowView {
@@ -58,6 +58,7 @@ export function passGate(slug: string, gate: Gate, choice: string | undefined, l
   const { doc, version } = docOf(slug);
   if (!doc.board.workflow) throw new Error(L('this project has no whole-video workflow', '这个项目没有整片流程'));
   if (doc.board.workflow.waiting !== gate) throw new Error(L(`nothing is waiting at the ${gate} checkpoint`, `没有在等${gate === 'plan' ? '方案' : '样片'}确认`));
+  if (gate === 'plan' && choice !== 'a' && rulesOf(doc.board.workflow).plans === 1) throw new Error(L('this tier makes one plan: plan A', '这一档只有方案 A'));
   const wf = pass(doc.board.workflow, gate, gate === 'plan' ? choice : undefined);
   writeDoc(slug, { ...doc, board: { ...doc.board, workflow: wf } }, 'ui', [`passed the ${gate} checkpoint${choice ? ` (plan ${choice})` : ''}`], version);
   return gateMessage(gate, choice, lang);

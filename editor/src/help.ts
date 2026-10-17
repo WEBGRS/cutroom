@@ -37,8 +37,10 @@ export const HELP = `node editor/dist/cli.mjs <slug> <command> [args] [--format 
                            \`music help\` shows the draft format. You cannot hear it; say so and let the user listen
   look [t | id | id+t ...] render frames exactly as exported and print their image paths (t = seconds or m:ss,
                            id = a scene's middle; up to 8; default: a spread of scenes). Respects --format/--lang
-  look lines               one frame in the middle of every narration line, labelled with the line (up to 24): check
-                           that each picture shows what its line says
+  look lines [id …]        one frame in the middle of every narration line (or only those scenes' lines), labelled with
+                           the line (up to 24): check that each picture shows what its line says. --sheet joins them into
+                           contact sheets of 9 (tier 2: sheets of 4, tiers 3–5: of 9, also for look with 3+ frames);
+                           --frames forces one image per frame
   check                    problems to fix before export (long captions, missing voice-over, overlapping or silent sounds,
                            unreadable text on footage, missing media, too-short scenes), each with the command that fixes it
   inspect <url> [--mobile] a web page's headings and clickable elements, with selectors for record steps
@@ -71,8 +73,10 @@ export const HELP = `node editor/dist/cli.mjs <slug> <command> [args] [--format 
   plan                     production table: per scene what the narration says, what the picture shows and the text
                            on screen; notes where the picture repeats the words or an action has no footage
   flow                     whole-video process: mode, stage, files, and the current stage's contract (run it first in every
-                           turn of a whole-video build). flow start plan+sample|plan|none · flow stage <stage> · flow wait plan|sample
-                           · flow choose a|b|c (mode none: the plan you took; the reviewer judges the look against it)
+                           turn of a whole-video build). flow start plan+sample|plan|none [tier 1-5] · flow stage <stage>
+                           · flow wait plan|sample · flow choose a|b|c (mode none: the plan you took; the reviewer judges the
+                           look against it). Tier 1 = every check … 5 = fewest tokens: fewer plans and previews, no sample,
+                           fewer review rounds
   brief | brief write '<text>'   the video's brief.md (seven blocks; features:, terms:, data: lists); write reports what is missing.
                            Long text: brief write - (reads stdin) or brief write <file>
   plans | plans write <a|b|c> '<md>'   the three plans (long text: plans write <a|b|c> - for stdin, or a file path)

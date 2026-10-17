@@ -46,6 +46,15 @@ test('passing the plan checkpoint moves on and returns the message the panel sen
   assert.throws(() => passGate('p', 'plan', 'b', 'zh'), /nothing is waiting/);
 });
 
+test('new boards take a tier; a one-plan tier passes only plan a', () => {
+  const b = boardTemplate('t', 'T', 'en', { gates: 'plan+sample', tier: 4 });
+  assert.equal(b.workflow?.tier, 4);
+  assert.equal(b.workflow?.gates, 'plan');
+  mk('one', wait(moveTo(newWorkflow('plan', 4), 'plans'), 'plan'));
+  assert.throws(() => passGate('one', 'plan', 'b', 'en'), /one plan/);
+  assert.equal(passGate('one', 'plan', 'a', 'en'), "I'll take plan A. Carry on with it.");
+});
+
 test('the sample card gets the first three problems of the latest round', () => {
   mk('s', { gates: 'plan+sample', stage: 'sample', waiting: 'sample', passed: ['plan'] });
   assert.deepEqual(flowView('s').problems, []);

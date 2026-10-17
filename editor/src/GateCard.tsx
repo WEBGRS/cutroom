@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import type { Workflow } from '../../src/lib/types';
 import { CHECKLIST_KEYS } from './gatekeys';
+import { TIERS, tierOf } from './flow';
 import { tr } from './i18n';
 
 interface FlowView {
@@ -61,10 +62,19 @@ export function GateCard({ slug, workflow, onPass }: { slug: string; workflow: W
       setBusy(false);
     }
   };
-  const plans = view.plans.filter((p) => p.md);
+  // One-plan tiers show only plan a
+  const plans = view.plans.slice(0, TIERS[tierOf(workflow)].plans).filter((p) => p.md);
+  const one = plans.length === 1;
+  // A plan without a preview shows the start of its text
+  const excerpt = (md: string) =>
+    md
+      .split(/\r?\n/)
+      .filter((l) => l.trim() && !l.startsWith('#'))
+      .slice(1, 7)
+      .join('\n');
   const tile = (p: FlowView['plans'][number], big = false) => (
     <div key={p.id} className={`gate-plan${big ? ' big' : ''}`}>
-      {p.clip ? <video src={p.clip} poster={p.image ?? undefined} autoPlay loop muted playsInline /> : p.image ? <img src={p.image} alt="" /> : <div className="gate-noimg" />}
+      {p.clip ? <video src={p.clip} poster={p.image ?? undefined} autoPlay loop muted playsInline /> : p.image ? <img src={p.image} alt="" /> : big || open === p.id ? <div className="gate-noimg" /> : <pre className="gate-md gate-excerpt">{excerpt(p.md ?? '')}</pre>}
       <b>{p.title || tr(`Plan ${p.id.toUpperCase()}`, `方案 ${p.id.toUpperCase()}`)}</b>
       <span>{p.line}</span>
       {big ? <pre className="gate-md">{p.md}</pre> : null}
@@ -75,7 +85,7 @@ export function GateCard({ slug, workflow, onPass }: { slug: string; workflow: W
           </button>
         )}
         <button className="primary" disabled={busy} onClick={() => void go('plan', p.id)}>
-          {tr('Take this', '选这个')}
+          {one ? tr('Use this plan', '就用这个') : tr('Take this', '选这个')}
         </button>
       </div>
     </div>
@@ -84,12 +94,14 @@ export function GateCard({ slug, workflow, onPass }: { slug: string; workflow: W
     return (
       <div className="gate">
         <div className="gate-head">
-          {tr('Pick a plan, or write below what to change', '选一个方案，或在下面写要改什么')}
-          <button className="btn" onClick={() => setCompare(true)}>
-            {tr('Compare', '并排对比')}
-          </button>
+          {one ? tr('Approve the plan, or write below what to change', '方案可以就通过，要改就在下面写') : tr('Pick a plan, or write below what to change', '选一个方案，或在下面写要改什么')}
+          {one ? null : (
+            <button className="btn" onClick={() => setCompare(true)}>
+              {tr('Compare', '并排对比')}
+            </button>
+          )}
         </div>
-        <div className="gate-plans">{plans.map((p) => tile(p))}</div>
+        <div className={`gate-plans${one ? ' one' : plans.some((p) => p.image || p.clip) ? '' : ' text'}`}>{plans.map((p) => tile(p))}</div>
         {open ? <pre className="gate-md">{plans.find((p) => p.id === open)?.md}</pre> : null}
         {err ? <div className="err">{err}</div> : null}
         {compare ? (
