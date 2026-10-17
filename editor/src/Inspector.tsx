@@ -842,6 +842,12 @@ function BoardPanel(p: Props) {
           <Row label={tr('Title', '标题')}>
             <Field value={b.title} onCommit={(s) => set('title', s)} />
           </Row>
+          <Row label={tr('Size', '画幅')}>
+            <select value={b.format ?? p.format} onChange={(e) => set('format', e.target.value)}>
+              <option value="wide">{tr('16:9 widescreen (YouTube, Bilibili)', '16:9 横屏（B站、YouTube）')}</option>
+              <option value="tall">{tr('9:16 vertical (TikTok, Douyin, Xiaohongshu)', '9:16 竖屏（抖音、小红书）')}</option>
+            </select>
+          </Row>
           <Row label={tr('9:16 header', '竖屏顶栏')}>
             <Field value={b.header} placeholder={tr('Line at the top of 9:16', '竖屏顶部的一行字')} onCommit={(s) => set('header', s || undefined)} />
           </Row>

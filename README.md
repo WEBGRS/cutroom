@@ -56,7 +56,8 @@ Open the project in the editor afterwards to adjust it by hand; the agent sees y
 ## Features
 
 - **Timeline**: filmstrip thumbnails, waveforms, drag to reorder, drag edges to trim, split at the playhead, undo/redo. Lanes under the scenes show where every overlay, effect, camera move and sound effect sits, and each cut shows its transition. Drag an overlay or a sound to move it; click any bar to open its settings. Dragged edges, cues and the playhead snap to cuts, recording marks, caption starts and each other (the magnet button or N; hold Alt to drag freely).
-- **Both sizes from one storyboard**: 16:9 and 9:16 from the same scenes, with a separate 9:16 picture where a scene needs one. The assistant asks which size you want before it makes the first version.
+- **Both sizes from one storyboard**: 16:9 and 9:16 from the same scenes, with a separate 9:16 picture where a scene needs one. The size is a project setting (Properties › Project); the assistant asks which one you want before it makes the first version.
+- **Every line over the right picture**: the assistant plans a shot for each narration line before it records, and `look lines` renders one frame per line with its caption so the assistant (or you) can check that each picture shows what its line says.
 - **Library panel**: media, cards, text, overlays, transitions, effects, backdrops, voice-over, sound effects and music. Every effect has a rendered preview that plays on hover; one click applies it to the selected scene.
 - **182 effects**:
   - 39 transitions (whip pan, glitch, film burn, 3D cube, light leak, tile grid, …)

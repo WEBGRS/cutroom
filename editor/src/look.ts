@@ -13,7 +13,8 @@ export function imagesIn(out: string): { path: string; data: string; mime: strin
   return [...out.matchAll(IMAGE_LINE)]
     .map((m) => path.resolve(m[1]))
     .filter((f) => f.startsWith(dir) && fs.existsSync(f))
-    .slice(0, 8)
+    // look lines checks every narration line
+    .slice(0, 24)
     .map((f) => ({ path: f, data: fs.readFileSync(f).toString('base64'), mime: /\.png$/i.test(f) ? 'image/png' : 'image/jpeg' }));
 }
 

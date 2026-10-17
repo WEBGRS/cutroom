@@ -110,19 +110,6 @@ const clamp = (x: number, a: number, b: number) => Math.min(b, Math.max(a, x));
 // What the main Export button makes (Settings › Export)
 const EXPORT_PRESET: Record<string, Record<string, string>> = { mp4: {}, '2x': { scale: '2' }, gif: { codec: 'gif', scale: '0.5' }, prores: { codec: 'prores' } };
 
-function Seg<T extends string>({ value, options, onChange, className }: { value: T; options: [T, string, string?, string?, string?][]; onChange: (v: T) => void; className?: string }) {
-  return (
-    <span className={`seg${className ? ' ' + className : ''}`}>
-      {options.map(([v, label, icon, title, aria]) => (
-        <button key={v} className={v === value ? 'on' : undefined} onClick={() => onChange(v)} title={title} aria-label={aria} aria-pressed={v === value}>
-          {icon ? <Icon name={icon} size={14} /> : null}
-          {label}
-        </button>
-      ))}
-    </span>
-  );
-}
-
 const pref = {
   get: (k: string, d: number) => {
     try {
@@ -329,6 +316,11 @@ function App() {
   useEffect(() => {
     if (boardFormat && boardFormat !== S.current.format && !new URLSearchParams(location.search).has('format')) update({ format: boardFormat });
   }, [boardFormat, st.slug]);
+  // A second language exists once a line has one; without it the English version is not offered
+  const bilingual = !!doc && (!!doc.timings.en || doc.board.scenes.some((s) => s.lines.some((l) => !!l.en?.trim())));
+  useEffect(() => {
+    if (doc && !bilingual && S.current.lang === 'en') update({ lang: 'zh' });
+  }, [doc, bilingual]);
 
   const getJson =<T,>(p: string): Promise<T | undefined> => {
     const d = docRef.current;
@@ -1250,19 +1242,13 @@ function App() {
               </button>
             </div>
             <div className="tp-r">
-              <select className="vsel" value={st.lang} title={tr('Video language: captions and narration switch together', '视频语言：字幕和旁白一起切换')} aria-label={tr('Video language', '视频语言')} onChange={(e) => update({ lang: e.target.value as Settings['lang'] })}>
-                <option value="zh">{tr('Chinese', '中文版')}</option>
-                <option value="en">{tr('English', '英文版')}</option>
-              </select>
-              <Seg
-                className="ratio"
-                value={st.format}
-                options={[
-                  ['wide', '16:9', 'wide', tr('Widescreen: YouTube, Bilibili', '横屏：B站、YouTube'), tr('Widescreen', '横屏')],
-                  ['tall', '9:16', 'tall', tr('Vertical: TikTok, Douyin, Xiaohongshu', '竖屏：抖音、小红书'), tr('Vertical', '竖屏')],
-                ]}
-                onChange={(v) => update({ format: v })}
-              />
+              {/* The size is the project's (Properties › Project); the language only when there is a second one */}
+              {bilingual ? (
+                <select className="vsel" value={st.lang} title={tr('Video language: captions and narration switch together', '视频语言：字幕和旁白一起切换')} aria-label={tr('Video language', '视频语言')} onChange={(e) => update({ lang: e.target.value as Settings['lang'] })}>
+                  <option value="zh">{tr('Chinese', '中文版')}</option>
+                  <option value="en">{tr('English', '英文版')}</option>
+                </select>
+              ) : null}
             </div>
           </div>
         </section>

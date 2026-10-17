@@ -97,10 +97,6 @@ async function drag(from, to) {
   for (let i = 1; i <= 8; i++) await page.mouse.move(from.x + ((to.x - from.x) * i) / 8, from.y + ((to.y - from.y) * i) / 8);
   await page.mouse.up();
 }
-const view = async (format) => {
-  await page.getByRole('button', { name: format === 'tall' ? '竖屏' : '横屏', exact: true }).click();
-  await page.waitForTimeout(1500);
-};
 const tab = (name) => page.locator('.itabs button', { hasText: name }).click();
 const fc = (label) => page.locator('.fc', { has: page.locator('.fl', { hasText: new RegExp(`^${label}$`) }) });
 
@@ -194,7 +190,6 @@ try {
   });
 
   await step('effects panel writes fx', async () => {
-    await view('wide');
     await block(R.fx).click();
     const v0 = sceneOf(R.fx).fx?.vignette ?? 0;
     await tab('特效');

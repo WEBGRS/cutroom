@@ -6,7 +6,7 @@ import { loadProps } from '../../src/lib/load';
 import { LAYOUT, withFrame } from '../../src/lib/layout';
 import { buildTimeline } from '../../src/lib/timeline';
 import type { CaptureMeta, Format, Props, Storyboard, Timings } from '../../src/lib/types';
-import { editTimeline } from '../src/model';
+import { editTimeline, lineFrames } from '../src/model';
 import { addScene, addSound, duplicateScene, moveScene, moveSound, removeScene, removeSound, setPath, splitPoint, splitScene, toRef, trimEdge, type Doc } from '../src/ops';
 import { BOARD_FX, CARD_LIST, LOWER_LIST, OVERLAY_LIST, SCENE_FX, TEXT_LIST, TRANSITION_LIST, BG_LIST, catalogText } from '../src/catalog';
 import { extraPresentation } from '../../src/fx/transitions';
@@ -231,4 +231,16 @@ test('scene placement matches the timeline in both formats', async () => {
     const starts = cutStarts(tl.scenes.map((s, i) => cut(s.scene.id, s.dur, i > 0 ? s.trans : 0)), 60);
     assert.deepEqual(starts, tl.scenes.map((s) => Math.max(0, s.start)), `voice ${format}`);
   }
+});
+
+test('look lines: one frame in the middle of every narration line', async () => {
+  const tl = editTimeline(await props(fresh(), 'wide'), 60);
+  const lines = tl.scenes.flatMap((s) => s.lines.filter((l) => l.text.trim()).map((l) => ({ s, l })));
+  const fr = lineFrames(tl);
+  assert.equal(fr.length, Math.min(24, lines.length));
+  fr.forEach((x, i) => {
+    const { s, l } = lines[i];
+    assert.ok(x.f > s.start + l.start && x.f < s.start + l.start + l.dur, `frame ${i} sits inside its line`);
+    assert.ok(x.label.includes(`${s.id} line`), x.label);
+  });
 });

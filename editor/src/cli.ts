@@ -4,7 +4,7 @@ import { spawn } from 'node:child_process';
 import { plain } from '../../src/lib/timeline';
 import { loadProps } from '../../src/lib/load';
 import type { Format, Props, Scene } from '../../src/lib/types';
-import { editTimeline, fmtTime, type ETimeline } from './model';
+import { editTimeline, fmtTime, lineFrames, type ETimeline } from './model';
 import { addScene, duplicateScene, getPath, moveScene, removeScene, replaceScene, setMinSec, setPath, splitPoint, splitScene, toggleTall, trimEdge, uniqueId, type Caps, type Op } from './ops';
 import { PUBLIC, STATE, readDoc, readLog, readSnapshot, slugs, writeDoc } from './store';
 import { HELP as HELP_TEXT } from './help';
@@ -698,7 +698,12 @@ async function lookCmd(rest: string[]) {
   const fps = tl.fps;
   const at = (s: (typeof tl.scenes)[number], rel: number) => ({ f: s.start + rel * fps, label: `${fmtTime(Math.round(s.start + rel * fps), fps)}, ${s.id} +${rel.toFixed(2)} s` });
   const frames: { f: number; label: string }[] = [];
-  const picks = rest.length ? rest : tl.scenes.filter((_, i, all) => all.length <= 8 || i % Math.ceil(all.length / 8) === 0).map((s) => s.id);
+  // One frame in the middle of every narration line, to check each line against its picture
+  if (rest[0] === 'lines') {
+    frames.push(...lineFrames(tl));
+    if (!frames.length) throw new Error('no narration lines yet: look lines needs lines to check');
+  }
+  const picks = rest[0] === 'lines' ? [] : rest.length ? rest : tl.scenes.filter((_, i, all) => all.length <= 8 || i % Math.ceil(all.length / 8) === 0).map((s) => s.id);
   for (const a of picks.slice(0, 8)) {
     const m = /^(\d+):(\d+(?:\.\d+)?)$/.exec(a);
     const sec = /^\d+(?:\.\d+)?$/.test(a) ? Number(a) : m ? Number(m[1]) * 60 + Number(m[2]) : null;
@@ -716,8 +721,13 @@ async function lookCmd(rest: string[]) {
   console.log(`rendering ${frames.length} frame(s) of ${slug} (${format}, ${lang}) as an export would…`);
   const shots = await renderFrames({ slug, format, lang, frames, log: (s) => console.log(s) });
   for (const x of shots) console.log(`image: ${path.resolve(x.file)}  (${x.label})`);
-  console.log('Each image is one frame exactly as exported. Look at them before judging layout, text or colour.');
+  console.log(
+    rest[0] === 'lines'
+      ? 'One image per narration line, in order. Open every one: the picture must show what its line says (the page, the feature, the result). Fix each line that does not before you call the cut done.'
+      : 'Each image is one frame exactly as exported. Look at them before judging layout, text or colour.',
+  );
 }
+
 
 // Music written as a score and played by real instrument recordings: instruments / compose / use
 async function musicCmd(rest: string[]) {

@@ -37,6 +37,8 @@ export const HELP = `node editor/dist/cli.mjs <slug> <command> [args] [--format 
                            \`music help\` shows the draft format. You cannot hear it; say so and let the user listen
   look [t | id | id+t ...] render frames exactly as exported and print their image paths (t = seconds or m:ss,
                            id = a scene's middle; up to 8; default: a spread of scenes). Respects --format/--lang
+  look lines               one frame in the middle of every narration line, labelled with the line (up to 24): check
+                           that each picture shows what its line says
   check                    problems to fix before export (long captions, missing voice-over, overlapping or silent sounds,
                            unreadable text on footage, missing media, too-short scenes), each with the command that fixes it
   inspect <url> [--mobile] a web page's headings and clickable elements, with selectors for record steps
