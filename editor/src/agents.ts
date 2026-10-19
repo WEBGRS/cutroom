@@ -31,7 +31,7 @@ export interface AgentDef {
 
 export const AGENTS: AgentDef[] = [
   { id: 'codex', en: 'ChatGPT (Codex CLI)', zh: 'ChatGPT（Codex CLI）', bin: 'codex', pkg: '@openai/codex', plansEn: 'ChatGPT Plus, Pro, Business, Edu or Enterprise', plansZh: 'ChatGPT Plus、Pro、Business、Edu 或 Enterprise', login: 'codex login' },
-  { id: 'gemini', en: 'Google Gemini (Gemini CLI)', zh: 'Google Gemini（Gemini CLI）', bin: 'gemini', pkg: '@google/gemini-cli', plansEn: 'Any Google account (free daily quota), Google AI Pro or Ultra', plansZh: '任意 Google 账号（每日免费额度）、Google AI Pro 或 Ultra', login: 'gemini' },
+  { id: 'gemini', en: 'Google Gemini (Gemini CLI)', zh: 'Google Gemini（Gemini CLI）', bin: 'gemini', pkg: '@google/gemini-cli', plansEn: 'A Gemini API key or a Gemini Code Assist licence. Personal Google accounts (free, AI Pro, Ultra) use Antigravity instead', plansZh: 'Gemini API key 或 Gemini Code Assist 许可；个人 Google 账号（免费、AI Pro、Ultra）请改用 Antigravity', login: 'gemini' },
   { id: 'antigravity', en: 'Google Antigravity (agy CLI)', zh: 'Google Antigravity（agy CLI）', bin: 'agy', url: 'https://antigravity.google', dirs: () => [path.join(os.homedir(), '.gemini', 'bin')], plansEn: 'The Google account you use in Antigravity; its Gemini, Claude and GPT-OSS models', plansZh: '你在 Antigravity 里登录的 Google 账号；可用它的 Gemini、Claude、GPT-OSS 模型', login: 'agy' },
 ];
 
@@ -345,6 +345,12 @@ const mcpLabel = (tool: unknown, a: unknown): string[] => {
 };
 
 // One JSONL line from the agent → editor events
+// Google ended Gemini CLI for personal accounts on 2026-06-18: say what to use instead
+export function geminiHint(message: string): string {
+  if (!/no longer supported/i.test(message)) return message;
+  return `${L('Google stopped serving Gemini CLI to personal Google accounts (free, AI Pro, Ultra) on 2026-06-18. Use Google Antigravity, or sign Gemini CLI in with a Gemini API key.', 'Google 自 2026-06-18 起不再给个人 Google 账号（免费、AI Pro、Ultra）提供 Gemini CLI。请改用 Google Antigravity，或让 Gemini CLI 用 Gemini API key 登录。')}\n${message}`;
+}
+
 export function parseAgentLine(id: AgentId, line: string, state: { textSince: boolean; wrote: boolean; seen?: Set<string>; full?: boolean }): AgentEvent[] {
   let m: any;
   try {
@@ -415,9 +421,9 @@ export function parseAgentLine(id: AgentId, line: string, state: { textSince: bo
       state.textSince = false;
       out.push({ type: 'tool', id: String(m.tool_id), args: mcpLabel(String(m.tool_name ?? '').replace(/^mcp_cutroom_/, ''), m.parameters) });
     } else if (m.type === 'tool_result') out.push({ type: 'tool_result', id: String(m.tool_id), ok: m.status === 'success', out: String(m.output ?? m.error?.message ?? '').slice(0, 600) });
-    else if (m.type === 'error' && m.severity === 'error') out.push({ type: 'error', message: String(m.message).slice(0, 400) });
+    else if (m.type === 'error' && m.severity === 'error') out.push({ type: 'error', message: geminiHint(String(m.message).slice(0, 400)) });
     else if (m.type === 'result') {
-      if (m.status === 'error') out.push({ type: 'error', message: String(m.error?.message ?? 'Gemini CLI failed').slice(0, 400) });
+      if (m.status === 'error') out.push({ type: 'error', message: geminiHint(String(m.error?.message ?? 'Gemini CLI failed').slice(0, 400)) });
       out.push({ type: 'done' });
     }
   }
@@ -448,7 +454,7 @@ export function startAgent(id: AgentId, slug: string, model: string | undefined,
     }
   });
   child.stderr!.on('data', (d) => (err += d));
-  child.on('close', (code) => onExit(code, err));
+  child.on('close', (code) => onExit(code, id === 'gemini' ? geminiHint(err) : err));
   child.stdin!.end(id === 'antigravity' ? `${JSON.stringify({ event: 'user', message: { role: 'user', content: prompt } })}\n` : prompt);
   const kill = () => killTree(child);
   return { child, kill };

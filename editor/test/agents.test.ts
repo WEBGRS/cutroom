@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { AGY_DENY, AGY_FULL_ALLOW, agentArgs, codexNative, findCli, parseAgentLine, parseAgyModels, parseCodexModels, type AgentEvent } from '../src/agents';
+import { AGY_DENY, AGY_FULL_ALLOW, agentArgs, codexNative, findCli, geminiHint, parseAgentLine, parseAgyModels, parseCodexModels, type AgentEvent } from '../src/agents';
 import { lookDir } from '../src/look';
 import { runFullTool } from '../src/fulltools';
 import { editorOnly, fullStep, shellCommands, systemPrompt, toolLabel } from '../src/chat';
@@ -335,4 +335,13 @@ test('Codex: the npm shim resolves to its bundled codex.exe, with the wrapper en
   assert.equal(l.env?.CODEX_MANAGED_BY_NPM, '1');
   // Any other npm script still runs under node
   assert.equal(codexNative(path.join(dir, 'node_modules', 'other', 'bin', 'cli.js')), null);
+});
+
+test('Gemini CLI refused for a personal Google account says what to use instead', () => {
+  const ended = 'This client is no longer supported for Gemini Code Assist for individuals.';
+  const [e] = parseAgentLine('gemini', JSON.stringify({ type: 'result', status: 'error', error: { message: ended } }), { textSince: false, wrote: false });
+  assert.equal(e.type, 'error');
+  assert.match((e as { message: string }).message, /Antigravity[\s\S]*no longer supported/);
+  // Any other error passes through unchanged
+  assert.equal(geminiHint('Quota exceeded'), 'Quota exceeded');
 });
